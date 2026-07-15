@@ -1,3 +1,6 @@
+# Claude Code project config (local only, not for public repo)
+.claude/
+
 # Dependencies
 node_modules/
 
