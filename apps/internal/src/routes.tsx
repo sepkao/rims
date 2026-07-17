@@ -8,8 +8,8 @@ import UsersManagement from './pages/owner/UserManagement'
 import IngredientSettings from './pages/owner/IngredientSettings'
 import StockMovementHistory from './pages/owner/StockMovementHistory'
 import App from './App.tsx'
-
-function RequireRole({ role: requiredRole, children }: { role: string; children: React.ReactNode }) {
+import type { Role } from './contexts/AuthContext.tsx'
+function RequireRole({ role: requiredRole, children }: { role: Role; children: React.ReactNode }) {
   const { role, loading } = useAuth()
 
   if (loading) return <p>Loading...</p>
@@ -27,7 +27,7 @@ export function AppRoutes() {
         <Route element={<App/>}>
           <Route
           path="/owner/dashboard"
-          element={<RequireRole role="owner"><Dashboard /></RequireRole>}
+          element={<RequireRole role = "owner" ><Dashboard /></RequireRole>}
         />
         <Route path="/owner/menu" 
         element={<RequireRole role="owner"><Menu /></RequireRole>} />

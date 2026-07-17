@@ -1,6 +1,6 @@
 import { createContext, useState, useEffect, useContext } from "react"
 import type { ReactNode } from "react"
-type Role = "owner" | "staff" | "cashier"
+export type Role = "owner" | "staff" | "cashier"
 
 type AuthState = {
     role :Role | null;
@@ -20,7 +20,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) =>{
 
         useEffect(() => {
             const timer = setTimeout(() => {
-                setRole("owner");
+                setRole("staff");
                 setLoading(false);
             }, 300);
             return () => clearTimeout(timer);

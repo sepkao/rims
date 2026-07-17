@@ -1,38 +1,61 @@
 import { Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, UtensilsCrossed, Users, History, Settings} from 'lucide-react'
-
-const mainNavItems = [
+import { LayoutDashboard, UtensilsCrossed, Users, History, Settings, BlocksIcon, ListCheckIcon, Table2Icon} from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext.tsx'
+import type { Role } from '../contexts/AuthContext.tsx'
+const ownerNavItems = [
   { to: '/owner/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/owner/menu', label: 'Menu', icon: UtensilsCrossed },
   { to: '/owner/users', label: 'User', icon: Users },
-  { to: '/owner/history', label: 'History', icon: History },
+  { to: '/owner/history', label: 'History', icon: History, section: 'bottom' },
 ]
+    
+const staffNavItems = [
+    { to: '/staff/stock', label: 'Stock', icon: BlocksIcon },
+    {to: '/staff/orders', label: 'orders', icon: ListCheckIcon}
+]
+
+const cashierNavItems = [
+    { to: '/cashier/tables', label: 'table', icon: Table2Icon }
+]
+
+const NavItemsByRole: Record<Role, typeof ownerNavItems> = {
+    owner: ownerNavItems,
+    staff: staffNavItems,
+    cashier: cashierNavItems
+}
 
 
 export default function Sidebar() {
+    const { role } = useAuth()
     const location = useLocation()
 
+    const Items = role ? NavItemsByRole[role] : []
+    const mainItems = Items.filter(item => item.section !== 'bottom')
+    const bottomItems = Items.filter(item => item.section === 'bottom')
+    
+    
     return (
         <aside className="sidebar">
                 <div className= "sidebar-header">
                     <span className="sidebar-title">SHABU STOCK</span>
                 </div>
             
-            <nav  className="sidebar-nav ">
-                    {mainNavItems.map(({to, label, icon: Icon}) => (
-                        <Link key={to} to={to} className={location.pathname === to ? 'nav-item active' : 'nav-item'}>
-                            <Icon size={18} />
-                            <span className="nav-label">{label}</span>
-                        </Link>
-                    ))}
-                
-            </nav>
-            
-            <nav className="sidebar-nav sidebar-bottom">
-                    <Link to= "/owner/settings" className={location.pathname === '/owner/settings' ? 'nav-item active' : 'nav-item'}>
-                        <Settings size={18} />
-                        <span className="nav-label">Settings</span>
+            <nav className="sidebar-nav">
+                {mainItems.map(({ to, label, icon: Icon }) => ( 
+                    <Link key ={to} to={to} className={location.pathname === to ? 'active' : ''}>
+                        <Icon size={18}/>
+                        <span className="nav-label">{label}</span>
                     </Link>
+                ))}
+            </nav>
+
+            <nav className="sidebar-nav sidebar-bottom">
+                {bottomItems.map(({ to, label, icon: Icon }) => ( 
+                    <Link key ={to} to={to} className={location.pathname === to ? 'active' : ''}>
+                        <Icon size={18}/>
+                        <span className="nav-label">{label}</span>
+                    </Link>
+                ))}
             </nav>
             
         </aside>
