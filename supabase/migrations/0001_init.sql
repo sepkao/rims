@@ -15,7 +15,8 @@ CREATE TABLE users (
     password_hash   TEXT NOT NULL,
     role            TEXT NOT NULL CHECK (role IN ('owner', 'staff', 'cashier')),
     created_by      BIGINT REFERENCES users(id),  -- NULL for the first Owner account
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    is_active       BOOLEAN NOT NULL DEFAULT true  -- soft-disable: revoke login without deleting the row (FK history would block a hard delete anyway)
 );
 
 -- ---------------------------------------------------------------------
@@ -89,30 +90,48 @@ CREATE INDEX idx_stock_lots_source ON stock_lots (source_lot_id);
 CREATE TABLE stock_movements (
     id              BIGSERIAL PRIMARY KEY,
     stock_lot_id    BIGINT NOT NULL REFERENCES stock_lots(id),
-    movement_type   TEXT NOT NULL CHECK (movement_type IN ('intake', 'adjustment', 'deduction')),
-    quantity        DECIMAL(12,3) NOT NULL,  -- positive=intake, negative=deduction/adjustment-out
+    movement_type   TEXT NOT NULL CHECK (movement_type IN ('intake', 'adjustment', 'deduction', 'return')),
+    quantity        DECIMAL(12,3) NOT NULL,  -- positive=intake/return, negative=deduction/adjustment-out
     actor_id        BIGINT REFERENCES users(id),  -- NULL = system (e.g. auto-confirm deduction)
     order_id        BIGINT,  -- FK added after orders table exists (see bottom)
+    order_item_id   BIGINT,  -- FK added after order_items table exists (see bottom); which dish this deduction/return belongs to
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_stock_movements_lot ON stock_movements (stock_lot_id);
+CREATE INDEX idx_stock_movements_order_item ON stock_movements (order_item_id);  -- return_order_item_to_stock() filters by this
+CREATE INDEX idx_stock_movements_deduction_created ON stock_movements (created_at) WHERE movement_type = 'deduction';  -- COGS range-scan in get_weekly_cost_profit_report(), also feeds ingredient_usage_by_weekday
 
 -- ---------------------------------------------------------------------
 -- VIEW: average usage per ingredient per day-of-week, feeds UC-N3's
 -- formula (แนะนำดึงเพิ่ม = ค่าเฉลี่ยยอดใช้ของวันนี้ในสัปดาห์ × buffer − ของเหลือ)
 -- and its cold-start check (days_sampled too low -> "ข้อมูลไม่พอ").
+--
+-- Sums per calendar day FIRST, then averages those daily totals per weekday —
+-- deliberately not a flat AVG(-quantity) over individual movement rows, since
+-- deduct_stock_fifo can now split one order_item's deduction across several
+-- lots (several rows, same day). Averaging rows directly would dilute the
+-- true daily total every time a deduction happens to span multiple lots,
+-- underestimating usage and skewing UC-N3's recommendation downward.
 -- ---------------------------------------------------------------------
 CREATE VIEW ingredient_usage_by_weekday AS
+WITH daily_totals AS (
+    SELECT
+        sl.ingredient_id,
+        sm.created_at::date AS usage_date,
+        SUM(-sm.quantity) AS total_used  -- deduction rows store quantity negative
+    FROM stock_movements sm
+    JOIN stock_lots sl ON sl.id = sm.stock_lot_id
+    WHERE sm.movement_type = 'deduction'
+    GROUP BY sl.ingredient_id, sm.created_at::date
+)
 SELECT
-    sl.ingredient_id,
-    EXTRACT(DOW FROM sm.created_at)::INT AS day_of_week,  -- 0=Sunday .. 6=Saturday
-    AVG(-sm.quantity) AS avg_quantity_used,               -- deduction rows store quantity negative
-    COUNT(DISTINCT sm.created_at::date) AS days_sampled
-FROM stock_movements sm
-JOIN stock_lots sl ON sl.id = sm.stock_lot_id
-WHERE sm.movement_type = 'deduction'
-GROUP BY sl.ingredient_id, EXTRACT(DOW FROM sm.created_at);
+    ingredient_id,
+    EXTRACT(DOW FROM usage_date)::INT AS day_of_week,  -- 0=Sunday .. 6=Saturday
+    AVG(total_used) AS avg_quantity_used,
+    COUNT(*) AS days_sampled
+FROM daily_totals
+GROUP BY ingredient_id, EXTRACT(DOW FROM usage_date);
 
 -- ---------------------------------------------------------------------
 -- 7. waste_records — AI Task 2 proposes, Owner confirms/rejects
@@ -129,6 +148,9 @@ CREATE TABLE waste_records (
     reviewed_by         BIGINT REFERENCES users(id),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX idx_waste_records_pending ON waste_records (created_at) WHERE status = 'pending_review';  -- Owner's waste review queue (US-12)
+CREATE INDEX idx_waste_records_confirmed_created ON waste_records (created_at) WHERE status = 'confirmed';  -- waste_cost range-scan in get_weekly_cost_profit_report()
 
 -- ---------------------------------------------------------------------
 -- 8. menu_items
@@ -206,6 +228,8 @@ CREATE TABLE orders (
 );
 
 CREATE INDEX idx_orders_pending_confirm ON orders (confirm_at) WHERE status = 'pending';
+CREATE INDEX idx_orders_confirmed_created ON orders (confirmed_at) WHERE status = 'confirmed';  -- revenue range-scan in get_weekly_cost_profit_report()
+CREATE INDEX idx_orders_table_session ON orders (table_session_id);  -- customer order history per table (US-04), staff OrdersToServe
 
 ALTER TABLE stock_movements ADD CONSTRAINT fk_stock_movements_order
     FOREIGN KEY (order_id) REFERENCES orders(id);
@@ -214,11 +238,18 @@ ALTER TABLE stock_movements ADD CONSTRAINT fk_stock_movements_order
 -- 13. order_items
 -- ---------------------------------------------------------------------
 CREATE TABLE order_items (
-    id              BIGSERIAL PRIMARY KEY,
-    order_id        BIGINT NOT NULL REFERENCES orders(id),
-    menu_item_id    BIGINT NOT NULL REFERENCES menu_items(id),
-    quantity        INT NOT NULL DEFAULT 1 CHECK (quantity > 0)
+    id                  BIGSERIAL PRIMARY KEY,
+    order_id            BIGINT NOT NULL REFERENCES orders(id),
+    menu_item_id        BIGINT NOT NULL REFERENCES menu_items(id),
+    quantity            INT NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    quantity_returned   INT NOT NULL DEFAULT 0 CHECK (quantity_returned <= quantity)
+    -- return status is derived, not stored: 0 = none, 0<x<quantity = partial, x=quantity = fully returned
 );
+
+CREATE INDEX idx_order_items_order ON order_items (order_id);  -- join key: revenue calc, order display, return flow
+
+ALTER TABLE stock_movements ADD CONSTRAINT fk_stock_movements_order_item
+    FOREIGN KEY (order_item_id) REFERENCES order_items(id);
 
 -- ---------------------------------------------------------------------
 -- 14. order_item_customizations — UC-N9, cut-only (boolean per ingredient)
@@ -246,46 +277,79 @@ CREATE TABLE system_logs (
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
--- FIFO atomic deduction for one ingredient's plate requirement.
--- Picks the oldest (by expiry_date) non-not-fresh lot in ตู้พักละลาย with
--- enough quantity_remaining, and atomically decrements it.
--- Returns TRUE on success, FALSE if nothing had enough stock (caller cancels order).
+-- True FIFO atomic deduction for one ingredient's plate requirement.
+-- Walks eligible ตู้พักละลาย lots oldest-expiry-first and drains each one
+-- in turn (splitting across as many lots as needed) rather than requiring
+-- a single lot to cover the whole amount — so an old lot with leftover
+-- plates always gets used up before a newer lot is touched at all.
+-- Locks + sums every eligible lot first to confirm the combined total is
+-- enough BEFORE deducting anything, so a failure never leaves a partial
+-- deduction behind (atomic: all lots update, or none do).
+-- Returns TRUE on success, FALSE if the combined total wasn't enough
+-- (caller cancels the order — first-confirm-wins loser).
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION deduct_stock_fifo(
     p_ingredient_id BIGINT,
     p_plates_needed INT,
-    p_order_id BIGINT
+    p_order_id BIGINT,
+    p_order_item_id BIGINT
 ) RETURNS BOOLEAN AS $$
 DECLARE
-    v_lot_id BIGINT;
-    v_rows_affected INT;
+    v_lot RECORD;
+    v_remaining INT;
+    v_take INT;
+    v_total_available DECIMAL := 0;
 BEGIN
-    SELECT id INTO v_lot_id
-    FROM stock_lots
-    WHERE ingredient_id = p_ingredient_id
-      AND storage_location_id = (SELECT id FROM storage_locations WHERE name = 'ตู้พักละลาย')
-      AND is_not_fresh = false
-      AND quantity_remaining >= p_plates_needed
-    ORDER BY expiry_date ASC
-    LIMIT 1
-    FOR UPDATE SKIP LOCKED;
+    -- Pass 1: lock every eligible lot (oldest first) and sum what's lockable.
+    -- SKIP LOCKED means a lot another transaction is mid-update on is treated
+    -- as unavailable for this attempt — safe: worst case this order cancels
+    -- when stock was technically enough but momentarily contended, rather
+    -- than risk deducting inconsistently.
+    FOR v_lot IN
+        SELECT id, quantity_remaining
+        FROM stock_lots
+        WHERE ingredient_id = p_ingredient_id
+          AND storage_location_id = (SELECT id FROM storage_locations WHERE name = 'ตู้พักละลาย')
+          AND is_not_fresh = false
+          AND quantity_remaining > 0
+        ORDER BY expiry_date ASC
+        FOR UPDATE SKIP LOCKED
+    LOOP
+        v_total_available := v_total_available + v_lot.quantity_remaining;
+    END LOOP;
 
-    IF v_lot_id IS NULL THEN
-        RETURN FALSE;  -- not enough stock anywhere — order should be cancelled (first-confirm-wins loser)
+    IF v_total_available < p_plates_needed THEN
+        RETURN FALSE;  -- not enough stock anywhere, even combined across lots
     END IF;
 
-    UPDATE stock_lots
-    SET quantity_remaining = quantity_remaining - p_plates_needed
-    WHERE id = v_lot_id AND quantity_remaining >= p_plates_needed;
+    -- Pass 2: same locked set (locks already held from pass 1, so this just
+    -- re-walks them in the same order) — drain oldest lots first until the
+    -- full amount is covered.
+    v_remaining := p_plates_needed;
 
-    GET DIAGNOSTICS v_rows_affected = ROW_COUNT;
+    FOR v_lot IN
+        SELECT id, quantity_remaining
+        FROM stock_lots
+        WHERE ingredient_id = p_ingredient_id
+          AND storage_location_id = (SELECT id FROM storage_locations WHERE name = 'ตู้พักละลาย')
+          AND is_not_fresh = false
+          AND quantity_remaining > 0
+        ORDER BY expiry_date ASC
+        FOR UPDATE SKIP LOCKED
+    LOOP
+        EXIT WHEN v_remaining <= 0;
 
-    IF v_rows_affected = 0 THEN
-        RETURN FALSE;  -- lost the race between SELECT and UPDATE
-    END IF;
+        v_take := LEAST(v_remaining, v_lot.quantity_remaining::INT);
 
-    INSERT INTO stock_movements (stock_lot_id, movement_type, quantity, actor_id, order_id)
-    VALUES (v_lot_id, 'deduction', -p_plates_needed, NULL, p_order_id);
+        UPDATE stock_lots
+        SET quantity_remaining = quantity_remaining - v_take
+        WHERE id = v_lot.id;
+
+        INSERT INTO stock_movements (stock_lot_id, movement_type, quantity, actor_id, order_id, order_item_id)
+        VALUES (v_lot.id, 'deduction', -v_take, NULL, p_order_id, p_order_item_id);
+
+        v_remaining := v_remaining - v_take;
+    END LOOP;
 
     RETURN TRUE;
 END;
@@ -305,7 +369,7 @@ DECLARE
     v_ok BOOLEAN;
 BEGIN
     FOR v_item IN
-        SELECT mii.ingredient_id, mii.quantity_required_plates * oi.quantity AS plates_needed
+        SELECT oi.id AS order_item_id, mii.ingredient_id, mii.quantity_required_plates * oi.quantity AS plates_needed
         FROM order_items oi
         JOIN menu_item_ingredients mii ON mii.menu_item_id = oi.menu_item_id
         WHERE oi.order_id = p_order_id
@@ -313,7 +377,7 @@ BEGIN
               SELECT oic.ingredient_id FROM order_item_customizations oic WHERE oic.order_item_id = oi.id
           )
     LOOP
-        v_ok := deduct_stock_fifo(v_item.ingredient_id, v_item.plates_needed, p_order_id);
+        v_ok := deduct_stock_fifo(v_item.ingredient_id, v_item.plates_needed, p_order_id, v_item.order_item_id);
         IF NOT v_ok THEN
             UPDATE orders SET status = 'cancelled', cancelled_at = now() WHERE id = p_order_id;
             RETURN FALSE;
@@ -322,6 +386,99 @@ BEGIN
 
     UPDATE orders SET status = 'confirmed', confirmed_at = now() WHERE id = p_order_id;
     RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ---------------------------------------------------------------------
+-- UC-N12: Return an unserved dish's stock back to the exact lot(s) it was
+-- deducted from (staff-facing, no Owner approval needed — confirmed scope).
+-- Only allowed while orders.served_at IS NULL. Supports partial returns,
+-- including multiple return calls over time (quantity_returned tracks
+-- cumulative amount; no separate status column — status is derived:
+-- 0=none, 0<x<quantity=partial, x=quantity=full).
+-- Since deduct_stock_fifo now splits across lots (oldest first), one
+-- (order_item, ingredient) can have several deduction rows. This function
+-- nets each lot's deductions against any of its own prior returns (so
+-- repeated partial returns never over-credit a lot), then walks the
+-- remaining-returnable lots oldest-first — mirroring the exact order they
+-- were originally deducted in. Each credit lands back on its original lot,
+-- so expiry_date is untouched (freshness preserved for free) and the stock
+-- re-enters normal FIFO ordering automatically for future deductions.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION return_order_item_to_stock(
+    p_order_item_id BIGINT,
+    p_quantity INT,
+    p_actor_id BIGINT
+) RETURNS void AS $$
+DECLARE
+    v_order_id BIGINT;
+    v_served_at TIMESTAMPTZ;
+    v_quantity INT;
+    v_quantity_returned INT;
+    v_ingredient RECORD;
+    v_lot RECORD;
+    v_return_plates INT;
+    v_take INT;
+BEGIN
+    SELECT oi.order_id, oi.quantity, oi.quantity_returned, o.served_at
+    INTO v_order_id, v_quantity, v_quantity_returned, v_served_at
+    FROM order_items oi
+    JOIN orders o ON o.id = oi.order_id
+    WHERE oi.id = p_order_item_id
+    FOR UPDATE OF oi;
+
+    IF v_served_at IS NOT NULL THEN
+        RAISE EXCEPTION 'Cannot return: order already served';
+    END IF;
+
+    IF v_quantity_returned + p_quantity > v_quantity THEN
+        RAISE EXCEPTION 'Cannot return more than remaining quantity (ordered %, already returned %)', v_quantity, v_quantity_returned;
+    END IF;
+
+    FOR v_ingredient IN
+        SELECT mii.ingredient_id, mii.quantity_required_plates
+        FROM menu_item_ingredients mii
+        JOIN order_items oi ON oi.menu_item_id = mii.menu_item_id
+        WHERE oi.id = p_order_item_id
+          AND mii.ingredient_id NOT IN (
+              SELECT oic.ingredient_id FROM order_item_customizations oic WHERE oic.order_item_id = p_order_item_id
+          )
+    LOOP
+        v_return_plates := v_ingredient.quantity_required_plates * p_quantity;
+
+        -- Net deductions minus any returns already made against each lot,
+        -- oldest-expiry lot first (same order the original deduction used).
+        FOR v_lot IN
+            SELECT sl.id AS stock_lot_id,
+                   SUM(CASE WHEN sm.movement_type = 'deduction' THEN -sm.quantity ELSE 0 END)
+                     - SUM(CASE WHEN sm.movement_type = 'return' THEN sm.quantity ELSE 0 END) AS net_returnable
+            FROM stock_movements sm
+            JOIN stock_lots sl ON sl.id = sm.stock_lot_id
+            WHERE sm.order_item_id = p_order_item_id
+              AND sl.ingredient_id = v_ingredient.ingredient_id
+            GROUP BY sl.id, sl.expiry_date
+            HAVING SUM(CASE WHEN sm.movement_type = 'deduction' THEN -sm.quantity ELSE 0 END)
+                     - SUM(CASE WHEN sm.movement_type = 'return' THEN sm.quantity ELSE 0 END) > 0
+            ORDER BY sl.expiry_date ASC
+        LOOP
+            EXIT WHEN v_return_plates <= 0;
+
+            v_take := LEAST(v_return_plates, v_lot.net_returnable::INT);
+
+            UPDATE stock_lots SET quantity_remaining = quantity_remaining + v_take WHERE id = v_lot.stock_lot_id;
+
+            INSERT INTO stock_movements (stock_lot_id, movement_type, quantity, actor_id, order_id, order_item_id)
+            VALUES (v_lot.stock_lot_id, 'return', v_take, p_actor_id, v_order_id, p_order_item_id);
+
+            v_return_plates := v_return_plates - v_take;
+        END LOOP;
+
+        IF v_return_plates > 0 THEN
+            RAISE EXCEPTION 'Could not fully return ingredient % — original deduction records insufficient', v_ingredient.ingredient_id;
+        END IF;
+    END LOOP;
+
+    UPDATE order_items SET quantity_returned = quantity_returned + p_quantity WHERE id = p_order_item_id;
 END;
 $$ LANGUAGE plpgsql;
 

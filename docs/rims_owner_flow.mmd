@@ -1,0 +1,41 @@
+flowchart TD
+    Start(["Owner เปิดแอป (login)"]) --> Home["Dashboard: กำไร/ขาดทุนรายสัปดาห์ (US-13)"]
+
+    %% ตั้งค่าเริ่มต้น / นานๆ ทำที
+    Home --> Setup{"ต้องตั้งค่า/แก้ระบบไหม?"}
+    Setup -->|จัดการเมนู| Menu["CRUD เมนู + ตั้ง removable ต่อวัตถุดิบ (US-10)"]
+    Setup -->|ตั้งเกณฑ์วัตถุดิบ| Threshold["ตั้ง 5 ค่าต่อวัตถุดิบ: reorder/thaw-prep/buffer/pack-size/expiry-warning (US-11)"]
+    Setup -->|ตั้งค่า QR| QR["ตั้ง qr_duration_minutes (ใช้ทุกโต๊ะ)"]
+    Setup -->|จัดการ user| UserMgmt["สร้าง account พนักงาน/แคชเชียร์ (F9 — ไม่มี self-register)"]
+    Menu --> Home
+    Threshold --> Home
+    QR --> Home
+    UserMgmt --> Home
+
+    %% งานประจำวัน — รับแจ้งเตือน
+    Home --> Notif{"มีแจ้งเตือนเข้ามาไหม?"}
+    Notif -->|"UC-N7: สต็อกต่ำกว่าเกณฑ์"| Reorder["ดูคำแนะนำสั่งซื้อ (UC-N8) แล้วสั่งซื้อจริงเอง"]
+    Notif -->|"ของเสียรอตรวจ"| WasteQueue["เปิดรายการ waste pending_review (US-12)"]
+    Notif -->|ไม่มี| Weekly
+
+    Reorder --> Home
+
+    WasteQueue --> WasteCheck{"ตรวจแล้วเป็นของเสียจริงไหม?"}
+    WasteCheck -->|ใช่| WasteConfirm["Confirm → ตัดสต็อกจริง + บันทึกต้นทุนของเสีย"]
+    WasteCheck -->|ไม่ใช่ ยังใช้ได้| WasteReject["Reject → ของใช้งานต่อได้ปกติ ไม่แตะสต็อก"]
+    WasteConfirm --> Home
+    WasteReject --> Home
+
+    %% รอบสัปดาห์ — วิเคราะห์ภาพรวม
+    Home --> Weekly["ดูรายงาน: รายได้ / ต้นทุน / ของเสีย / กำไร เทียบสัปดาห์ก่อน (US-13)"]
+    Weekly --> Decide{"ตัวเลขบอกอะไร?"}
+    Decide -->|"กำไรลด / ของเสียสูง"| Investigate["ดู stock movement history + คลังไม่สด หาสาเหตุ"]
+    Decide -->|"วัตถุดิบขายดีเทรนด์ขึ้น"| Reorder
+    Decide -->|"ปกติดี"| End(["จบรอบตรวจสอบวันนี้"])
+    Investigate --> AdjustPlan{"ต้องปรับอะไรไหม?"}
+    AdjustPlan -->|"ปรับเกณฑ์แจ้งเตือน"| Threshold
+    AdjustPlan -->|"ปรับเมนู/ราคา"| Menu
+    AdjustPlan -->|"ไม่ต้องปรับ"| End
+
+    %% audit / ตรวจสอบย้อนหลัง (ทำได้ทุกเมื่อ ไม่ผูกกับ flow หลัก)
+    Home -.->|"ตรวจสอบย้อนหลังได้ทุกเมื่อ"| Audit["System logs / Stock movement history"]

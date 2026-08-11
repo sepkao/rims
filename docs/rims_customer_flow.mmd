@@ -1,0 +1,38 @@
+flowchart TD
+    Start(["ลูกค้าสแกน QR ที่โต๊ะ"]) --> CheckQR{"QR ยังไม่หมดเวลาไหม?"}
+    CheckQR -->|หมดเวลาแล้ว| AskStaff(["ต้องเรียกแคชเชียร์ขอ QR ใหม่ (check-in)"])
+    CheckQR -->|ยังไม่หมดเวลา| Menu["หน้าเมนู: ค้นด้วย autocomplete + ดูรายละเอียดวัตถุดิบ (US-01)"]
+
+    Menu --> Select["เลือกเมนู + จำนวนจาน"]
+    Select --> StockCheck{"สต็อกพอไหม (available servings, UC-N6)?"}
+    StockCheck -->|ไม่พอ| Denied["ปฏิเสธทันที ไม่มี fallback ดึงจาก Freezer (US-02)"]
+    Denied --> Menu
+
+    StockCheck -->|พอ| WantCustom{"ต้องการปรับแต่งไหม?"}
+    WantCustom -->|ไม่| Confirm1["กดสั่ง → popup ยืนยันชั้น 2 (US-03)"]
+    WantCustom -->|ต้องการ| Custom["ตัดวัตถุดิบที่ removable ออก เท่านั้น (UC-N9, ตัดทั้งชิ้น ไม่ปรับปริมาณ)"]
+    Custom --> Confirm1
+
+    Confirm1 --> ConfirmDecide{"ลูกค้ายืนยันในป็อปอัพไหม?"}
+    ConfirmDecide -->|ยกเลิก| Menu
+    ConfirmDecide -->|ยืนยัน| Grace["Grace period 60 วิ นับถอยหลัง (ยกเลิกได้, US-03)"]
+
+    Grace --> GraceDecide{"ลูกค้ากดยกเลิกทันภายใน 60 วิไหม?"}
+    GraceDecide -->|ยกเลิกทัน| Cancelled(["ออเดอร์ถูกยกเลิก ไม่ตัดสต็อก"])
+    Cancelled --> Menu
+
+    GraceDecide -->|ครบเวลา ไม่ยกเลิก| AutoConfirm["System auto-confirm + ตัดสต็อก FIFO ตามสูตรที่ปรับแล้ว (UC-N4/N5/N9)"]
+    AutoConfirm --> RaceCheck{"ตัดสต็อกจริงสำเร็จไหม (atomic, กันชนกับโต๊ะอื่น)?"}
+    RaceCheck -->|ไม่สำเร็จ ของหมดพอดี| LostRace["แจ้งเตือน: รายการนี้หมดแล้ว เพราะโต๊ะอื่นยืนยันก่อน"]
+    LostRace --> Menu
+
+    RaceCheck -->|สำเร็จ| Confirmed["ออเดอร์เข้าคิวครัว เพิ่มในหน้าประวัติออเดอร์ของโต๊ะนี้ (US-04)"]
+    Confirmed --> History["ดูสถานะออเดอร์ในหน้าประวัติ (สั่งเพิ่มได้ไม่จำกัดรอบในเซสชันเดียว)"]
+
+    History --> MoreOrder{"อยากสั่งเพิ่มไหม?"}
+    MoreOrder -->|ใช่| Menu
+    MoreOrder -->|พอแล้ว| CallCashier(["เรียกแคชเชียร์ปิดโต๊ะ (check-out)"])
+
+    %% Banner แสดงทุกหน้า ไม่ผูกกับ flow หลัก
+    Menu -.->|"แสดงทุกหน้า"| Banner["Banner แจ้งเตือน QR ใกล้หมดเวลา/หมดเวลาแล้ว (US-05)"]
+    History -.->|"แสดงทุกหน้า"| Banner

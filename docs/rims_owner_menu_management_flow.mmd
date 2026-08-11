@@ -1,0 +1,22 @@
+flowchart TD
+    Start(["Owner เปิดหน้า Menu Management"]) --> List["แสดงรายการเมนูทั้งหมด (name + price)"]
+    List --> Action{"เลือกทำอะไร?"}
+
+    Action -->|เพิ่มเมนูใหม่| Create["กรอก name + price + description"]
+    Create --> BOM1["เพิ่มสูตร (BOM): เลือกวัตถุดิบ + quantity_required_plates ต่อวัตถุดิบ"]
+    BOM1 --> Removable1["ตั้งค่า removable ต่อวัตถุดิบ (true/false) — เปิดใช้ UC-N9"]
+    Removable1 --> Save1(["บันทึก → เมนูใหม่พร้อมขายทันที"])
+
+    Action -->|แก้ไขเมนูเดิม| Edit["เลือกเมนูที่จะแก้"]
+    Edit --> EditWhat{"แก้อะไร?"}
+    EditWhat -->|"ชื่อ / คำอธิบาย"| EditNameDesc["แก้ name / description"]
+    EditWhat -->|ราคา| EditPrice["แก้ price — มีผลกับออเดอร์ใหม่ทันที ไม่กระทบออเดอร์เก่า"]
+    EditWhat -->|"สูตร (BOM)"| EditBOM["เพิ่ม/ลบวัตถุดิบ, แก้จำนวน, แก้ removable"]
+    EditNameDesc --> Save2(["บันทึก"])
+    EditPrice --> Save2
+    EditBOM --> Save2
+
+    Action -->|ลบเมนู| DeleteCheck{"เคยถูกสั่งมาก่อนไหม?"}
+    DeleteCheck -->|เคยถูกสั่งแล้ว| DeleteBlocked(["ลบไม่ได้ FK กันไว้ ต้องเก็บไว้เพื่อรักษาประวัติออเดอร์เก่า"])
+    DeleteCheck -->|ไม่เคยถูกสั่งเลย| DeleteBOM["ลบ BOM (menu_item_ingredients) ก่อน"]
+    DeleteBOM --> DeleteOK(["ลบเมนูออกจากระบบสำเร็จ"])

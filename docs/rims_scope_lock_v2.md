@@ -123,6 +123,8 @@ WHERE lot_id = X AND quantity_remaining >= 1;
 - ฝ่ายแพ้ได้รับแจ้งเตือนทันทีว่า "รายการนี้หมดแล้ว เนื่องจากลูกค้าอีกโต๊ะยืนยันก่อน"
 - สรุป 2 ชั้นป้องกัน: (1) delay การตัดไปจนถึงจุด confirm ลดโอกาสชนกัน (2) atomic conditional update รับประกันไม่มีทางติดลบ
 
+> **แก้ไข 2026-07-17 (True FIFO splitting, ล็อกระหว่างออกแบบ UC-N12):** เดิม `deduct_stock_fifo` หา**ล็อตเดียว**ที่มีของพอทั้งหมด (`quantity_remaining >= p_plates_needed LIMIT 1`) — ถ้าล็อตเก่าสุดมีของเหลือไม่พอคนเดียว จะ**ข้ามไปล็อตถัดไปทั้งยวง ไม่แตะล็อตเก่าเลย** ทำให้ล็อตเก่าเศษเล็กน้อยตกค้างได้ (เสี่ยงหมดอายุก่อนถูกใช้) — **เปลี่ยนเป็นตัดข้ามล็อตได้จริง**: ไล่ล็อตตาม `expiry_date ASC` ทีละล็อต ดึงเท่าที่มีจากล็อตเก่าก่อนจนหมด แล้วดึงส่วนที่ขาดจากล็อตถัดไปต่อ (เกิด `stock_movements` หลายแถวต่อ 1 การตัด 1 ครั้งได้) — ยังคง**atomic**เหมือนเดิม (เช็กยอดรวมทุกล็อตพอก่อน ถึงจะเริ่มตัดจริง ไม่มีทางตัดค้างครึ่งๆ กลางๆ) — กฎ "ไม่มี partial fulfillment" ระดับ**ออเดอร์**ยังเหมือนเดิมทุกประการ (วัตถุดิบไหนรวมทุกล็อตแล้วยังไม่พอ → ยกเลิกทั้งออเดอร์) เปลี่ยนแค่ระดับ**ล็อต**ให้ไม่ทิ้งเศษเก่าไว้เฉยๆ อีกต่อไป
+
 ## 8. UC-N6: คำนวณจำนวนจานที่สั่งได้ (Available Servings)
 
 - **นับสต๊อกเฉพาะที่อยู่ในตู้พักละลาย (ready-to-serve) เท่านั้น** ไม่รวม Freezer
@@ -171,6 +173,8 @@ WHERE lot_id = X AND quantity_remaining >= 1;
 - **แคชเชียร์ (Cashier)** — actor ใหม่ที่เพิ่มเข้ามาแทนที่หน้าที่ QR/โต๊ะที่เดิมเคยอยู่กับ Staff: เปิดโต๊ะ (ขอ QR ใหม่), ปิดโต๊ะ (check-out), ติดตามสถานะโต๊ะ
 - **Customer** — สแกน QR, สั่งอาหาร (UC-N4), ไม่ต้อง login
 - **ระบบ/Timer (System)** — auto-confirm ออเดอร์หลัง grace period 1 นาทีแล้วตัดสต็อก FIFO, auto ตัดวัตถุดิบเข้าสถานะไม่สด, auto แจ้งเตือนสต็อกต่ำ, พิมพ์ QR, ประมวลผล AI features
+
+**การปิดใช้งาน account (เพิ่ม 2026-08-02):** `users.is_active` (default `true`) — ใช้ตอนพนักงาน/แคชเชียร์ลาออกหรือถูกเพิกถอนสิทธิ์ **แทนการลบ row จริง** เพราะ `stock_lots.received_by`, `stock_movements.actor_id`, `waste_records.reviewed_by`, `table_sessions.opened_by/ended_by`, `users.created_by` ล้วนมี FK อ้างกลับมาที่ `users(id)` — ลบ user ที่เคยมีกิจกรรมในระบบจะชน constraint ทันที ตั้ง `is_active = false` แทนเพื่อบล็อก login โดยไม่ทำลายประวัติ — login ต้องเช็ค `is_active = true` เพิ่มจากเดิม (เช็ค email/password อย่างเดียว)
 
 ## 12. AI Features — ตัดออกทั้งหมด 2026-07-15 (รอบ 3, ประหยัดค่า API 100%)
 
@@ -241,9 +245,27 @@ WHERE lot_id = X AND quantity_remaining >= 1;
 
 **Internal app** (login แบบ session, UI เปลี่ยนตาม role)
 1. หน้า Login
-2. **พนักงาน**: รับล็อตใหม่ (UC-N1), ย้ายเนื้อเข้าตู้พักละลาย (UC-N2), คำแนะนำเตรียมสต๊อกวันนี้ (UC-N3), จำนวนจานที่ทำได้ real-time (UC-N6), รายการออเดอร์ที่ต้องเสิร์ฟ (พร้อมปุ่ม mark served — ดู `orders.served_at` ข้อ 4 changelog), แจ้งเตือน UC-N10/UC-N11
+2. **พนักงาน**: รับล็อตใหม่ (UC-N1), ย้ายเนื้อเข้าตู้พักละลาย (UC-N2), คำแนะนำเตรียมสต๊อกวันนี้ (UC-N3), จำนวนจานที่ทำได้ real-time (UC-N6), รายการออเดอร์ที่ต้องเสิร์ฟ (พร้อมปุ่ม mark served — ดู `orders.served_at` ข้อ 4 changelog, **และปุ่มคืนสต็อกต่อรายการ — UC-N12**), แจ้งเตือน UC-N10/UC-N11
 3. **แคชเชียร์**: รายการโต๊ะ+สถานะ, check-in (ขอ QR ใหม่), check-out (ปิดโต๊ะ)
 4. **Owner**: Dashboard (weekly cost/profit), จัดการเมนู (CRUD, กำหนด `removable` ต่อ ingredient สำหรับ UC-N9), ตั้งค่าวัตถุดิบเต็ม (`reorder_threshold_kg`, `thaw_prep_threshold_plates`, `buffer_percentage`, `supplier_pack_size_kg`, `freezer_expiry_warning_days` — 5 ฟิลด์ ไม่ใช่แค่ threshold), ตั้งค่า QR duration, รายการรอตรวจ (waste-records pending), คำแนะนำสั่งซื้อ (UC-N8), stock movement history, คลังไม่สด, system logs, จัดการ user/role, แจ้งเตือน UC-N7
+
+## 17. UC-N12: คืนสต็อกจานที่ยังไม่เสิร์ฟกลับเข้าตู้พักละลาย (ใหม่ — ล็อก 2026-07-17)
+
+**สถานการณ์**: ลูกค้าไม่เอา/สั่งผิด/พนักงานหยิบผิด — จานอาหารยังไม่ถูกวางที่โต๊ะลูกค้าเลย (`orders.served_at IS NULL`) แต่สต็อกถูกตัดไปแล้วตั้งแต่ตอน System auto-confirm (ตามข้อ 6) ต้องคืนกลับเข้าสต็อกโดยรักษาความสดเดิม (ล็อต/วันหมดอายุเดิม)
+
+**ตัดสินใจแล้ว:**
+- **ระดับที่คืนได้**: รายจาน (ต่อ `order_item`) ไม่ใช่ทั้งออเดอร์ — รองรับคืนบางส่วนด้วย (สั่ง 3 จาน คืนแค่ 1 จานได้)
+- **สิทธิ์**: พนักงานกดคืนได้เองทันที **ไม่ต้องผ่าน Owner อนุมัติ** (ต่างจาก waste_records ที่ต้อง confirm — เพราะนี่คือแก้ error ปฏิบัติงาน ไม่ใช่ของเสีย)
+- **เงื่อนไข**: คืนได้เฉพาะตอน `orders.served_at IS NULL` เท่านั้น (เสิร์ฟไปแล้วคืนไม่ได้)
+- **กลไกคืน**: คืนกลับเข้า**ล็อตเดิมที่ถูกตัดไปเป๊ะ** (ไม่สร้างล็อตใหม่) — ไม่แตะ `expiry_date` เลย ความสดจึงเท่าเดิมโดยอัตโนมัติ และล็อตนั้นกลับเข้าคิว FIFO ปกติทันที (แก่กว่าล็อตอื่นเหมือนเดิม ถูกตัดก่อนในออเดอร์ถัดไป)
+- **ถ้าตอนตัดสต็อกข้ามหลายล็อต** (ตาม true FIFO splitting ข้อ 7) — คืนกลับ**ตามลำดับเดียวกับตอนตัด** (ล็อตเก่าสุดที่เคยถูกตัดก่อน ได้คืนก่อน) จนกว่าจะครบจำนวนที่คืน
+- **สถานะการคืน**: ไม่มี column แยก — derive จาก `order_items.quantity_returned` เทียบกับ `quantity` (0=ยังไม่คืน, 0<x<quantity=คืนบางส่วน, x=quantity=คืนครบ) หลีกเลี่ยงข้อมูล 2 จุดที่ต้องซิงค์กันเอง
+
+**Schema ที่เพิ่ม** (ดู `rims_database_schema.sql`):
+- `order_items.quantity_returned INT DEFAULT 0` (เช็คไม่เกิน `quantity`)
+- `stock_movements.order_item_id` (ผูกการตัด/คืนแต่ละแถวกับจานที่แน่นอน — จำเป็นเพราะ 1 ออเดอร์มีได้หลายเมนู)
+- `stock_movements.movement_type` เพิ่มค่า `'return'`
+- Function ใหม่ `return_order_item_to_stock(order_item_id, quantity, actor_id)`
 
 ---
 
@@ -258,6 +280,9 @@ WHERE lot_id = X AND quantity_remaining >= 1;
 
 ## Changelog
 
+- **2026-08-02 (รอบ 17 — Indexing pass, ตอบคำถาม "ข้อมูลเยอะในอนาคตทำยังไง"):** คุยกันเรื่องตารางธุรกรรม (`orders`/`order_items`/`stock_movements`/`waste_records`) จะโตเรื่อยๆ ตามอายุร้าน — สรุปว่าไม่ต้อง archive/partition ตอนนี้ (scale ร้านเดียวไม่ถึงจุดนั้น) แต่ควรมี index รองรับ query pattern ที่ใช้จริงในโค้ดที่มีอยู่แล้ว ไล่ตรวจแล้วเพิ่มใน `0001_init.sql`: `idx_stock_movements_order_item` (ใช้ใน `return_order_item_to_stock()`), `idx_stock_movements_deduction_created` + `idx_orders_confirmed_created` + `idx_waste_records_confirmed_created` (ใช้ใน `get_weekly_cost_profit_report()` ที่ Dashboard เรียกทุกครั้งที่โหลด), `idx_waste_records_pending` (คิวรอตรวจของเสีย, US-12), `idx_orders_table_session` + `idx_order_items_order` (order history ต่อโต๊ะ US-04, และ join คำนวณ revenue)
+- **2026-08-02 (รอบ 16 — User Management, เจอช่องโหว่ตอนออกแบบหน้าจัดการ user):** ระหว่างออกแบบ userflow หน้า User Management พบว่า `users` ไม่มีทางปิดใช้งาน account เลย (มีแต่ลบจริง ซึ่งชน FK ทันทีถ้าเคยมีกิจกรรม) ขัดกับที่ข้อ 15 อ้างว่า session-based auth "ยกเลิกสิทธิ์ได้ทันที" — เพิ่ม `users.is_active BOOLEAN DEFAULT true` ใน `0001_init.sql`, เพิ่มหมายเหตุในข้อ 11 (Roles) ว่า login ต้องเช็ค `is_active` เพิ่ม
+- **2026-07-17 (รอบ 15 — UC-N12 คืนสต็อกจานที่ยังไม่เสิร์ฟ + true FIFO splitting):** เพิ่ม **UC-N12** ใหม่ (ข้อ 17): พนักงานคืนจานที่ยังไม่เสิร์ฟ (`served_at IS NULL`) กลับเข้าล็อตเดิมได้เอง ไม่ต้อง Owner อนุมัติ รองรับคืนบางส่วนต่อ order_item — ระหว่างออกแบบพบว่า `deduct_stock_fifo` เดิม (ล็อตเดียวหรือ fail) ไม่ใช่ true FIFO จริง เลยแก้ให้ตัดข้ามล็อตได้ (ข้อ 7) ซึ่งกระทบต้องเพิ่ม `stock_movements.order_item_id` (แยกได้ว่าการตัด/คืนแต่ละแถวเป็นของจานไหน จำเป็นเพราะ 1 ออเดอร์มีหลายเมนูได้) และเจอบั๊กแฝงใน view `ingredient_usage_by_weekday` (เดิม AVG ทับกันข้ามแถวโดยไม่ SUM รายวันก่อน ทำให้ underestimate หนักขึ้นเมื่อการตัด 1 ครั้งแตกเป็นหลายแถว) — แก้ครบใน `rims_database_schema.sql`: `deduct_stock_fifo`, `return_order_item_to_stock` (ฟังก์ชันใหม่), `ingredient_usage_by_weekday`, เพิ่ม `order_items.quantity_returned`
 - **2026-07-15 (รอบ 14 — เจอช่องโหว่ตอนแตกหน้าจอละเอียด):** พบว่า `orders` ไม่มีทางบอกว่า "เสิร์ฟแล้ว" (มีแค่ pending/confirmed/cancelled) → เพิ่ม `orders.served_at TIMESTAMPTZ` ใน `rims_database_schema.sql` (NULL = ยังไม่เสิร์ฟ, พนักงาน mark จากหน้า OrdersToServe) — เพิ่ม endpoint `PUT /orders/:id/serve` — พบว่า "Thresholds" ที่เคยพูดถึงตอน backend ไม่ครบ จริงๆ ต้องมี 5 ฟิลด์ต่อวัตถุดิบ (`reorder_threshold_kg`, `thaw_prep_threshold_plates`, `buffer_percentage`, `supplier_pack_size_kg`, `freezer_expiry_warning_days`) ไม่ใช่แค่ 2 threshold — อัปเดตข้อ 16 ให้ตรง
 - **2026-07-15 (รอบ 13 — Frontend):** ล็อก A6/A9/C-frontend ที่ค้างมาตั้งแต่ v5 — **React + Vite**, **2 แอปแยก** (Customer-facing public ไม่ login + Internal สำหรับ Owner/พนักงาน/แคชเชียร์ร่วมกัน UI เปลี่ยนตาม role) — อัปเดตข้อ 15 (Tech Stack), เพิ่มข้อ 16 (รายการหน้าจอเต็มทั้ง 2 แอป) — **โครงสร้างระบบทั้งหมด (Database → Backend → Frontend) ล็อกครบตามลำดับที่วางแผนไว้แล้ว**
 - **2026-07-15 (รอบ 12):** เพิ่มตาราง `settings` (key/value) ใน `rims_database_schema.sql` สำหรับเก็บ `qr_duration_minutes` (Owner ตั้งกฎกลาง QR ครั้งเดียว ใช้กับทุกโต๊ะ ตามข้อ 3) — ยืนยันแล้วว่าต้องมี seed ค่าเริ่มต้น 120 นาที

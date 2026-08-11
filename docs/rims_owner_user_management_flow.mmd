@@ -1,0 +1,19 @@
+flowchart TD
+    Start(["Owner เปิดหน้า User Management"]) --> List["แสดงรายชื่อพนักงาน/แคชเชียร์ทั้งหมด (name, email, role)"]
+    List --> Action{"เลือกทำอะไร?"}
+
+    Action -->|สร้าง account ใหม่| Create["กรอก name + email + password + เลือก role (staff/cashier)"]
+    Create --> Save1(["บันทึก → account ใหม่ login ได้ทันที (F9: Owner สร้างให้ ไม่มี self-register)"])
+
+    Action -->|แก้ไข account| Edit["เลือกพนักงานที่จะแก้"]
+    Edit --> EditWhat{"แก้อะไร?"}
+    EditWhat -->|"ชื่อ / อีเมล"| EditInfo["แก้ name / email"]
+    EditWhat -->|role| EditRole["เปลี่ยน role (staff ↔ cashier)"]
+    EditWhat -->|รหัสผ่าน| ResetPw["ตั้งรหัสผ่านใหม่ให้ (reset password)"]
+    EditInfo --> Save2(["บันทึก"])
+    EditRole --> Save2
+    ResetPw --> Save2
+
+    Action -->|ลบ account| DeleteCheck{"เคยมีกิจกรรมในระบบไหม? (รับล็อต/ตัดสต็อก/ตรวจของเสีย/เปิดโต๊ะ ฯลฯ)"}
+    DeleteCheck -->|เคยมี| DeleteBlocked(["ลบไม่ได้ FK กันไว้ ต้องรักษาประวัติการกระทำเดิม"])
+    DeleteCheck -->|ไม่เคยมีเลย| DeleteOK(["ลบ account ออกจากระบบสำเร็จ"])

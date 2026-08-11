@@ -1,0 +1,14 @@
+flowchart TD
+    Start(["Owner login สำเร็จ"]) --> Load["Dashboard โหลดข้อมูล: รายได้/ต้นทุน/ของเสีย/กำไรสัปดาห์นี้ (US-13)"]
+
+    Load --> Revenue["ดูการ์ด: รายได้สัปดาห์นี้ vs สัปดาห์ก่อน"]
+    Load --> COGS["ดูการ์ด: ต้นทุนวัตถุดิบ (COGS) สัปดาห์นี้"]
+    Load --> Waste["ดูการ์ด: ต้นทุนของเสีย (waste cost) สัปดาห์นี้"]
+    Load --> Profit["ดูการ์ด: กำไรสุทธิ + % เทียบสัปดาห์ก่อน"]
+    Load --> NotifBadge["ดู Badge แจ้งเตือน: UC-N7 (สต็อกต่ำ) / waste รอตรวจ (US-12)"]
+
+    Revenue --> End(["รับทราบภาพรวม ไม่คลิกไปไหนต่อ (view only)"])
+    COGS --> End
+    Waste --> End
+    Profit --> End
+    NotifBadge --> End
