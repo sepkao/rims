@@ -10,6 +10,14 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
-  "workspaces": ["apps/*", "packages/*"]
-  
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "dependencies": {
+    "bcryptjs": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6"
+  }
 }
