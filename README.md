@@ -198,6 +198,45 @@ Nav items per role are defined as plain arrays near the top of the file (`ownerN
 
 Every page under `pages/owner/`, `pages/staff/`, `pages/cashier/` is close to empty right now — most are just a heading or a "Welcome, {role}" message with zero real markup. `Dashboard.tsx` is the most built-out example (still just a paragraph + one link + logout button) — read it as a reference for the `useAuth()` import pattern, not as a finished page. All of them need real JSX (tables, forms, cards) written against **mock/placeholder data** for now, since the matching backend endpoints mostly don't exist yet (see section 4). Wiring real `fetch()` calls in happens once each backend endpoint is ready — check the Jira backlog's Sprint column, or ask before building a real fetch call so you don't build against an endpoint that doesn't exist yet.
 
+### Page-by-page content spec — what each file is actually supposed to show
+
+This is *what to build*, not just "it's empty". Grounded in `docs/rims_user_stories.md` (US-xx) and `docs/rims_scope_lock_v2.md` (UC-Nxx) — read the linked user story for exact acceptance criteria before building the real (non-mock) version.
+
+**`pages/owner/`** (all require `role="owner"`)
+
+| File | What it's for |
+|---|---|
+| `Dashboard.tsx` | US-13. This-week vs last-week summary cards: revenue, ingredient cost (COGS), waste cost, net profit + % change. All numbers are plain SQL aggregates, never guessed/AI. Also shows a notification badge (count of UC-N7 low-stock alerts + pending waste reviews). View-only — cards don't need to be clickable except the badge, which links to `Notifications.tsx` / `WasteReview.tsx`. |
+| `MenuManagement.tsx` | US-10. List all menu items (name + price). **Create**: name + price + description, then build the BOM — pick each ingredient + `quantity_required_plates`, and a `removable` true/false toggle per ingredient (this is what lets customers remove that ingredient later, UC-N9). **Edit**: name/description freely; price change only affects *new* orders, not past ones; BOM rows can be added/removed/qty-changed/removable-toggled. **Delete**: blocked (FK constraint) if the item was ever ordered — show an error, don't silently fail; otherwise delete its BOM rows first, then the item. |
+| `UserManagement.tsx` | Already wired to real endpoints (`POST`/`PUT /owner/users`, see §4) — this one's the reference example for what "done" looks like. List name/email/role. Create needs name+email+password+role (staff or cashier only — owner accounts are never created through the UI, see §2/F9). Edit covers name/email, role switch, or password reset. Delete should be blocked if the account ever did anything in the system (received a lot, served an order, etc.) — no delete endpoint exists yet, don't build the button until it does. |
+| `IngredientSettings.tsx` | US-11. Per-ingredient threshold form, **5 fields for meat**: `reorder_threshold_kg`, `thaw_prep_threshold_plates`, `buffer_percentage`, `supplier_pack_size_kg`, `freezer_expiry_warning_days`. **Vegetables don't have a Freezer**, so don't show `reorder_threshold_kg`/`freezer_expiry_warning_days` for them — only the thaw-prep-cabinet-related fields apply. |
+| `WasteReview.tsx` | US-12. Queue of lots the system already flagged (`pending_review`: near-expiry + no movement for 3+ days) with their potential cost shown. Owner clicks **Confirm** → stock is actually deducted and waste cost logged, or **Reject** → lot goes back to normal usable stock, nothing changes. This is a human-in-the-loop approval step, never auto-applied. |
+| `NotFreshInventory.tsx` | Read-only list of lots the `mark_not_fresh_lots` scheduled job has already auto-marked expired/not-fresh (past their `expiry_date`). This is the *already-happened* version — different from `WasteReview.tsx`, which is items still awaiting a human decision. |
+| `Notifications.tsx` (owner) | Feed of alerts addressed to the Owner: UC-N7 (any ingredient's total stock below its `reorder_threshold`) plus vegetable-specific low-stock alerts (vegetables have no Freezer lot to pull more from, so their low-stock alert goes to Owner instead of staff — see US-08 AC2). |
+| `ProcurementRecommendation.tsx` | UC-N8. Shows a concrete next-purchase-cycle number per ingredient, e.g. "แนะนำสั่งเนื้อ 130 กก. เพิ่มจากเดิม 100 กก." — plain arithmetic (`get_procurement_recommendation()`), not AI. If there isn't enough order history yet, show that plainly ("ยังแนะนำไม่ได้ ข้อมูลไม่พอ") rather than guessing a number. Owner still places the actual purchase order outside this system — this page is advisory only, no auto-PO. |
+| `QrSettings.tsx` | One setting: `qr_duration_minutes` (seeded default: 120), applies to every table — there's no per-table override. |
+| `StockMovementHistory.tsx` | Audit trail read from the `stock_movements` table — every receive/transfer/sale-deduction/return/waste-confirm event, who did it and when. Per a locked scope decision there is deliberately **no separate audit-log table** — this *is* the audit log. |
+| `SystemLogs.tsx` | ⚠️ Not clearly specified anywhere in the scope docs beyond "Owner can view system logs" as a permission line — it likely overlaps with `StockMovementHistory.tsx` (same `stock_movements` data) rather than being a separate concept, since the scope doc explicitly says there's no separate audit-log table. Confirm with the team what this page should show before building it, so you don't duplicate `StockMovementHistory.tsx`. |
+
+**`pages/staff/`** (all require `role="staff"`)
+
+| File | What it's for |
+|---|---|
+| `ReceiveLot.tsx` | US-04 / UC-N1. One form to log an entire incoming delivery at once (meat + vegetables together, not one-by-one). Meat entered in kg goes straight into the Freezer as raw stock, unit unchanged. Vegetables entered in kg are auto-converted to plates (rounded **down**, no leftover fraction carried anywhere) and go straight into the thaw-prep cabinet — they skip the Freezer entirely. |
+| `TransferToThawPrep.tsx` | US-05 / UC-N2. **Meat only** (no vegetable option here). Pick a Freezer lot, enter kg pulled out, system auto-converts to plates (rounded down) into the thaw-prep cabinet. The new sub-lot's expiry date is calculated as **half** of the remaining freshness the source lot had. |
+| `AvailableServings.tsx` | US-06 / UC-N6. Real-time count of how many plates of each menu item can actually be sold right now, counted **only from the thaw-prep cabinet** (Freezer stock doesn't count, since it's not prepped yet). For a dish needing multiple ingredients, the number shown is the **minimum** across all of them. Should update live via polling, no manual refresh needed. |
+| `OrdersToServe.tsx` | Kitchen queue of confirmed orders waiting to be prepared/served. This is also where the "return a plate" actions from US-07 and UC-N12 belong: staff can return a dish to stock (partial quantities allowed, `quantity_returned` increments) any time **before** it's marked served — once `served_at` is set, returns are rejected. Returned stock goes back into the original lot with its `expiry_date` unchanged. |
+| `ThawPrepRecommendation.tsx` | UC-N3. "How much should I thaw-prep today" — a daily arithmetic recommendation (`get_thaw_prep_recommendation()`), not AI. Different question from `ProcurementRecommendation.tsx` (that one is weekly/purchasing, this one is daily/prep) — don't conflate the two. |
+| `Notifications.tsx` (staff) | Feed of alerts addressed to staff: UC-N10 (thaw-prep cabinet meat below its threshold — there's still Freezer stock to pull more from, unlike the vegetable case) and UC-N11 (Freezer meat within 3 days of expiring; the same lot shouldn't re-alert twice in one day). |
+
+**`pages/cashier/`** (all require `role="cashier"`)
+
+| File | What it's for |
+|---|---|
+| `TableList.tsx` | US-09. Overview of every table and its current status (open/closed/awaiting cleanup) — the jumping-off point to pick a table for check-in or check-out. |
+| `CheckIn.tsx` | US-09. Opens a table for a newly seated customer / issues a fresh QR session, expiring `qr_duration_minutes` (from `QrSettings.tsx`) minutes from now. |
+| `CheckOut.tsx` | US-09. Manually closes a table's session when the customer leaves — any still-pending orders on that session get cancelled. (Sessions that simply time out close themselves automatically server-side after expiry + a 60s buffer — this button is only for the "customer leaves early" case.) |
+
 ---
 
 ## 6. Frontend — customer app (`apps/customer`)
@@ -211,7 +250,20 @@ This app has **not been started at all** — it's still the untouched default Vi
 - `pages/GracePeriodCountdown.tsx`
 - `components/QrExpiryBanner.tsx`
 
-If you're picking up this app, you're starting from scratch: you'll need to add a router (see how `apps/internal` does it with `react-router-dom`, already a dependency pattern you can copy), replace the placeholder `App.tsx`, and build each page. No login/session is needed here — this app is for anonymous customers who scan a QR code, not for staff — see `docs/rims_scope_lock_v2.md` for the exact customer flow (grace period, QR expiry, etc.).
+If you're picking up this app, you're starting from scratch: you'll need to add a router (see how `apps/internal` does it with `react-router-dom`, already a dependency pattern you can copy), replace the placeholder `App.tsx`, and build each page. No login/session is needed here — this app is for anonymous customers who scan a QR code, not for staff.
+
+### Page-by-page content spec (customer app)
+
+Grounded in `docs/rims_customer_flow.mmd` and `docs/rims_user_stories.md` (US-01/02/03).
+
+| File | What it's for |
+|---|---|
+| `pages/Landing.tsx` | Entry point right after the QR scan. First checks whether this table's QR/session is still within its time window — if it's already expired, tell the customer to ask a cashier for check-in instead of letting them into the menu. |
+| `pages/Menu.tsx` | US-01. Autocomplete search (no need to type an exact full name) with each menu item's ingredients shown inline, not on a separate page. If a dish's stock isn't enough for even one more serving (per UC-N6 "available servings"), it must be rejected right here at selection time — never let a customer pick something and find out it's unavailable later. |
+| `pages/OrderBuilder.tsx` | US-02 / US-03 / UC-N9. Pick a quantity, optionally remove ingredients — but **only** ones the Owner flagged `removable` on that menu item (`MenuManagement.tsx` §5 sets this); there's no "reduce quantity of an ingredient" option, removal is all-or-nothing per ingredient. Confirming here opens a second popup confirmation (not a silent submit), which then starts the grace period. |
+| `pages/GracePeriodCountdown.tsx` | US-03. 60-second countdown (`GRACE_PERIOD_SECONDS`, same constant used server-side) after the popup confirm, cancelable the whole time. Cancel before it ends → order cancelled, nothing was ever deducted from stock. Let it run out → the order auto-confirms and stock is deducted then (not at the popup-confirm step) — this is also the moment a "someone else just took the last one" rejection can happen; if so, tell the customer plainly that item just sold out and send them back to the menu. |
+| `pages/OrderHistory.tsx` | Per-table order list for the current session — shows status of everything ordered so far. Customers can order more rounds any number of times within the same session; this page is where they'd do that (link back to `Menu.tsx`) or call the cashier to close out. |
+| `components/QrExpiryBanner.tsx` | Persistent banner meant to render on **every** page (not just one), warning when this table's QR/session is close to or past its expiry time. |
 
 ---
 
