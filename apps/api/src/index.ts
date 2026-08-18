@@ -72,6 +72,21 @@ app.post('/owner/logout', async (c) => {
   return c.json({ message: 'Logged out successfully' })
 })
 
+app.post('/owner/users', async (c) => {
+  const { name,email, password, role } = await c.req.json()
+  const passwordHash = await bcrypt.hash(password, 10)
+  const result = await pool.query('INSERT INTO users (name,email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id, name, email, role', [name,email, passwordHash, role])
+  return c.json(result.rows[0] )
+
+})
+app.put('/owner/users/:id', async (c) => {
+  const { id } = c.req.param()
+  const { email, password, role } = await c.req.json()  
+  const passwordHash = await bcrypt.hash(password, 10)
+  const result = await pool.query('UPDATE users SET email = $1, password_hash = $2, role = $3 WHERE id = $4', [email, passwordHash, role, id])
+  return c.json({ message: 'User updated successfully' })
+})
+
 serve({
   fetch: app.fetch,
   port: 3000
