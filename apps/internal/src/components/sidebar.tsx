@@ -10,12 +10,16 @@ const ownerNavItems = [
 ]
     
 const staffNavItems = [
-    { to: '/staff/stock', label: 'Stock', icon: BlocksIcon },
-    {to: '/staff/orders', label: 'orders', icon: ListCheckIcon}
+    { to: '/staff/available-servings', label: 'Available Servings', icon: BlocksIcon },
+    {to: '/staff/orders', label: 'Orders', icon: ListCheckIcon },
+    { to: '/staff/notifications', label: 'Notifications', icon: ListCheckIcon },
+    { to: '/staff/receive-lot', label: 'Receive Lot', icon: ListCheckIcon },
+    { to: '/staff/thaw-prep-recommendation', label: 'Thaw Prep Recommendation', icon: ListCheckIcon },
+    { to: '/staff/transfer-to-thaw-prep', label: 'Transfer to Thaw Prep', icon: ListCheckIcon }
 ]
 
 const cashierNavItems = [
-    { to: '/cashier/tables', label: 'table', icon: Table2Icon }
+    { to: '/cashier/tables', label: 'Tables', icon: Table2Icon }
 ]
 
 const NavItemsByRole: Record<Role, typeof ownerNavItems> = {
