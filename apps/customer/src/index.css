@@ -1,7 +1,78 @@
 @import "tailwindcss";
 
+/* ซ่อน scrollbar สำหรับแถบหมวดหมู่แต่ยังเลื่อนได้ */
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; min-width: 100%; min-height: 100%; }
 body { background: #d1d5db; color: #302221; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
 button, input { font: inherit; }
 button { cursor: pointer; }
+
+/* Neo-Brutalism Utilities for Customer App */
+.neo-wrapper {
+  border-left: 2px solid #2d1b17;
+  border-right: 2px solid #2d1b17;
+  box-shadow: 0 0 20px rgba(0,0,0,0.1);
+}
+
+.neo-surface {
+  border: 2px solid #2d1b17;
+  border-radius: 16px;
+  background: #fffefa;
+  box-shadow: 5px 5px 0 #2d1b17;
+  overflow: hidden;
+}
+
+.neo-card {
+  border: 2px solid #2d1b17;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 3px 3px 0 #b97861;
+}
+
+.neo-btn {
+  border: 2px solid #2d1b17;
+  background: #5A403E;
+  color: white;
+  border-radius: 12px;
+  box-shadow: 4px 4px 0 #2d1b17;
+  transition: all 0.1s ease-in-out;
+}
+
+.neo-btn:active {
+  box-shadow: 0px 0px 0 #2d1b17;
+  transform: translate(4px, 4px);
+}
+
+.neo-btn-secondary {
+  border: 2px solid #2d1b17;
+  background: #ffffff;
+  color: #2d1b17;
+  border-radius: 12px;
+  box-shadow: 3px 3px 0 #2d1b17;
+  transition: all 0.1s ease-in-out;
+}
+.neo-btn-secondary:active {
+  box-shadow: 0px 0px 0 #2d1b17;
+  transform: translate(3px, 3px);
+}
+
+.neo-btn-danger {
+  border: 2px solid #2d1b17;
+  background: #E53E3E;
+  color: white;
+  border-radius: 12px;
+  box-shadow: 3px 3px 0 #2d1b17;
+  transition: all 0.1s ease-in-out;
+}
+.neo-btn-danger:active {
+  box-shadow: 0px 0px 0 #2d1b17;
+  transform: translate(3px, 3px);
+}

@@ -1,18 +1,28 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import CustomerCartPage from './imported-ui/pages/CustomerCartPage'
-import CustomerMenuPage from './imported-ui/pages/CustomerMenuPage'
-import CustomerSuccessPage from './imported-ui/pages/CustomerSuccessPage'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Landing from './pages/Landing';
+import OrderBuilder from './pages/OrderBuilder';
+import Menu from './pages/Menu';
+import OrderHistory from './pages/OrderHistory';
+import GracePeriodCountdown from './pages/GracePeriodCountdown';
 
-export default function App() {
+function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/order" replace />} />
-        <Route path="/order" element={<CustomerMenuPage />} />
-        <Route path="/order/cart" element={<CustomerCartPage />} />
-        <Route path="/order/success" element={<CustomerSuccessPage />} />
-        <Route path="*" element={<Navigate to="/order" replace />} />
+        <Route path="/landing" element={<Landing />} />
+        <Route path="/build" element={<OrderBuilder />} />
+        
+        {/* Main Flow Routes */}
+        <Route path="/order" element={<Menu />} />
+        <Route path="/order/cart" element={<OrderHistory />} />
+        <Route path="/order/success" element={<GracePeriodCountdown />} />
+
+        {/* Redirect default path to landing */}
+        <Route path="/" element={<Navigate to="/landing" replace />} />
+        <Route path="*" element={<Navigate to="/landing" replace />} />
       </Routes>
     </BrowserRouter>
-  )
+  );
 }
+
+export default App;
