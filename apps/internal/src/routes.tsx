@@ -2,25 +2,26 @@ import type { ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import App from './App'
 import { useAuth, type Role } from './contexts/AuthContext'
-import { InventoryProvider } from './imported-ui/contexts/InventoryContext'
-import LoginPage from './imported-ui/pages/auth/LoginPage'
-import RegisterPage from './imported-ui/pages/auth/RegisterPage'
-import DashboardPage from './imported-ui/pages/owner/DashboardPage'
-import ExpiredGoodsPage from './imported-ui/pages/owner/ExpiredGoodsPage'
-import InventoryLogsPage from './imported-ui/pages/owner/InventoryLogsPage'
-import MenuManagementPage from './imported-ui/pages/owner/MenuManagementPage'
-import SystemLogsPage from './imported-ui/pages/owner/SystemLogsPage'
-import UserManagementPage from './imported-ui/pages/owner/UserManagementPage'
-import AddLotPage from './imported-ui/pages/staff/AddLotPage'
-import KitchenStockPage from './imported-ui/pages/staff/KitchenStockPage'
-import StaffDashboardPage from './imported-ui/pages/staff/StaffDashboardPage'
-import StaffKitchenQueuePage from './imported-ui/pages/staff/StaffKitchenQueuePage'
-import StaffPrepFridgePage from './imported-ui/pages/staff/StaffPrepFridgePage'
-import StaffServingQueuePage from './imported-ui/pages/staff/StaffServingQueuePage'
-import TransferStocksPage from './imported-ui/pages/staff/TransferStocksPage'
-import CashierDashboardPage from './imported-ui/pages/cashier/CashierDashboardPage'
-import CashierOrderListPage from './imported-ui/pages/cashier/CashierOrderListPage'
-import CashierPaymentPage from './imported-ui/pages/cashier/CashierPaymentPage'
+import { InventoryProvider } from './contexts/InventoryContext'
+import LoginPage from './pages/login'
+import RegisterPage from './pages/register'
+import DashboardPage from './pages/owner/Dashboard'
+import ExpiredGoodsPage from './pages/owner/NotFreshInventory'
+import InventoryLogsPage from './pages/owner/StockMovementHistory'
+import MenuManagementPage from './pages/owner/MenuManagement'
+import SystemLogsPage from './pages/owner/SystemLogs'
+import UserManagementPage from './pages/owner/UserManagement'
+import AddLotPage from './pages/staff/ReceiveLot'
+import KitchenStockPage from './pages/staff/KitchenStock'
+import StaffDashboardPage from './pages/staff/StaffDashboard'
+import StaffKitchenQueuePage from './pages/staff/OrdersToServe'
+import StaffPrepFridgePage from './pages/staff/PrepFridge'
+import StaffServingQueuePage from './pages/staff/ServingQueue'
+import TransferStocksPage from './pages/staff/TransferToThawPrep'
+import TableList from './pages/cashier/TableList'
+import CheckIn from './pages/cashier/CheckIn'
+import OrderList from './pages/cashier/OrderList'
+import CheckOut from './pages/cashier/CheckOut'
 
 function RequireRole({ role: requiredRole, children }: { role: Role; children: ReactNode }) {
   const { role, loading } = useAuth()
@@ -60,9 +61,10 @@ export function AppRoutes() {
           <Route path="/staff/orders" element={<RequireRole role="staff"><StaffKitchenQueuePage /></RequireRole>} />
           <Route path="/staff/serving-queue" element={<RequireRole role="staff"><StaffServingQueuePage /></RequireRole>} />
 
-          <Route path="/cashier/tables" element={<RequireRole role="cashier"><CashierDashboardPage /></RequireRole>} />
-          <Route path="/cashier/orders" element={<RequireRole role="cashier"><CashierOrderListPage /></RequireRole>} />
-          <Route path="/cashier/payment" element={<RequireRole role="cashier"><CashierPaymentPage /></RequireRole>} />
+          <Route path="/cashier/tables" element={<RequireRole role="cashier"><TableList /></RequireRole>} />
+          <Route path="/cashier/check-in" element={<RequireRole role="cashier"><CheckIn /></RequireRole>} />
+          <Route path="/cashier/orders" element={<RequireRole role="cashier"><OrderList /></RequireRole>} />
+          <Route path="/cashier/payment" element={<RequireRole role="cashier"><CheckOut /></RequireRole>} />
         </Route>
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

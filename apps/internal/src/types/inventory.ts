@@ -12,3 +12,4 @@ export type InventoryBatch = {
   unitValue: number
   location?: string
 }
+

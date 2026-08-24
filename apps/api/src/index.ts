@@ -18,8 +18,12 @@ const app = new Hono()
 const allowedOrigins = new Set([
   'http://localhost:5173',
   'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:5176',
   'http://127.0.0.1:5173',
   'http://127.0.0.1:5174',
+  'http://127.0.0.1:5175',
+  'http://127.0.0.1:5176',
 ])
 
 app.use('*', cors({
@@ -303,6 +307,38 @@ app.get('/inventory/ingredients', async (c) => {
      ORDER BY name`,
   )
   return c.json({ ingredients: result.rows })
+})
+
+app.put('/inventory/ingredients/:id/portion-preset', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    if (actor.role !== 'owner') return c.json({ error: 'Only owners can update portion presets' }, 403)
+
+    const value = Number((await c.req.json<{ defaultPortionSizeKg?: number }>()).defaultPortionSizeKg)
+    if (!Number.isFinite(value) || value <= 0 || value > 999.999) {
+      return c.json({ error: 'Portion preset must be between 0.001 and 999.999 kg' }, 400)
+    }
+
+    const result = await pool.query(
+      `UPDATE ingredients
+       SET default_portion_size_kg = $1
+       WHERE id = $2
+       RETURNING id::text, name, category, default_portion_size_kg::float8 AS "defaultPortionSizeKg"`,
+      [value, c.req.param('id')],
+    )
+    if (!result.rows[0]) return c.json({ error: 'Ingredient not found' }, 404)
+
+    await pool.query(
+      `INSERT INTO system_logs (actor_id, action, details)
+       VALUES ($1, 'ingredient.portion_preset_updated', $2::jsonb)`,
+      [actor.id, JSON.stringify({ ingredientId: c.req.param('id'), defaultPortionSizeKg: value })],
+    )
+    return c.json({ ingredient: result.rows[0] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
 })
 
 app.get('/inventory/lots', async (c) => {
