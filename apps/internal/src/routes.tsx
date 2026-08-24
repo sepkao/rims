@@ -15,6 +15,9 @@ import Notifications from './pages/staff/Notifications'
 import ReceiveLot from './pages/staff/ReceiveLot'
 import ThawPrepRecommendation from './pages/staff/ThawPrepRecommendation'
 import TransferToThawPrep from './pages/staff/TransferToThawPrep'
+import TableList from './pages/cashier/TableList'
+import CheckIn from './pages/cashier/CheckIn'
+import CheckOut from './pages/cashier/CheckOut'
 function RequireRole({ role: requiredRole, children }: { role: Role; children: React.ReactNode }) {
   const { role, loading } = useAuth()
 
@@ -42,6 +45,9 @@ export function AppRoutes() {
         <Route path="/staff/receive-lot" element={<RequireRole role="staff"><ReceiveLot /></RequireRole>} />
         <Route path="/staff/thaw-prep-recommendation" element={<RequireRole role="staff"><ThawPrepRecommendation /></RequireRole>} />
         <Route path="/staff/transfer-to-thaw-prep" element={<RequireRole role="staff"><TransferToThawPrep /></RequireRole>} />
+        <Route path="/cashier/tables" element={<RequireRole role="cashier"><TableList /></RequireRole>} />
+        <Route path="/cashier/checkin" element={<RequireRole role="cashier"><CheckIn /></RequireRole>} />
+        <Route path="/cashier/checkout" element={<RequireRole role="cashier"><CheckOut /></RequireRole>} />
       </Route>
         
       </Routes>

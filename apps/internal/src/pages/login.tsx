@@ -28,6 +28,9 @@ export default function Login() {
         if (!loading && role==="staff") {
             navigate(`/staff/orders`,{ replace: true});
         }
+        if (!loading && role==="cashier") {
+            navigate(`/cashier/tables`,{ replace: true});
+        }
     }, [role, loading, navigate])
 
     if (loading) return <p>Loading...</p>

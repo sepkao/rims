@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { LayoutDashboard, UtensilsCrossed, Users, History, Settings, BlocksIcon, ListCheckIcon, Table2Icon} from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext.tsx'
 import type { Role } from '../contexts/AuthContext.tsx'
+
 const ownerNavItems = [
   { to: '/owner/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/owner/menu', label: 'Menu', icon: UtensilsCrossed },
@@ -19,7 +20,9 @@ const staffNavItems = [
 ]
 
 const cashierNavItems = [
-    { to: '/cashier/tables', label: 'Tables', icon: Table2Icon }
+    { to: '/cashier/tables', label: 'Tables', icon: Table2Icon },
+    { to: '/cashier/checkin', label: 'Check In', icon: Table2Icon },
+    { to: '/cashier/checkout', label: 'Check Out', icon: Table2Icon }
 ]
 
 const NavItemsByRole: Record<Role, typeof ownerNavItems> = {
@@ -30,7 +33,7 @@ const NavItemsByRole: Record<Role, typeof ownerNavItems> = {
 
 
 export default function Sidebar() {
-    const { role } = useAuth()
+    const { role,logout } = useAuth()
     const location = useLocation()
 
     const Items = role ? NavItemsByRole[role] : []
@@ -60,6 +63,7 @@ export default function Sidebar() {
                         <span className="nav-label">{label}</span>
                     </Link>
                 ))}
+                <button onClick={logout}>Logout</button>
             </nav>
             
         </aside>
