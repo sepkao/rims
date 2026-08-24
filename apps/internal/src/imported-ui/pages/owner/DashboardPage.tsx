@@ -21,7 +21,7 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold text-[#302221]">ศูนย์ควบคุมความสด</h1>
           <p className="text-sm text-[#7B726B] mt-1">จัดลำดับใช้วัตถุดิบตาม FIFO และติดตามล็อตเสี่ยงหมดอายุ</p>
         </div>
-        <Link to="/admin/inventory-logs" className="admin-primary w-fit rounded-md bg-[#5a403e] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#4a322f]">ดูทุกล็อตสินค้า</Link>
+        <Link to="/owner/history" className="admin-primary w-fit rounded-md bg-[#5a403e] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#4a322f]">ดูทุกล็อตสินค้า</Link>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3 mb-6">

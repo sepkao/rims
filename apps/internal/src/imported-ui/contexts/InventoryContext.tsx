@@ -1,6 +1,6 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../../lib/api'
-import type { InventoryBatch } from '../mocks/inventory'
+import type { InventoryBatch } from '../types/inventory'
 
 export type NewBatch = Omit<InventoryBatch, 'id' | 'status' | 'unitValue'> & { unitCost: number }
 
@@ -24,6 +24,7 @@ type ApiLot = {
   expiryDate: string
   status: InventoryBatch['status']
   unitValue: number
+  location?: string
 }
 
 const InventoryContext = createContext<InventoryContextValue | null>(null)
@@ -39,6 +40,7 @@ function toBatch(lot: ApiLot): InventoryBatch {
     expireDate: lot.expiryDate.slice(0, 10),
     status: lot.status,
     unitValue: lot.unitValue,
+    location: lot.location,
   }
 }
 

@@ -18,6 +18,8 @@ export default function InventoryLogsPage() {
     .filter((log) => activeTab === 'All' || log.category === activeTab)
     .filter((log) => `${log.item} ${log.batch}`.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => a.receiveDate.localeCompare(b.receiveDate)), [activeTab, batches, search]);
+  const expiringCount = batches.filter((batch) => batch.status === 'Expiring Soon').length;
+  const expiredCount = batches.filter((batch) => batch.status === 'Expired').length;
 
   // ฟังก์ชันช่วยกำหนดสีของ Badge สถานะ
   const getStatusColor = (status: string) => {
@@ -64,7 +66,7 @@ export default function InventoryLogsPage() {
           <div className="bg-[#f0ece9] p-3 rounded-md text-[#694b49]"><Icons.Box /></div>
           <div>
             <p className="text-xs font-semibold text-[#7B726B] uppercase tracking-wide">Total Received (This Week)</p>
-            <h2 className="text-2xl font-bold text-[#302221]">120<span className="text-sm font-medium text-[#777] ml-1">items</span></h2>
+            <h2 className="text-2xl font-bold text-[#302221]">{batches.length}<span className="text-sm font-medium text-[#777] ml-1">items</span></h2>
           </div>
         </div>
         
@@ -72,7 +74,7 @@ export default function InventoryLogsPage() {
           <div className="bg-[#fef3c7] p-3 rounded-md text-[#d97706]"><Icons.Alert /></div>
           <div>
             <p className="text-xs font-semibold text-[#92400e] uppercase tracking-wide">Expiring Soon (&lt; 3 days)</p>
-            <h2 className="text-2xl font-bold text-[#92400e]">14<span className="text-sm font-medium text-[#d97706] ml-1">items</span></h2>
+            <h2 className="text-2xl font-bold text-[#92400e]">{expiringCount}<span className="text-sm font-medium text-[#d97706] ml-1">items</span></h2>
           </div>
         </div>
 
@@ -80,7 +82,7 @@ export default function InventoryLogsPage() {
           <div className="bg-[#fee2e2] p-3 rounded-md text-[#dc2626]"><Icons.Alert /></div>
           <div>
             <p className="text-xs font-semibold text-[#991b1b] uppercase tracking-wide">Expired Items</p>
-            <h2 className="text-2xl font-bold text-[#991b1b]">2<span className="text-sm font-medium text-[#ef4444] ml-1">items</span></h2>
+            <h2 className="text-2xl font-bold text-[#991b1b]">{expiredCount}<span className="text-sm font-medium text-[#ef4444] ml-1">items</span></h2>
           </div>
         </div>
       </div>

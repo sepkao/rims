@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useInventory } from '../../contexts/InventoryContext'
-import type { InventoryBatch } from '../../mocks/inventory'
+import type { InventoryBatch } from '../../types/inventory'
 
 const field = 'mt-2 w-full rounded-xl border-2 border-[#2D1B17] bg-[#FFFDF9] px-3.5 py-3 font-semibold text-[#2D1B17] outline-none transition placeholder:text-[#A99188] focus:-translate-y-0.5 focus:shadow-[3px_3px_0_#B97861]'
 

@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { apiFetch } from '../lib/api'
@@ -44,44 +43,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user)
     return data.user.role
   }, [])
-=======
-import { createContext, useState, useContext } from "react"
-import type { ReactNode } from "react"
-export type Role = "owner" | "staff" | "cashier"
-
-type AuthState = {
-    role :Role | null;
-    loading: boolean;
-    login: (role: Role) => void;
-    logout: () => void;
-}
-
-
-const AuthContext = createContext<AuthState>({ 
-        role: null,
-        loading: true,
-        login: () => {},
-        logout: () => {}
-    });
-
-export const AuthProvider = ({ children }: { children: ReactNode }) =>{
-        const [role, setRole] = useState<Role | null>(null);
-        const [loading, setLoading] = useState(false);
-
-        function login(role: Role) {
-            
-            setRole(role);
-        }
-        async function logout() {
-            await fetch('http://localhost:3000/auth/logout', { method: 'POST', credentials: 'include'})
-            setRole(null);
-        }
-        return (
-            <AuthContext.Provider value={{ role, loading, logout, login }}>
-                {children}
-            </AuthContext.Provider>
-        );
->>>>>>> b6bbeef75e594da296df8fe6e79073f22108238a
 
   const register = useCallback(async (name: string, email: string, password: string) => {
     const data = await apiFetch<{ user: SessionUser }>('/auth/register', {
@@ -100,7 +61,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) =>{
     }
   }, [])
 
-  const value = useMemo<AuthState>(() => ({ user, role: user?.role ?? null, loading, login, register, logout }), [loading, login, logout, register, user])
+  const value = useMemo<AuthState>(
+    () => ({ user, role: user?.role ?? null, loading, login, register, logout }),
+    [loading, login, logout, register, user],
+  )
+
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
