@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth, type Role } from '../../../contexts/AuthContext'
 
 const homeByRole: Record<Role, string> = {
@@ -71,6 +71,9 @@ export default function LoginPage() {
             <button disabled={submitting} className="mt-7 h-12 w-full rounded-xl border-2 border-[#302221] bg-[#694b49] font-black text-white shadow-[4px_4px_0_#302221] transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60">
               {submitting ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ →'}
             </button>
+            <p className="mt-6 text-center text-sm text-[#6f625d]">
+              เปิดใช้ระบบครั้งแรก? <Link to="/register" className="font-black text-[#694b49] underline underline-offset-4">สมัคร Owner</Link>
+            </p>
           </form>
         </section>
       </div>

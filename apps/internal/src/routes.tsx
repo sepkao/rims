@@ -4,6 +4,7 @@ import App from './App'
 import { useAuth, type Role } from './contexts/AuthContext'
 import { InventoryProvider } from './imported-ui/contexts/InventoryContext'
 import LoginPage from './imported-ui/pages/auth/LoginPage'
+import RegisterPage from './imported-ui/pages/auth/RegisterPage'
 import CashierDashboardPage from './imported-ui/pages/cashier/CashierDashboardPage'
 import DashboardPage from './imported-ui/pages/owner/DashboardPage'
 import ExpiredGoodsPage from './imported-ui/pages/owner/ExpiredGoodsPage'
@@ -35,6 +36,7 @@ export function AppRoutes() {
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
         <Route element={<InternalLayout />}>
           <Route path="/owner/dashboard" element={<RequireRole role="owner"><DashboardPage /></RequireRole>} />
           <Route path="/owner/menu" element={<RequireRole role="owner"><MenuManagementPage /></RequireRole>} />

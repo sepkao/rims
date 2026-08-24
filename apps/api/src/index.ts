@@ -50,6 +50,15 @@ async function getSessionUser(c: Context): Promise<SessionUser | null> {
   return result.rows[0] ?? null
 }
 
+async function createSession(c: Context, userId: string) {
+  await setSignedCookie(c, 'session', userId, sessionSecret(), {
+    httpOnly: true,
+    sameSite: 'Lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+  })
+}
+
 async function requireRoles(c: Context, next: Next, roles: Role[]) {
   try {
     const user = await getSessionUser(c)
@@ -89,12 +98,7 @@ app.post('/auth/login', async (c) => {
       return c.json({ error: 'Invalid email or password' }, 401)
     }
 
-    await setSignedCookie(c, 'session', String(user.id), sessionSecret(), {
-      httpOnly: true,
-      sameSite: 'Lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-    })
+    await createSession(c, String(user.id))
 
     return c.json({
       user: { id: String(user.id), name: user.name, email: user.email, role: user.role as Role },
@@ -102,6 +106,59 @@ app.post('/auth/login', async (c) => {
   } catch (error) {
     console.error(error)
     return c.json({ error: errorMessage(error) }, 500)
+  }
+})
+
+app.get('/auth/bootstrap-status', async (c) => {
+  try {
+    const result = await pool.query<{ hasUsers: boolean }>('SELECT EXISTS(SELECT 1 FROM users) AS "hasUsers"')
+    return c.json({ registrationOpen: !result.rows[0].hasUsers })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Unable to check registration status' }, 500)
+  }
+})
+
+app.post('/auth/register', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
+  try {
+    const body = await c.req.json<{ name?: string; email?: string; password?: string }>()
+    const name = body.name?.trim()
+    const email = body.email?.trim().toLowerCase()
+    const password = body.password
+    if (!name || !email || !password) return c.json({ error: 'Name, email and password are required' }, 400)
+    if (password.length < 8) return c.json({ error: 'Password must be at least 8 characters' }, 400)
+
+    await client.query('BEGIN')
+    transactionStarted = true
+    await client.query('SELECT pg_advisory_xact_lock(531009)')
+    const status = await client.query<{ hasUsers: boolean }>('SELECT EXISTS(SELECT 1 FROM users) AS "hasUsers"')
+    if (status.rows[0].hasUsers) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Initial registration is no longer available' }, 403)
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10)
+    const result = await client.query(
+      `INSERT INTO users (name, email, password_hash, role)
+       VALUES ($1, $2, $3, 'owner')
+       RETURNING id::text, name, email, role`,
+      [name, email, passwordHash],
+    )
+    await client.query('COMMIT')
+    transactionStarted = false
+
+    const user = result.rows[0] as SessionUser
+    await createSession(c, user.id)
+    return c.json({ user }, 201)
+  } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
+    console.error(error)
+    return c.json({ error: 'Unable to create account' }, 400)
+  } finally {
+    client.release()
   }
 })
 

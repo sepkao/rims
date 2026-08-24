@@ -16,6 +16,7 @@ type AuthState = {
   role: Role | null
   loading: boolean
   login: (email: string, password: string) => Promise<Role>
+  register: (name: string, email: string, password: string) => Promise<Role>
   logout: () => Promise<void>
 }
 
@@ -43,6 +44,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.user.role
   }, [])
 
+  const register = useCallback(async (name: string, email: string, password: string) => {
+    const data = await apiFetch<{ user: SessionUser }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password }),
+    })
+    setUser(data.user)
+    return data.user.role
+  }, [])
+
   const logout = useCallback(async () => {
     try {
       await apiFetch('/auth/logout', { method: 'POST' })
@@ -51,7 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo<AuthState>(() => ({ user, role: user?.role ?? null, loading, login, logout }), [loading, login, logout, user])
+  const value = useMemo<AuthState>(() => ({ user, role: user?.role ?? null, loading, login, register, logout }), [loading, login, logout, register, user])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
