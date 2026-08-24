@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev": "concurrently --kill-others-on-fail --names api,internal,customer --prefix-colors blue,green,yellow \"npm run dev --workspace api\" \"npm run dev --workspace internal\" \"npm run dev --workspace customer\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -18,6 +19,7 @@
     "bcryptjs": "^3.0.3"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6"
+    "@types/bcryptjs": "^2.4.6",
+    "concurrently": "^10.0.5"
   }
 }
