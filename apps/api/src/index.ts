@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server'
 import bcrypt from 'bcryptjs'
+<<<<<<< HEAD
 import { Hono, type Context, type Next } from 'hono'
 import { cors } from 'hono/cors'
 import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie'
@@ -13,6 +14,9 @@ type SessionUser = {
   email: string
   role: Role
 }
+=======
+import { cors } from 'hono/cors'
+>>>>>>> b6bbeef75e594da296df8fe6e79073f22108238a
 
 const app = new Hono()
 const allowedOrigins = new Set([
@@ -71,6 +75,10 @@ async function requireRoles(c: Context, next: Next, roles: Role[]) {
   }
 }
 
+app.use('*', cors({
+  origin: 'http://localhost:5173',
+  credentials: true,
+}))
 app.get('/health', async (c) => {
   try {
     const result = await pool.query('SELECT NOW() AS now')
@@ -118,6 +126,7 @@ app.get('/auth/bootstrap-status', async (c) => {
     return c.json({ error: 'Unable to check registration status' }, 500)
   }
 })
+<<<<<<< HEAD
 
 app.post('/auth/register', async (c) => {
   const client = await pool.connect()
@@ -174,6 +183,10 @@ app.get('/auth/session', async (c) => {
 
 app.post('/auth/logout', async (c) => {
   deleteCookie(c, 'session', { path: '/' })
+=======
+app.post('/auth/logout', async (c) => {
+  await deleteCookie(c,'session')
+>>>>>>> b6bbeef75e594da296df8fe6e79073f22108238a
   return c.json({ message: 'Logged out successfully' })
 })
 
@@ -248,6 +261,7 @@ app.put('/owner/users/:id', async (c) => {
   }
 })
 
+<<<<<<< HEAD
 app.get('/owner/system-logs', async (c) => {
   const requestedLimit = Number(c.req.query('limit') ?? 100)
   const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 500) : 100
@@ -435,5 +449,48 @@ app.post('/inventory/lots', async (c) => {
 })
 
 serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 3000) }, (info) => {
+=======
+
+app.post('/owner/menu-items', async (c) => {
+  const { name, description, price } = await c.req.json()
+  const result = await pool.query('INSERT INTO menu_items (name, description, price) VALUES ($1, $2, $3) RETURNING id, name, description, price', [name, description, price])
+  return c.json(result.rows[0])
+})
+
+
+app.post('/owner/menu-items/:id/ingredients', async (c) => {
+  const { id } = c.req.param()
+  const { ingredient_id, quantity_required_plates, removable } = await c.req.json()
+  const result = await pool.query('INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, quantity_required_plates, removable) VALUES ($1, $2, $3,$4) RETURNING id, menu_item_id, ingredient_id, quantity_required_plates, removable', [id, ingredient_id, quantity_required_plates,removable])
+  return c.json(result.rows[0])
+
+})
+app.get('/owner/menu-items', async (c) => {
+  const result = await pool.query('SELECT MenuI.id, MenuI.name, MenuI.price, MenuI.description, MenuIDgredients.ingredient_id, MenuIDgredients.quantity_required_plates, MenuIDgredients.removable FROM menu_items AS MenuI LEFT JOIN menu_item_ingredients AS MenuIDgredients ON MenuI.id = MenuIDgredients.menu_item_id')
+  return c.json(result.rows)
+})
+app.put('/owner/menu-items/:id', async (c) => {
+  const { id } = c.req.param()
+  const { name, description, price, is_active } = await c.req.json()
+  const result = await pool.query('UPDATE menu_items SET name = $1, description = $2, price = $3, is_active = $4 WHERE id = $5', [name, description, price, is_active, id])
+  return c.json({ message: 'Menu item updated successfully' })
+})
+ 
+app.delete('/owner/menu-items/:id', async (c) => {
+  const { id } = c.req.param()
+  const check = await pool.query('SELECT id FROM  order_items WHERE menu_item_id = $1 LIMIT 1', [id])
+  if(check.rows.length > 0){ 
+    return c.json({ message: 'Cannot delete menu item with existing orders' })
+  }
+  const deleteResult = await pool.query('DELETE FROM menu_item_ingredients WHERE menu_item_id = $1', [id])
+  const deleteMenuItemResult = await pool.query('DELETE FROM menu_items WHERE id = $1', [id])
+  return c.json({ message: 'Menu item deleted successfully' })
+  
+})
+serve({
+  fetch: app.fetch,
+  port: 3000
+}, (info) => {
+>>>>>>> b6bbeef75e594da296df8fe6e79073f22108238a
   console.log(`Server is running on http://localhost:${info.port}`)
 })

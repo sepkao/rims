@@ -12,7 +12,7 @@ export default function Dashboard() {
                 <Link to="/owner/menu" className="button-style">Go to Menu Management</Link>
             </div>
             
-            <button onClick={logout}>Logout</button>
+            
         </div>
         
     );
