@@ -19,7 +19,7 @@ import StaffPrepFridgePage from './pages/staff/StaffPrepFridgePage'
 import StaffServingQueuePage from './pages/staff/StaffServingQueuePage'
 import TransferStocksPage from './pages/staff/TransferStocksPage'
 import TableList from './pages/cashier/TableList'
-import OrderList from './pages/cashier/OrderList'
+import CheckIn from './pages/cashier/CheckIn'
 import CheckOut from './pages/cashier/CheckOut'
 
 function RequireRole({ role: requiredRole, children }: { role: Role; children: ReactNode }) {
@@ -61,7 +61,7 @@ export function AppRoutes() {
           <Route path="/staff/serving-queue" element={<RequireRole role="staff"><StaffServingQueuePage /></RequireRole>} />
 
           <Route path="/cashier/tables" element={<RequireRole role="cashier"><TableList /></RequireRole>} />
-          <Route path="/cashier/orders" element={<RequireRole role="cashier"><OrderList /></RequireRole>} />
+          <Route path="/cashier/check-in" element={<RequireRole role="cashier"><CheckIn /></RequireRole>} />
           <Route path="/cashier/payment" element={<RequireRole role="cashier"><CheckOut /></RequireRole>} />
         </Route>
         <Route path="*" element={<Navigate to="/login" replace />} />

@@ -63,7 +63,7 @@ export default function OrderBuilder() {
 
   return (
     <div className="min-h-screen bg-gray-200 flex justify-center font-sans">
-      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative shadow-2xl overflow-hidden">
+      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative neo-wrapper overflow-hidden">
         
         {/* --- Header แบบโปร่งใสทับรูป --- */}
         <div className="absolute top-0 w-full p-4 z-20 flex justify-between items-center">
@@ -73,7 +73,7 @@ export default function OrderBuilder() {
         </div>
 
         {/* --- รูปภาพอาหาร --- */}
-        <div className="h-[40%] shrink-0 relative bg-gray-200">
+        <div className="h-[40%] shrink-0 relative bg-gray-200 border-b-2 border-[#2d1b17]">
           <img src={mockItem.img} alt={mockItem.name} className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
           <div className="absolute bottom-4 left-4 right-4 text-white">
@@ -97,14 +97,14 @@ export default function OrderBuilder() {
               <div className="flex items-center bg-[#F4EFEA] rounded-xl px-2 py-1 gap-4 shadow-inner">
                 <button 
                   onClick={() => setQty(Math.max(1, qty - 1))}
-                  className="w-10 h-10 flex items-center justify-center text-[#5A403E] hover:bg-white rounded-lg transition-colors"
+                  className="w-10 h-10 flex items-center justify-center neo-btn-secondary transition-colors"
                 >
                   <Icons.Minus />
                 </button>
                 <span className="font-black text-[#302221] text-lg w-4 text-center">{qty}</span>
                 <button 
                   onClick={() => setQty(qty + 1)}
-                  className="w-10 h-10 flex items-center justify-center text-white bg-[#5A403E] rounded-lg shadow-sm"
+                  className="w-10 h-10 flex items-center justify-center neo-btn"
                 >
                   <Icons.Plus />
                 </button>
@@ -118,7 +118,7 @@ export default function OrderBuilder() {
               
               <div className="space-y-3">
                 {mockItem.ingredients.map(ing => (
-                  <div key={ing.id} className="flex items-center justify-between bg-white p-3 rounded-xl border border-[#EAE5DF] shadow-sm">
+                  <div key={ing.id} className="flex items-center justify-between p-3 neo-card">
                     <span className={`text-sm font-medium ${!ing.removable ? 'text-[#302221]' : removedIngredients.includes(ing.id) ? 'text-[#999] line-through' : 'text-[#302221]'}`}>
                       {ing.name}
                     </span>
@@ -128,10 +128,10 @@ export default function OrderBuilder() {
                     ) : (
                       <button 
                         onClick={() => handleToggleIngredient(ing.id)}
-                        className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors border ${
+                        className={`text-xs font-bold px-3 py-1.5 transition-colors ${
                           removedIngredients.includes(ing.id) 
-                            ? 'bg-[#FEF2F2] text-[#E53E3E] border-[#FCA5A5]' 
-                            : 'bg-white text-[#7B726B] border-[#d6d0c4] hover:bg-gray-50'
+                            ? 'neo-btn-danger' 
+                            : 'neo-btn-secondary'
                         }`}
                       >
                         {removedIngredients.includes(ing.id) ? 'ไม่ใส่' : 'ใส่ปกติ'}
@@ -146,10 +146,10 @@ export default function OrderBuilder() {
         </div>
 
         {/* --- ปุ่มยืนยันด้านล่าง --- */}
-        <div className="absolute bottom-0 left-0 w-full bg-white border-t border-[#EAE5DF] p-4 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-30">
+        <div className="absolute bottom-0 left-0 w-full bg-white border-t-2 border-[#2d1b17] p-4 shadow-[0_-4px_0_#2d1b17] z-30">
           <button 
             onClick={() => setShowConfirm(true)}
-            className="w-full py-4 rounded-xl bg-[#5A403E] hover:bg-[#4a322f] text-white font-bold text-lg transition-all shadow-md flex items-center justify-center gap-2"
+            className="w-full py-4 neo-btn font-bold text-lg flex items-center justify-center gap-2"
           >
             เพิ่มลงตะกร้า • {qty} ถาด
           </button>
@@ -158,7 +158,7 @@ export default function OrderBuilder() {
         {/* --- Modal ยืนยันคำสั่งซื้อ (Popup ที่ 2 ตามสเปค) --- */}
         {showConfirm && (
           <div className="absolute inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
-            <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-in fade-in slide-in-from-bottom-8">
+            <div className="neo-surface w-full max-w-sm p-6 animate-in fade-in slide-in-from-bottom-8">
               <div className="flex justify-center mb-4">
                 <div className="bg-[#FEF3C7] p-3 rounded-full">
                   <Icons.Alert />
@@ -173,13 +173,13 @@ export default function OrderBuilder() {
               <div className="flex gap-3">
                 <button 
                   onClick={() => setShowConfirm(false)}
-                  className="flex-1 py-3.5 rounded-xl bg-gray-100 text-[#7B726B] font-bold hover:bg-gray-200 transition-colors"
+                  className="flex-1 py-3.5 neo-btn-secondary font-bold transition-colors"
                 >
                   ยกเลิก
                 </button>
                 <button 
                   onClick={handleConfirmOrder}
-                  className="flex-1 py-3.5 rounded-xl bg-[#5A403E] text-white font-bold hover:bg-[#4a322f] transition-colors shadow-md"
+                  className="flex-1 py-3.5 neo-btn font-bold transition-colors"
                 >
                   ตกลง
                 </button>

@@ -84,10 +84,10 @@ export default function Menu() {
 
   return (
     <div className="min-h-screen bg-gray-200 flex justify-center font-sans">
-      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative shadow-2xl overflow-hidden">
+      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative neo-wrapper overflow-hidden">
         
         {/* --- Header --- */}
-        <div className="bg-white px-5 py-4 border-b border-[#EAE5DF] shrink-0 sticky top-0 z-20">
+        <div className="bg-white px-5 py-4 border-b-2 border-[#2d1b17] shrink-0 sticky top-0 z-20 shadow-sm">
           <div className="flex justify-between items-center mb-3">
             <div>
               <h1 className="text-xl font-black text-[#5A403E] tracking-wide">SHABU INVEN</h1>
@@ -106,7 +106,7 @@ export default function Menu() {
         </div>
 
         {/* --- Search & Category Tabs --- */}
-        <div className="bg-white px-5 pt-3 pb-2 shrink-0 z-10 shadow-sm">
+        <div className="bg-white px-5 pt-3 pb-2 shrink-0 z-10 border-b-2 border-[#2d1b17] shadow-[0_4px_0_#2d1b17]">
           <div className="relative mb-3">
             <div className="absolute left-3 top-1/2 -translate-y-1/2"><Icons.Search /></div>
             <input 
@@ -114,7 +114,7 @@ export default function Menu() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="ค้นหาเมนูหรือวัตถุดิบ..." 
-              className="w-full pl-10 pr-4 py-2 bg-[#F4EFEA] border-none rounded-xl text-sm outline-none focus:ring-1 focus:ring-[#5A403E]"
+              className="w-full pl-10 pr-4 py-2 bg-white border-2 border-[#2d1b17] rounded-xl text-sm outline-none focus:shadow-[2px_2px_0_#2d1b17]"
             />
           </div>
 
@@ -123,8 +123,8 @@ export default function Menu() {
               <button 
                 key={cat}
                 onClick={() => setActiveCategory(cat)}
-                className={`whitespace-nowrap px-4 py-1.5 rounded-full text-[13px] font-bold transition-colors
-                  ${activeCategory === cat ? 'bg-[#5A403E] text-white' : 'bg-white border border-[#d6d0c4] text-[#7B726B] hover:bg-[#F4EFEA]'}`}
+                className={`whitespace-nowrap px-4 py-1.5 text-[13px] font-bold transition-colors
+                  ${activeCategory === cat ? 'neo-btn' : 'neo-btn-secondary hover:bg-[#F4EFEA]'}`}
               >
                 {cat}
               </button>
@@ -139,8 +139,8 @@ export default function Menu() {
           
           <div className="grid grid-cols-2 gap-4">
             {visible.map((item, index) => (
-              <div key={item.id} className="bg-white rounded-2xl border border-[#EAE5DF] overflow-hidden shadow-sm flex flex-col">
-                <div className="h-32 bg-gray-200 relative">
+              <div key={item.id} className="neo-card overflow-hidden flex flex-col">
+                <div className="h-32 bg-gray-200 relative border-b-2 border-[#2d1b17]">
                   <img src={mockImages[index % mockImages.length]} alt={item.name} className="w-full h-full object-cover" />
                   {/* สุ่มแสดงป้ายแนะนำ */}
                   {index % 3 === 0 && (
@@ -169,7 +169,7 @@ export default function Menu() {
                       <button onClick={() => handleAdd(item.id)} className="w-7 h-7 bg-[#5A403E] rounded-md flex items-center justify-center text-white font-bold shadow-sm"><Icons.Plus /></button>
                     </div>
                   ) : (
-                    <button onClick={() => navigate('/build')} className="w-full py-1.5 border border-[#5A403E] text-[#5A403E] font-bold text-xs rounded-lg hover:bg-[#5A403E] hover:text-white transition-colors mt-auto">
+                    <button onClick={() => navigate('/build')} className="w-full py-1.5 neo-btn-secondary text-[13px] font-bold mt-auto">
                       + สั่งเลย
                     </button>
                   )}
@@ -181,11 +181,11 @@ export default function Menu() {
         </div>
 
         {/* --- Floating Bottom Cart --- */}
-        <div className="absolute bottom-0 left-0 w-full bg-white border-t border-[#EAE5DF] p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-30">
+        <div className="absolute bottom-0 left-0 w-full bg-white border-t-2 border-[#2d1b17] p-4 shadow-[0_-4px_0_#2d1b17] z-30">
           <button 
             onClick={() => navigate('/order/cart')}
-            className={`w-full py-3.5 rounded-xl flex items-center justify-between px-5 font-bold transition-all shadow-md
-            ${totalItems > 0 ? 'bg-[#5A403E] text-white hover:bg-[#4a322f]' : 'bg-[#EAE5DF] text-[#999] cursor-not-allowed'}`}
+            className={`w-full py-3.5 flex items-center justify-between px-5 font-bold transition-all
+            ${totalItems > 0 ? 'neo-btn' : 'bg-[#EAE5DF] text-[#999] cursor-not-allowed border-2 border-[#2d1b17] rounded-xl'}`}
             disabled={totalItems === 0}
           >
             <div className="flex items-center gap-3">

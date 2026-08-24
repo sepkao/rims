@@ -10,11 +10,11 @@ const Icons = {
 
 function EmptyCard({ message, detail, actionLabel, onAction }: { message: string; detail: string; actionLabel?: string; onAction?: () => void }) { 
   return (
-    <div className="rounded-xl border-2 border-dashed border-[#EAE5DF] bg-white p-8 text-center shadow-sm">
+    <div className="neo-card border-dashed p-8 text-center">
       <p className="font-bold text-[#302221]">{message}</p>
       <p className="mt-1 text-xs text-[#7B726B]">{detail}</p>
       {actionLabel && (
-        <button onClick={onAction} className="mt-5 rounded-lg bg-[#5A403E] px-4 py-2 text-xs font-bold text-white">
+        <button onClick={onAction} className="mt-5 px-4 py-2 text-xs neo-btn">
           {actionLabel}
         </button>
       )}
@@ -39,10 +39,10 @@ export default function OrderHistory() {
 
   return (
     <div className="min-h-screen bg-gray-200 flex justify-center font-sans">
-      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative shadow-2xl overflow-hidden">
+      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative neo-wrapper overflow-hidden">
         
         {/* --- Header --- */}
-        <div className="bg-white px-5 py-4 border-b border-[#EAE5DF] shrink-0 sticky top-0 z-20 flex items-center gap-3">
+        <div className="bg-white px-5 py-4 border-b-2 border-[#2d1b17] shrink-0 sticky top-0 z-20 flex items-center gap-3 shadow-sm">
           <button onClick={() => navigate(-1)} className="p-1 -ml-1 text-[#302221] hover:bg-gray-100 rounded-full">
             <Icons.ArrowLeft />
           </button>
@@ -60,7 +60,7 @@ export default function OrderHistory() {
             </h2>
             
             {cartItems.length > 0 ? (
-              <div className="bg-white rounded-xl border border-[#EAE5DF] overflow-hidden shadow-sm">
+              <div className="neo-card overflow-hidden">
                 {cartItems.map((item, idx) => (
                   <div key={item.id} className={`p-4 flex justify-between items-center ${idx !== cartItems.length - 1 ? 'border-b border-[#F4EFEA]' : ''}`}>
                     <div className="flex-1">
@@ -95,7 +95,7 @@ export default function OrderHistory() {
             <h2 className="text-sm font-bold text-[#7B726B] mb-3">ประวัติการสั่งอาหาร</h2>
             
             {orderedItems.length > 0 ? (
-              <div className="bg-white rounded-xl border border-[#EAE5DF] overflow-hidden shadow-sm p-2">
+              <div className="neo-card p-2">
                 {orderedItems.map((item, idx) => (
                   <div key={item.id} className={`p-3 flex justify-between items-center ${idx !== orderedItems.length - 1 ? 'border-b border-dashed border-[#EAE5DF]' : ''}`}>
                     <div>
@@ -130,12 +130,12 @@ export default function OrderHistory() {
         </div>
 
         {/* --- Sticky Bottom Button (ยืนยันการสั่ง) --- */}
-        <div className="absolute bottom-0 left-0 w-full bg-white border-t border-[#EAE5DF] p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-30">
+        <div className="absolute bottom-0 left-0 w-full bg-white border-t-2 border-[#2d1b17] p-4 shadow-[0_-4px_0_#2d1b17] z-30">
           <button 
             disabled={cartItems.length === 0}
             onClick={() => navigate('/order/success')} 
-            className={`w-full py-3.5 rounded-xl font-bold transition-all shadow-md flex items-center justify-center gap-2
-              ${cartItems.length > 0 ? 'bg-[#5A403E] hover:bg-[#4a322f] text-white' : 'bg-[#EAE5DF] text-[#999] opacity-40'}`}
+            className={`w-full py-3.5 flex items-center justify-center gap-2 font-bold transition-all
+              ${cartItems.length > 0 ? 'neo-btn' : 'neo-btn-secondary text-[#999] cursor-not-allowed opacity-50'}`}
           >
             ส่งออเดอร์เข้าครัว {cartItems.length > 0 ? `(${cartItems.length} รายการ)` : ''}
           </button>

@@ -43,7 +43,7 @@ export default function Landing() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-200 flex justify-center font-sans">
-        <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center shadow-2xl">
+        <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center neo-wrapper">
           <div className="w-12 h-12 border-4 border-[#EAE5DF] border-t-[#5A403E] rounded-full animate-spin mb-4"></div>
           <p className="text-[#7B726B] font-bold text-sm">กำลังตรวจสอบข้อมูลโต๊ะ...</p>
         </div>
@@ -55,7 +55,7 @@ export default function Landing() {
   if (isExpired) {
     return (
       <div className="min-h-screen bg-gray-200 flex justify-center font-sans">
-        <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center px-8 text-center shadow-2xl relative">
+        <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center px-8 text-center neo-wrapper relative">
           
           {/* ปุ่มสลับสถานะ (สำหรับเทสเท่านั้น) */}
           <button onClick={() => setIsExpired(false)} className="absolute top-4 right-4 text-[10px] bg-gray-200 px-2 py-1 rounded text-gray-500">
@@ -72,7 +72,7 @@ export default function Landing() {
             กรุณาติดต่อพนักงานหรือแคชเชียร์เพื่อเปิดโต๊ะใหม่ และรับ QR Code ล่าสุดค่ะ
           </p>
 
-          <div className="bg-white border border-[#EAE5DF] rounded-xl py-4 px-6 w-full shadow-sm text-left">
+          <div className="neo-card py-4 px-6 w-full text-left">
             <p className="text-xs font-bold text-[#302221] mb-2">คำแนะนำ:</p>
             <ul className="text-[11px] text-[#7B726B] list-disc pl-4 space-y-1">
               <li>QR Code จะมีอายุการใช้งานจำกัดเพื่อความปลอดภัย</li>
@@ -88,7 +88,7 @@ export default function Landing() {
   // กรณี QR Code ใช้งานได้ปกติ
   return (
     <div className="min-h-screen bg-gray-200 flex justify-center font-sans">
-      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative shadow-2xl overflow-hidden">
+      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative neo-wrapper overflow-hidden">
         
         {/* ปุ่มสลับสถานะ (สำหรับเทสเท่านั้น) */}
         <button onClick={() => setIsExpired(true)} className="absolute top-4 right-4 text-[10px] bg-gray-200 px-2 py-1 rounded text-gray-500 z-50">
@@ -112,7 +112,7 @@ export default function Landing() {
         {/* ส่วนรายละเอียดด้านล่าง */}
         <div className="flex-1 bg-[#FDFBF7] -mt-6 rounded-t-3xl relative z-20 px-6 pt-8 pb-6 flex flex-col">
           
-          <div className="flex items-center justify-between mb-8 bg-white p-4 rounded-2xl shadow-sm border border-[#EAE5DF]">
+          <div className="flex items-center justify-between mb-8 p-4 neo-card">
             <div>
               <p className="text-[11px] font-bold text-[#7B726B] uppercase tracking-wider mb-0.5">Table Number</p>
               <p className="text-3xl font-black text-[#5A403E]">08</p>
@@ -146,7 +146,7 @@ export default function Landing() {
 
           <button 
             onClick={() => navigate('/order')}
-            className="w-full py-4 mt-6 rounded-xl bg-[#5A403E] hover:bg-[#4a322f] text-white font-bold text-lg transition-all shadow-lg flex items-center justify-center gap-2"
+            className="w-full py-4 mt-6 neo-btn font-bold text-lg flex items-center justify-center gap-2"
           >
             เริ่มสั่งอาหาร
           </button>

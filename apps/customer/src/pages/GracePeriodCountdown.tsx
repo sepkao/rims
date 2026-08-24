@@ -12,10 +12,10 @@ export default function GracePeriodCountdown() {
 
   return (
     <div className="min-h-screen bg-gray-200 flex justify-center font-sans">
-      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center relative shadow-2xl overflow-hidden px-8 text-center">
+      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center relative neo-wrapper px-8 text-center">
         
         {/* Animated Checkmark Circle */}
-        <div className={`w-28 h-28 bg-[#D1FAE5] rounded-full flex items-center justify-center mb-6 transition-all duration-700 ease-out transform
+        <div className={`w-28 h-28 bg-[#D1FAE5] rounded-full flex items-center justify-center mb-6 transition-all duration-700 ease-out transform border-2 border-[#10B981] shadow-[4px_4px_0_#10B981]
           ${showCheck ? 'scale-100 opacity-100' : 'scale-50 opacity-0'}
         `}>
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -28,7 +28,7 @@ export default function GracePeriodCountdown() {
           ห้องครัวได้รับรายการอาหารของท่านแล้ว<br/>กำลังเร่งเตรียมเสิร์ฟให้ถึงโต๊ะค่ะ 🍲
         </p>
 
-        <div className="bg-white border border-[#EAE5DF] rounded-xl py-3 px-6 w-full shadow-sm mb-12">
+        <div className="neo-card py-3 px-6 w-full mb-12">
           <p className="text-[11px] font-bold text-[#999] uppercase tracking-widest mb-1">Order Number</p>
           <p className="text-sm font-medium text-[#7B726B]">จะได้รับหลังเชื่อมต่อ orders API</p>
         </div>
@@ -36,7 +36,7 @@ export default function GracePeriodCountdown() {
         {/* ปุ่มกลับหน้าเมนู */}
         <button 
           onClick={() => navigate('/order')} 
-          className="w-full py-4 rounded-xl bg-[#5A403E] hover:bg-[#4a322f] text-white font-bold transition-all shadow-md"
+          className="w-full py-4 neo-btn font-bold"
         >
           สั่งอาหารเพิ่ม
         </button>
