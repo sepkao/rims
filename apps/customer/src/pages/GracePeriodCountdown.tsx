@@ -28,15 +28,14 @@ export default function GracePeriodCountdown() {
           ห้องครัวได้รับรายการอาหารของท่านแล้ว<br/>กำลังเร่งเตรียมเสิร์ฟให้ถึงโต๊ะค่ะ 🍲
         </p>
 
-        {/* หมายเลขออเดอร์จำลอง */}
         <div className="bg-white border border-[#EAE5DF] rounded-xl py-3 px-6 w-full shadow-sm mb-12">
           <p className="text-[11px] font-bold text-[#999] uppercase tracking-widest mb-1">Order Number</p>
-          <p className="text-lg font-mono font-bold text-[#5A403E]">#ORD-99214</p>
+          <p className="text-sm font-medium text-[#7B726B]">จะได้รับหลังเชื่อมต่อ orders API</p>
         </div>
 
         {/* ปุ่มกลับหน้าเมนู */}
         <button 
-          onClick={() => navigate('/menu')} // 👈 เปลี่ยนกลับไปหน้า Menu
+          onClick={() => navigate('/order')} 
           className="w-full py-4 rounded-xl bg-[#5A403E] hover:bg-[#4a322f] text-white font-bold transition-all shadow-md"
         >
           สั่งอาหารเพิ่ม

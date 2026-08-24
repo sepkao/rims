@@ -8,6 +8,20 @@ const Icons = {
   Check: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
 };
 
+function EmptyCard({ message, detail, actionLabel, onAction }: { message: string; detail: string; actionLabel?: string; onAction?: () => void }) { 
+  return (
+    <div className="rounded-xl border-2 border-dashed border-[#EAE5DF] bg-white p-8 text-center shadow-sm">
+      <p className="font-bold text-[#302221]">{message}</p>
+      <p className="mt-1 text-xs text-[#7B726B]">{detail}</p>
+      {actionLabel && (
+        <button onClick={onAction} className="mt-5 rounded-lg bg-[#5A403E] px-4 py-2 text-xs font-bold text-white">
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function OrderHistory() {
   const navigate = useNavigate();
 
@@ -42,59 +56,75 @@ export default function OrderHistory() {
           <div className="mb-8">
             <h2 className="text-sm font-bold text-[#7B726B] mb-3 flex justify-between items-center">
               รายการที่กำลังจะสั่ง (รอส่ง)
-              <span className="text-[#E53E3E] text-xs font-medium bg-[#FEF2F2] px-2 py-0.5 rounded">ล้างตะกร้า</span>
+              {cartItems.length > 0 && <span className="text-[#E53E3E] text-xs font-medium bg-[#FEF2F2] px-2 py-0.5 rounded cursor-pointer">ล้างตะกร้า</span>}
             </h2>
             
-            <div className="bg-white rounded-xl border border-[#EAE5DF] overflow-hidden shadow-sm">
-              {cartItems.map((item, idx) => (
-                <div key={item.id} className={`p-4 flex justify-between items-center ${idx !== cartItems.length - 1 ? 'border-b border-[#F4EFEA]' : ''}`}>
-                  <div className="flex-1">
-                    <h3 className="text-[14px] font-bold text-[#302221]">{item.name}</h3>
-                    <p className="text-xs text-[#7B726B]">{item.price}</p>
-                  </div>
-                  
-                  <div className="flex items-center gap-4">
-                    {/* ปุ่มเพิ่มลดจำนวนขนาดเล็ก */}
-                    <div className="flex items-center bg-[#F4EFEA] rounded-md px-2 py-1 gap-3">
-                      <button className="text-[#5A403E] font-bold">-</button>
-                      <span className="font-bold text-[#302221] text-sm">{item.qty}</span>
-                      <button className="text-[#5A403E] font-bold">+</button>
+            {cartItems.length > 0 ? (
+              <div className="bg-white rounded-xl border border-[#EAE5DF] overflow-hidden shadow-sm">
+                {cartItems.map((item, idx) => (
+                  <div key={item.id} className={`p-4 flex justify-between items-center ${idx !== cartItems.length - 1 ? 'border-b border-[#F4EFEA]' : ''}`}>
+                    <div className="flex-1">
+                      <h3 className="text-[14px] font-bold text-[#302221]">{item.name}</h3>
+                      <p className="text-xs text-[#7B726B]">{item.price}</p>
                     </div>
-                    <button className="p-1"><Icons.Trash /></button>
+                    
+                    <div className="flex items-center gap-4">
+                      {/* ปุ่มเพิ่มลดจำนวนขนาดเล็ก */}
+                      <div className="flex items-center bg-[#F4EFEA] rounded-md px-2 py-1 gap-3">
+                        <button className="text-[#5A403E] font-bold">-</button>
+                        <span className="font-bold text-[#302221] text-sm">{item.qty}</span>
+                        <button className="text-[#5A403E] font-bold">+</button>
+                      </div>
+                      <button className="p-1"><Icons.Trash /></button>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyCard 
+                message="ยังไม่มีรายการในตะกร้า" 
+                detail="กลับไปหน้าเมนูเพื่อเลือกอาหาร" 
+                actionLabel="เลือกเมนู" 
+                onAction={() => navigate('/order')} 
+              />
+            )}
           </div>
 
           {/* Section 2: รายการที่สั่งไปแล้ว (สถานะ) */}
           <div>
             <h2 className="text-sm font-bold text-[#7B726B] mb-3">ประวัติการสั่งอาหาร</h2>
             
-            <div className="bg-white rounded-xl border border-[#EAE5DF] overflow-hidden shadow-sm p-2">
-              {orderedItems.map((item, idx) => (
-                <div key={item.id} className={`p-3 flex justify-between items-center ${idx !== orderedItems.length - 1 ? 'border-b border-dashed border-[#EAE5DF]' : ''}`}>
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-bold bg-[#EAE5DF] text-[#555] px-1.5 rounded">x{item.qty}</span>
-                      <h3 className="text-[13px] font-bold text-[#302221]">{item.name}</h3>
+            {orderedItems.length > 0 ? (
+              <div className="bg-white rounded-xl border border-[#EAE5DF] overflow-hidden shadow-sm p-2">
+                {orderedItems.map((item, idx) => (
+                  <div key={item.id} className={`p-3 flex justify-between items-center ${idx !== orderedItems.length - 1 ? 'border-b border-dashed border-[#EAE5DF]' : ''}`}>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-bold bg-[#EAE5DF] text-[#555] px-1.5 rounded">x{item.qty}</span>
+                        <h3 className="text-[13px] font-bold text-[#302221]">{item.name}</h3>
+                      </div>
+                      <p className="text-[10px] text-[#999] ml-7">สั่งเมื่อ {item.time}</p>
                     </div>
-                    <p className="text-[10px] text-[#999] ml-7">สั่งเมื่อ {item.time}</p>
+                    
+                    {/* Status Badge */}
+                    {item.status === 'cooking' ? (
+                      <div className="flex items-center gap-1.5 bg-[#FEF3C7] text-[#D97706] px-2 py-1 rounded-md text-[11px] font-bold">
+                        <Icons.Cooking /> กำลังเตรียม
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 bg-[#D1FAE5] text-[#059669] px-2 py-1 rounded-md text-[11px] font-bold">
+                        <Icons.Check /> เสิร์ฟแล้ว
+                      </div>
+                    )}
                   </div>
-                  
-                  {/* Status Badge */}
-                  {item.status === 'cooking' ? (
-                    <div className="flex items-center gap-1.5 bg-[#FEF3C7] text-[#D97706] px-2 py-1 rounded-md text-[11px] font-bold">
-                      <Icons.Cooking /> กำลังเตรียม
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 bg-[#D1FAE5] text-[#059669] px-2 py-1 rounded-md text-[11px] font-bold">
-                      <Icons.Check /> เสิร์ฟแล้ว
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyCard 
+                message="ยังไม่มีประวัติการสั่งซื้อ" 
+                detail="รายการสั่งซื้อจะแสดงหลังจากเชื่อมต่อ orders API" 
+              />
+            )}
           </div>
 
         </div>
@@ -102,10 +132,12 @@ export default function OrderHistory() {
         {/* --- Sticky Bottom Button (ยืนยันการสั่ง) --- */}
         <div className="absolute bottom-0 left-0 w-full bg-white border-t border-[#EAE5DF] p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-30">
           <button 
-            onClick={() => navigate('/countdown')} // 👈 เปลี่ยนปลายทางไปหน้า Countdown
-            className="w-full py-3.5 rounded-xl bg-[#5A403E] hover:bg-[#4a322f] text-white font-bold transition-all shadow-md flex items-center justify-center gap-2"
+            disabled={cartItems.length === 0}
+            onClick={() => navigate('/order/success')} 
+            className={`w-full py-3.5 rounded-xl font-bold transition-all shadow-md flex items-center justify-center gap-2
+              ${cartItems.length > 0 ? 'bg-[#5A403E] hover:bg-[#4a322f] text-white' : 'bg-[#EAE5DF] text-[#999] opacity-40'}`}
           >
-            ส่งออเดอร์เข้าครัว (3 รายการ)
+            ส่งออเดอร์เข้าครัว {cartItems.length > 0 ? `(${cartItems.length} รายการ)` : ''}
           </button>
         </div>
 

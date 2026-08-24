@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { apiFetch } from '../../../lib/api'
+import { apiFetch } from '../../lib/api'
 
 type Employee = {
   id: string

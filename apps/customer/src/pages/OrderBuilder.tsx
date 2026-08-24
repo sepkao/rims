@@ -57,8 +57,8 @@ export default function OrderBuilder() {
   };
 
   const handleConfirmOrder = () => {
-    // ไปหน้า Countdown (Grace Period)
-    navigate('/countdown');
+    // กลับไปหน้า Menu หลัก
+    navigate('/order');
   };
 
   return (
@@ -167,7 +167,7 @@ export default function OrderBuilder() {
               <h2 className="text-xl font-black text-center text-[#302221] mb-2">ยืนยันการสั่งอาหาร?</h2>
               <p className="text-sm text-center text-[#7B726B] mb-6 leading-relaxed">
                 คุณต้องการสั่ง <span className="font-bold text-[#5A403E]">{mockItem.name} ({qty} ถาด)</span> ใช่หรือไม่?<br/>
-                <span className="text-[11px] text-[#E53E3E]">*หลังจากกดตกลง ระบบจะเริ่มนับถอยหลังก่อนส่งเข้าครัว</span>
+                <span className="text-[11px] text-[#10B981]">*หลังจากกดตกลง รายการจะถูกเพิ่มลงในตะกร้าของคุณ</span>
               </p>
               
               <div className="flex gap-3">

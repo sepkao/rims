@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 
-export default function CashierOrderListPage() {
+export default function OrderList() {
   const navigate = useNavigate()
   return <div className="w-full max-w-[1240px] bg-[#FDFBF7] pb-20"><header className="flex flex-col justify-between gap-4 border-b border-[#EAE5DF] py-6 sm:flex-row sm:items-center"><div><h1 className="text-[24px] font-bold text-[#302221]">รายการสั่งอาหาร</h1><p className="mt-1 text-sm text-[#7B726B]">ออเดอร์จะแสดงเมื่อเชื่อมต่อ orders API</p></div><button onClick={() => navigate('/cashier/payment')} className="rounded-lg bg-[#894833] px-5 py-2.5 text-sm font-bold text-white">ไปหน้าชำระเงิน</button></header><section className="mt-8 grid gap-6 lg:grid-cols-2"><div className="rounded-xl border border-[#EAE5DF] bg-white p-6 shadow-sm"><h2 className="text-lg font-bold text-[#302221]">ผังที่นั่งทั้งหมด</h2><div className="mt-6 rounded-xl border-2 border-dashed border-[#EAE5DF] p-12 text-center"><p className="font-bold text-[#302221]">ยังไม่มีข้อมูลโต๊ะ</p><p className="mt-1 text-sm text-[#7B726B]">ข้อมูลจริงจะแสดงจาก tables API</p></div></div><div className="rounded-xl border border-[#EAE5DF] bg-white p-6 shadow-sm"><h2 className="text-lg font-bold text-[#302221]">กำลังเตรียมอาหาร</h2><div className="mt-6 rounded-xl border-2 border-dashed border-[#EAE5DF] p-12 text-center"><p className="font-bold text-[#302221]">ยังไม่มีออเดอร์</p><p className="mt-1 text-sm text-[#7B726B]">รายการจาก kitchen/order service จะปรากฏที่นี่</p></div></div></section></div>
 }

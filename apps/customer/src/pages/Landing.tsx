@@ -145,7 +145,7 @@ export default function Landing() {
           </div>
 
           <button 
-            onClick={() => navigate('/menu')}
+            onClick={() => navigate('/order')}
             className="w-full py-4 mt-6 rounded-xl bg-[#5A403E] hover:bg-[#4a322f] text-white font-bold text-lg transition-all shadow-lg flex items-center justify-center gap-2"
           >
             เริ่มสั่งอาหาร
