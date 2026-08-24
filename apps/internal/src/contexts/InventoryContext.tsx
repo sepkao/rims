@@ -94,3 +94,4 @@ export function useInventory() {
   if (!context) throw new Error('useInventory must be used inside InventoryProvider')
   return context
 }
+

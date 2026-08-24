@@ -17,3 +17,4 @@ export default function StaffDashboardPage() {
 }
 
 function PopMetric({ label, value, detail, color, symbol }: { label: string; value: number; detail: string; color: string; symbol: string }) { return <article className={`group relative overflow-hidden rounded-[22px] border-2 border-[#2D1B17] p-5 shadow-[5px_5px_0_#2D1B17] transition hover:-translate-y-1 ${color}`}><span className="absolute right-4 top-3 text-3xl font-black opacity-20">{symbol}</span><p className="text-[10px] font-black uppercase tracking-[.14em] text-[#6D5148]">{label}</p><p className="mt-2 text-4xl font-black tracking-tight text-[#2D1B17]">{String(value).padStart(2, '0')}</p><p className="mt-1 text-xs font-bold text-[#745B52]">{detail}</p></article>; }
+

@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useAuth, type Role } from '../../contexts/AuthContext'
+import { useAuth, type Role } from '../contexts/AuthContext'
 
 const homeByRole: Record<Role, string> = {
   owner: '/owner/dashboard',
   staff: '/staff/dashboard',
   cashier: '/cashier/tables',
 }
-
 export default function LoginPage() {
   const navigate = useNavigate()
   const { login } = useAuth()

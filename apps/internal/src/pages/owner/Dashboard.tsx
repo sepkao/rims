@@ -53,7 +53,6 @@ export default function DashboardPage() {
     </div>
   );
 }
-
 function Metric({ label, value, detail, tone }: { label: string; value: number; detail: string; tone: 'normal' | 'warning' | 'danger' }) {
   const toneClass = { normal: 'border-[#e8e3dd]', warning: 'border-amber-200 bg-amber-50', danger: 'border-red-200 bg-red-50' }[tone];
   return <div className={`admin-stat-card rounded-xl border p-5 shadow-sm ${toneClass}`}><p className="text-xs font-bold uppercase tracking-wide text-[#7B726B]">{label}</p><p className="my-1 text-3xl font-bold text-[#302221]">{value} <span className="text-sm font-medium">ล็อต</span></p><p className="text-xs text-[#7B726B]">{detail}</p></div>;
