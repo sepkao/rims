@@ -1,3 +1,11 @@
-export default function OrdersToServe() {
-  return <p>Orders to serve page</p>
+import { useState } from 'react'
+
+export default function StaffKitchenQueuePage() {
+  const [query, setQuery] = useState('')
+
+  return <div className="w-full max-w-[1240px] bg-[#FDFBF7] p-8 pb-20">
+    <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div className="flex items-center gap-4"><h1 className="text-[28px] font-medium text-[#302221]">Kitchen Queue</h1><span className="rounded-full bg-[#EAE5DF] px-3 py-1 text-xs font-bold text-[#7B726B]">ข้อมูลจาก API</span></div><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search orders..." className="w-full rounded-full bg-[#F4EFEA] px-4 py-2 text-sm outline-none sm:w-[300px]" /></div>
+    <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h2 className="mb-1 text-3xl font-bold text-[#302221]">Live Tickets</h2><p className="text-sm text-[#7B726B]">รายการออเดอร์จะแสดงเมื่อเชื่อมต่อ orders API</p></div><div className="flex gap-3"><button className="rounded-lg border border-[#d6d0c4] bg-white px-4 py-2 text-sm font-bold text-[#302221]">Filter</button><button className="rounded-lg border border-[#d6d0c4] bg-white px-4 py-2 text-sm font-bold text-[#302221]">History</button></div></div>
+    <div className="grid gap-8 lg:grid-cols-[1fr_340px]"><div className="rounded-xl border-2 border-dashed border-[#EAE5DF] bg-white py-20 text-center"><h3 className="mb-2 text-xl font-bold text-[#302221]">No active tickets</h3><p className="text-sm text-[#7B726B]">{query ? `ไม่พบรายการที่ตรงกับ “${query}”` : 'ยังไม่มีข้อมูลออเดอร์จากระบบ'}</p></div><div className="space-y-6"><div className="rounded-xl border border-[#F8CACA] bg-[#FCE8E8] p-6 shadow-sm"><h3 className="text-lg font-bold text-[#C53030]">Stock Alert</h3><p className="mt-2 text-xs leading-relaxed text-[#C53030]">แจ้งเตือนจะแสดงเมื่อ API ส่งข้อมูล stock ที่ต้องดำเนินการ</p><button className="mt-5 w-full rounded-lg bg-[#6b2121] py-2.5 text-sm font-bold text-white">Check Inventory</button></div><div className="rounded-xl border border-[#EAE5DF] bg-[#FAF8F5] p-6 shadow-sm"><h3 className="text-lg font-bold text-[#302221]">Queue Efficiency</h3><p className="mt-2 text-xs text-[#7B726B]">ตัวชี้วัดจะแสดงจาก orders และ kitchen events จริง</p><div className="mt-6 rounded-lg bg-white p-4 text-center text-sm text-[#7B726B]">ยังไม่มี metrics</div></div></div></div>
+  </div>
 }

@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { apiFetch } from '../../lib/api'
+import { apiFetch } from '../lib/api'
 import type { InventoryBatch } from '../types/inventory'
 
 export type NewBatch = Omit<InventoryBatch, 'id' | 'status' | 'unitValue'> & { unitCost: number }
@@ -94,3 +94,4 @@ export function useInventory() {
   if (!context) throw new Error('useInventory must be used inside InventoryProvider')
   return context
 }
+
