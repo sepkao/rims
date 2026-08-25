@@ -2,7 +2,19 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { apiFetch } from '../lib/api'
 import type { InventoryBatch } from '../types/inventory'
 
-export type NewBatch = Omit<InventoryBatch, 'id' | 'status' | 'unitValue'> & { unitCost: number }
+export type NewLotLine = {
+  item: string
+  category: Extract<InventoryBatch['category'], 'Meat' | 'Vegetable'>
+  qty: string
+  expireDate: string
+  unitCost: number
+}
+
+export type NewLot = {
+  reference?: string
+  receiveDate: string
+  items: NewLotLine[]
+}
 
 type InventoryContextValue = {
   batches: InventoryBatch[]
@@ -10,7 +22,7 @@ type InventoryContextValue = {
   loading: boolean
   error: string
   refresh: () => Promise<void>
-  receiveBatch: (batch: NewBatch) => Promise<void>
+  receiveLot: (lot: NewLot) => Promise<string>
 }
 
 type ApiLot = {
@@ -64,21 +76,27 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { void refresh() }, [refresh])
 
-  const receiveBatch = useCallback(async (batch: NewBatch) => {
-    const [quantityText, unit = 'kg'] = batch.qty.trim().split(/\s+/, 2)
-    await apiFetch('/inventory/lots', {
+  const receiveLot = useCallback(async (lot: NewLot) => {
+    const response = await apiFetch<{ id: string }>('/inventory/lots', {
       method: 'POST',
       body: JSON.stringify({
-        item: batch.item,
-        category: batch.category,
-        quantity: Number(quantityText),
-        unit,
-        receivedAt: batch.receiveDate,
-        expiryDate: batch.expireDate,
-        unitCost: batch.unitCost,
+        reference: lot.reference,
+        receivedAt: lot.receiveDate,
+        items: lot.items.map((item) => {
+          const [quantity, unit = 'kg'] = item.qty.trim().split(/\s+/, 2)
+          return {
+            item: item.item,
+            category: item.category,
+            quantity: Number(quantity),
+            unit,
+            expiryDate: item.expireDate,
+            unitCost: item.unitCost,
+          }
+        }),
       }),
     })
     await refresh()
+    return response.id
   }, [refresh])
 
   const fifoQueue = useMemo(
@@ -86,7 +104,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     [batches],
   )
 
-  return <InventoryContext.Provider value={{ batches, fifoQueue, loading, error, refresh, receiveBatch }}>{children}</InventoryContext.Provider>
+  return <InventoryContext.Provider value={{ batches, fifoQueue, loading, error, refresh, receiveLot }}>{children}</InventoryContext.Provider>
 }
 
 export function useInventory() {
@@ -94,4 +112,3 @@ export function useInventory() {
   if (!context) throw new Error('useInventory must be used inside InventoryProvider')
   return context
 }
-
