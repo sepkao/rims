@@ -10,6 +10,8 @@ type MenuItem = {
   ingredients: Array<{ id: string; name: string; removable: boolean }>;
 };
 
+import { useCart } from '../lib/CartContext';
+
 // --- Icons สำหรับฝั่งลูกค้า ---
 const Icons = {
   Clock: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>,
@@ -45,7 +47,7 @@ const mockImages = [
 export default function Menu() {
   const navigate = useNavigate();
   const [items, setItems] = useState<MenuItem[]>([]);
-  const [cart, setCart] = useState<Record<string, number>>({});
+  const { items: cartItems, addItem, removeItem, updateQuantity } = useCart();
   const [query, setQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState("ทั้งหมด");
   const [loading, setLoading] = useState(true);
@@ -64,22 +66,35 @@ export default function Menu() {
     return matchesSearch && matchesCategory;
   }), [items, query, activeCategory]);
 
-  const totalItems = Object.values(cart).reduce((sum, quantity) => sum + quantity, 0);
+  const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
-  const handleAdd = (id: string) => {
-    setCart(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
+  const handleAdd = (item: MenuItem) => {
+    if (item.ingredients.length > 0) {
+      navigate(`/build/${item.id}`);
+    } else {
+      addItem({ menuItem: item, quantity: 1, removedIngredients: [] });
+    }
   };
 
-  const handleRemove = (id: string) => {
-    setCart(prev => {
-      const newCart = { ...prev };
-      if (newCart[id] > 1) {
-        newCart[id] -= 1;
+  const handleQuickAdd = (item: MenuItem) => {
+    addItem({ menuItem: item, quantity: 1, removedIngredients: [] });
+  };
+
+  const handleRemoveOne = (item: MenuItem) => {
+    // Find the most recently added instance of this item
+    const existingInstances = cartItems.filter(i => i.menuItem.id === item.id);
+    if (existingInstances.length > 0) {
+      const lastInstance = existingInstances[existingInstances.length - 1];
+      if (lastInstance.quantity > 1) {
+        updateQuantity(lastInstance.cartItemId, lastInstance.quantity - 1);
       } else {
-        delete newCart[id];
+        removeItem(lastInstance.cartItemId);
       }
-      return newCart;
-    });
+    }
+  };
+
+  const getItemQuantity = (itemId: string) => {
+    return cartItems.filter(i => i.menuItem.id === itemId).reduce((sum, i) => sum + i.quantity, 0);
   };
 
   return (
@@ -162,14 +177,14 @@ export default function Menu() {
                     ))}
                   </div>
                   
-                  {cart[item.id] ? (
+                  {getItemQuantity(item.id) > 0 ? (
                     <div className="flex items-center justify-between bg-[#F4EFEA] rounded-lg p-1 mt-auto">
-                      <button onClick={() => handleRemove(item.id)} className="w-7 h-7 bg-white rounded-md flex items-center justify-center text-[#5A403E] font-bold shadow-sm"><Icons.Minus /></button>
-                      <span className="font-bold text-[#302221]">{cart[item.id]}</span>
-                      <button onClick={() => handleAdd(item.id)} className="w-7 h-7 bg-[#5A403E] rounded-md flex items-center justify-center text-white font-bold shadow-sm"><Icons.Plus /></button>
+                      <button onClick={() => handleRemoveOne(item)} className="w-7 h-7 bg-white rounded-md flex items-center justify-center text-[#5A403E] font-bold shadow-sm"><Icons.Minus /></button>
+                      <span className="font-bold text-[#302221]">{getItemQuantity(item.id)}</span>
+                      <button onClick={() => handleQuickAdd(item)} className="w-7 h-7 bg-[#5A403E] rounded-md flex items-center justify-center text-white font-bold shadow-sm"><Icons.Plus /></button>
                     </div>
                   ) : (
-                    <button onClick={() => navigate('/build')} className="w-full py-1.5 neo-btn-secondary text-[13px] font-bold mt-auto">
+                    <button onClick={() => handleAdd(item)} className="w-full py-1.5 neo-btn-secondary text-[13px] font-bold mt-auto">
                       + สั่งเลย
                     </button>
                   )}

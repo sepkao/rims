@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { useCart } from '../lib/CartContext';
 
 // --- Icons สำหรับหน้า Cart ---
 const Icons = {
@@ -24,18 +25,19 @@ function EmptyCard({ message, detail, actionLabel, onAction }: { message: string
 
 export default function OrderHistory() {
   const navigate = useNavigate();
-
-  // Mock Data: รายการที่เพิ่งกดใส่ตะกร้า (รอส่งเข้าครัว)
-  const cartItems = [
-    { id: 1, name: "เนื้อวากิวออสเตรเลีย", qty: 2, price: "บุฟเฟต์" },
-    { id: 3, name: "หมูสามชั้นสไลด์", qty: 1, price: "บุฟเฟต์" },
-  ];
+  const { items: cartItems, updateQuantity, removeItem, clearCart } = useCart();
 
   // Mock Data: รายการที่ส่งเข้าครัวไปแล้ว
   const orderedItems = [
     { id: 5, name: "กุ้งแม่น้ำ", qty: 1, status: "cooking", time: "19:45" },
     { id: 7, name: "น้ำซุปหม่าล่า", qty: 1, status: "served", time: "19:42" },
   ];
+  
+  const handleCheckout = () => {
+    // Ideally we would POST to an orders API here, then clear cart
+    clearCart();
+    navigate('/order/success');
+  };
 
   return (
     <div className="min-h-screen bg-gray-200 flex justify-center font-sans">
@@ -56,29 +58,45 @@ export default function OrderHistory() {
           <div className="mb-8">
             <h2 className="text-sm font-bold text-[#7B726B] mb-3 flex justify-between items-center">
               รายการที่กำลังจะสั่ง (รอส่ง)
-              {cartItems.length > 0 && <span className="text-[#E53E3E] text-xs font-medium bg-[#FEF2F2] px-2 py-0.5 rounded cursor-pointer">ล้างตะกร้า</span>}
+              {cartItems.length > 0 && <span onClick={clearCart} className="text-[#E53E3E] text-xs font-medium bg-[#FEF2F2] px-2 py-0.5 rounded cursor-pointer">ล้างตะกร้า</span>}
             </h2>
             
             {cartItems.length > 0 ? (
               <div className="neo-card overflow-hidden">
-                {cartItems.map((item, idx) => (
-                  <div key={item.id} className={`p-4 flex justify-between items-center ${idx !== cartItems.length - 1 ? 'border-b border-[#F4EFEA]' : ''}`}>
-                    <div className="flex-1">
-                      <h3 className="text-[14px] font-bold text-[#302221]">{item.name}</h3>
-                      <p className="text-xs text-[#7B726B]">{item.price}</p>
-                    </div>
-                    
-                    <div className="flex items-center gap-4">
-                      {/* ปุ่มเพิ่มลดจำนวนขนาดเล็ก */}
-                      <div className="flex items-center bg-[#F4EFEA] rounded-md px-2 py-1 gap-3">
-                        <button className="text-[#5A403E] font-bold">-</button>
-                        <span className="font-bold text-[#302221] text-sm">{item.qty}</span>
-                        <button className="text-[#5A403E] font-bold">+</button>
+                {cartItems.map((item, idx) => {
+                  const removedNames = item.removedIngredients.map(id => {
+                    const ing = item.menuItem.ingredients.find(i => i.id === id);
+                    return ing ? ing.name : '';
+                  }).filter(Boolean).join(', ');
+
+                  return (
+                    <div key={item.cartItemId} className={`p-4 flex justify-between items-center ${idx !== cartItems.length - 1 ? 'border-b border-[#F4EFEA]' : ''}`}>
+                      <div className="flex-1">
+                        <h3 className="text-[14px] font-bold text-[#302221]">{item.menuItem.name}</h3>
+                        <p className="text-xs text-[#7B726B]">฿{item.menuItem.price.toLocaleString()}</p>
+                        {removedNames && <p className="text-[11px] text-[#E53E3E] mt-1 font-medium">(ไม่ใส่: {removedNames})</p>}
                       </div>
-                      <button className="p-1"><Icons.Trash /></button>
+                      
+                      <div className="flex items-center gap-4">
+                        {/* ปุ่มเพิ่มลดจำนวนขนาดเล็ก */}
+                        <div className="flex items-center bg-[#F4EFEA] rounded-md px-2 py-1 gap-3">
+                          <button 
+                            onClick={() => {
+                              if (item.quantity > 1) updateQuantity(item.cartItemId, item.quantity - 1);
+                            }} 
+                            className="text-[#5A403E] font-bold"
+                          >-</button>
+                          <span className="font-bold text-[#302221] text-sm">{item.quantity}</span>
+                          <button 
+                            onClick={() => updateQuantity(item.cartItemId, item.quantity + 1)}
+                            className="text-[#5A403E] font-bold"
+                          >+</button>
+                        </div>
+                        <button onClick={() => removeItem(item.cartItemId)} className="p-1"><Icons.Trash /></button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <EmptyCard 
@@ -133,11 +151,11 @@ export default function OrderHistory() {
         <div className="absolute bottom-0 left-0 w-full bg-white border-t-2 border-[#2d1b17] p-4 shadow-[0_-4px_0_#2d1b17] z-30">
           <button 
             disabled={cartItems.length === 0}
-            onClick={() => navigate('/order/success')} 
+            onClick={handleCheckout} 
             className={`w-full py-3.5 flex items-center justify-center gap-2 font-bold transition-all
               ${cartItems.length > 0 ? 'neo-btn' : 'neo-btn-secondary text-[#999] cursor-not-allowed opacity-50'}`}
           >
-            ส่งออเดอร์เข้าครัว {cartItems.length > 0 ? `(${cartItems.length} รายการ)` : ''}
+            ส่งออเดอร์เข้าครัว {cartItems.length > 0 ? `(${cartItems.reduce((acc, i) => acc + i.quantity, 0)} รายการ)` : ''}
           </button>
         </div>
 
