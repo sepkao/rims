@@ -10,6 +10,7 @@ import ExpiredGoodsPage from './pages/owner/NotFreshInventory'
 import InventoryLogsPage from './pages/owner/StockMovementHistory'
 import MenuManagementPage from './pages/owner/MenuManagement'
 import SystemLogsPage from './pages/owner/SystemLogs'
+import BuffetPricesPage from './pages/owner/QrSettings'
 import UserManagementPage from './pages/owner/UserManagement'
 import AddLotPage from './pages/staff/ReceiveLot'
 import KitchenStockPage from './pages/staff/KitchenStock'
@@ -52,6 +53,7 @@ export function AppRoutes() {
           <Route path="/owner/history" element={<RequireRole role="owner"><InventoryLogsPage /></RequireRole>} />
           <Route path="/owner/expired" element={<RequireRole role="owner"><ExpiredGoodsPage /></RequireRole>} />
           <Route path="/owner/system-logs" element={<RequireRole role="owner"><SystemLogsPage /></RequireRole>} />
+          <Route path="/owner/settings" element={<RequireRole role="owner"><BuffetPricesPage /></RequireRole>} />
 
           <Route path="/staff/dashboard" element={<RequireRole role="staff"><StaffDashboardPage /></RequireRole>} />
           <Route path="/staff/freezer-stock" element={<RequireRole role="staff"><KitchenStockPage area="Freezer Stock" /></RequireRole>} />

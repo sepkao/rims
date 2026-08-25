@@ -182,6 +182,78 @@ app.post('/auth/logout', async (c) => {
 
 app.use('/owner/*', (c, next) => requireRoles(c, next, ['owner']))
 app.use('/inventory/*', (c, next) => requireRoles(c, next, ['owner', 'staff']))
+app.use('/cashier/*', (c, next) => requireRoles(c, next, ['cashier']))
+
+app.get('/cashier/dining-tables', async (c) => {
+  const result = await pool.query(
+    `SELECT id::text, table_number AS "tableNumber", status
+     FROM dining_tables
+     ORDER BY table_number`,
+  )
+  return c.json({ diningTables: result.rows })
+})
+
+app.post('/cashier/table-sessions', async (c) => {
+  try {
+    const body = await c.req.json<{
+      diningTableId?: string
+      adultCount?: number
+      childCount?: number
+      seniorCount?: number
+      disabledCount?: number
+    }>()
+    const diningTableId = body.diningTableId
+    const adultCount = Number(body.adultCount ?? 0)
+    const childCount = Number(body.childCount ?? 0)
+    const seniorCount = Number(body.seniorCount ?? 0)
+    const disabledCount = Number(body.disabledCount ?? 0)
+    const counts = [adultCount, childCount, seniorCount, disabledCount]
+    if (!diningTableId || counts.some((n) => !Number.isInteger(n) || n < 0)) {
+      return c.json({ error: 'diningTableId and non-negative integer headcounts are required' }, 400)
+    }
+    if (counts.every((n) => n === 0)) {
+      return c.json({ error: 'At least one guest is required to check in' }, 400)
+    }
+
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+
+    const settingsResult = await pool.query<{ key: string; value: string }>(
+      `SELECT key, value FROM settings
+       WHERE key = ANY($1::text[])`,
+      [[...BUFFET_PRICE_KEYS, 'qr_duration_minutes']],
+    )
+    const byKey = Object.fromEntries(settingsResult.rows.map((row) => [row.key, row.value]))
+    const qrDurationMinutes = Number(byKey.qr_duration_minutes ?? 120)
+
+    const qrCode = `${diningTableId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+    const result = await pool.query(
+      `INSERT INTO table_sessions (
+         dining_table_id, qr_code, opened_by, expires_at,
+         adult_count, child_count, senior_count, disabled_count,
+         price_per_adult, price_per_child, price_per_senior, price_per_disabled
+       )
+       VALUES ($1, $2, $3, now() + ($4 || ' minutes')::interval, $5, $6, $7, $8, $9, $10, $11, $12)
+       RETURNING id::text, dining_table_id::text AS "diningTableId", qr_code AS "qrCode",
+                 started_at AS "startedAt", expires_at AS "expiresAt",
+                 adult_count AS "adultCount", child_count AS "childCount",
+                 senior_count AS "seniorCount", disabled_count AS "disabledCount"`,
+      [
+        diningTableId, qrCode, actor.id, qrDurationMinutes,
+        adultCount, childCount, seniorCount, disabledCount,
+        Number(byKey.buffet_price_adult ?? 0), Number(byKey.buffet_price_child ?? 0),
+        Number(byKey.buffet_price_senior ?? 0), Number(byKey.buffet_price_disabled ?? 0),
+      ],
+    )
+    await pool.query(`UPDATE dining_tables SET status = 'occupied' WHERE id = $1`, [diningTableId])
+
+    return c.json({ tableSession: result.rows[0] }, 201)
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
 
 app.get('/owner/users', async (c) => {
   const result = await pool.query(
@@ -269,12 +341,55 @@ app.get('/owner/system-logs', async (c) => {
   return c.json({ logs: result.rows })
 })
 
+const BUFFET_PRICE_KEYS = ['buffet_price_adult', 'buffet_price_child', 'buffet_price_senior', 'buffet_price_disabled'] as const
+
+app.get('/owner/settings/buffet-prices', async (c) => {
+  const result = await pool.query<{ key: string; value: string }>(
+    `SELECT key, value FROM settings WHERE key = ANY($1::text[])`,
+    [BUFFET_PRICE_KEYS],
+  )
+  const byKey = Object.fromEntries(result.rows.map((row) => [row.key, Number(row.value)]))
+  return c.json({
+    adult: byKey.buffet_price_adult ?? 0,
+    child: byKey.buffet_price_child ?? 0,
+    senior: byKey.buffet_price_senior ?? 0,
+    disabled: byKey.buffet_price_disabled ?? 0,
+  })
+})
+
+app.put('/owner/settings/buffet-prices', async (c) => {
+  try {
+    const body = await c.req.json<{ adult?: number; child?: number; senior?: number; disabled?: number }>()
+    const entries: Array<[string, number]> = [
+      ['buffet_price_adult', Number(body.adult)],
+      ['buffet_price_child', Number(body.child)],
+      ['buffet_price_senior', Number(body.senior)],
+      ['buffet_price_disabled', Number(body.disabled)],
+    ]
+    for (const [, value] of entries) {
+      if (!Number.isFinite(value) || value < 0) {
+        return c.json({ error: 'Every buffet price must be zero or a positive number' }, 400)
+      }
+    }
+
+    for (const [key, value] of entries) {
+      await pool.query(
+        `UPDATE settings SET value = $1, updated_at = now() WHERE key = $2`,
+        [String(value), key],
+      )
+    }
+    return c.json({ adult: entries[0][1], child: entries[1][1], senior: entries[2][1], disabled: entries[3][1] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
 app.get('/menu-items', async (c) => {
   try {
     const result = await pool.query(
       `SELECT mi.id::text,
               mi.name,
-              mi.price::float8 AS price,
               mi.description,
               COALESCE(
                 json_agg(
@@ -297,6 +412,114 @@ app.get('/menu-items', async (c) => {
   } catch (error) {
     console.error(error)
     return c.json({ error: 'Unable to load menu items' }, 500)
+  }
+})
+
+app.post('/owner/menu-items', async (c) => {
+  try {
+    const body = await c.req.json<{ name?: string; description?: string }>()
+    const name = body.name?.trim()
+    if (!name) {
+      return c.json({ error: 'Name is required' }, 400)
+    }
+
+    const result = await pool.query(
+      `INSERT INTO menu_items (name, description)
+       VALUES ($1, $2)
+       RETURNING id::text, name, description, is_active AS "isActive"`,
+      [name, body.description?.trim() || null],
+    )
+    return c.json({ menuItem: result.rows[0] }, 201)
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
+app.put('/owner/menu-items/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const body = await c.req.json<{ name?: string; description?: string; isActive?: boolean }>()
+
+    const result = await pool.query(
+      `UPDATE menu_items
+       SET name = COALESCE($1, name),
+           description = COALESCE($2, description),
+           is_active = COALESCE($3, is_active)
+       WHERE id = $4
+       RETURNING id::text, name, description, is_active AS "isActive"`,
+      [body.name?.trim() || null, body.description?.trim() || null, body.isActive ?? null, id],
+    )
+    if (!result.rows[0]) return c.json({ error: 'Menu item not found' }, 404)
+    return c.json({ menuItem: result.rows[0] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
+app.delete('/owner/menu-items/:id', async (c) => {
+  const client = await pool.connect()
+  try {
+    const id = c.req.param('id')
+    const orderCheck = await client.query('SELECT id FROM order_items WHERE menu_item_id = $1 LIMIT 1', [id])
+    if (orderCheck.rows.length > 0) {
+      return c.json({ error: 'Cannot delete a menu item that has already been ordered' }, 409)
+    }
+
+    await client.query('BEGIN')
+    await client.query('DELETE FROM menu_item_ingredients WHERE menu_item_id = $1', [id])
+    const deleted = await client.query('DELETE FROM menu_items WHERE id = $1 RETURNING id', [id])
+    await client.query('COMMIT')
+
+    if (!deleted.rows[0]) return c.json({ error: 'Menu item not found' }, 404)
+    return c.json({ message: 'Menu item deleted successfully' })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  } finally {
+    client.release()
+  }
+})
+
+app.post('/owner/menu-items/:id/ingredients', async (c) => {
+  try {
+    const menuItemId = c.req.param('id')
+    const body = await c.req.json<{ ingredientId?: string; quantityRequiredPlates?: number; removable?: boolean }>()
+    const quantity = Number(body.quantityRequiredPlates)
+    if (!body.ingredientId || !Number.isFinite(quantity) || quantity <= 0) {
+      return c.json({ error: 'ingredientId and a positive quantityRequiredPlates are required' }, 400)
+    }
+
+    const result = await pool.query(
+      `INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, quantity_required_plates, removable)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (menu_item_id, ingredient_id)
+       DO UPDATE SET quantity_required_plates = EXCLUDED.quantity_required_plates, removable = EXCLUDED.removable
+       RETURNING id::text, menu_item_id::text AS "menuItemId", ingredient_id::text AS "ingredientId",
+                 quantity_required_plates AS "quantityRequiredPlates", removable`,
+      [menuItemId, body.ingredientId, quantity, Boolean(body.removable)],
+    )
+    return c.json({ ingredient: result.rows[0] }, 201)
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
+app.delete('/owner/menu-items/:id/ingredients/:ingredientId', async (c) => {
+  try {
+    const { id, ingredientId } = c.req.param()
+    const result = await pool.query(
+      'DELETE FROM menu_item_ingredients WHERE menu_item_id = $1 AND ingredient_id = $2 RETURNING id',
+      [id, ingredientId],
+    )
+    if (!result.rows[0]) return c.json({ error: 'BOM line not found' }, 404)
+    return c.json({ message: 'Ingredient removed from menu item' })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
   }
 })
 
