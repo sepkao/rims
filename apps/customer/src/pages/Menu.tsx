@@ -8,7 +8,6 @@ import BuffetTimer from '../components/BuffetTimer';
 type MenuItem = {
   id: string;
   name: string;
-  price: number;
   description: string | null;
   ingredients: Array<{ id: string; name: string; removable: boolean }>;
 };
@@ -182,7 +181,6 @@ export default function Menu() {
                 
                 <div className="p-3 flex flex-col flex-1">
                   <h3 className="text-[13px] font-bold text-[#302221] leading-tight mb-1">{item.name}</h3>
-                  <p className="text-[11px] font-bold text-[#b97861] mb-2">฿{item.price.toLocaleString()}</p>
                   
                   <div className="flex flex-wrap gap-1 mb-3 flex-1 content-start">
                     {item.ingredients.map((ing) => (

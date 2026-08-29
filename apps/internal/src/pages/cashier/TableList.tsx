@@ -10,6 +10,9 @@ export default function TableList() {
           <h1 className="text-[28px] font-bold text-[#302221]">Table Status</h1>
           <p className="mt-1 text-sm text-[#7B726B]">สถานะโต๊ะจาก cashier API</p>
         </div>
+        <button onClick={() => navigate('/cashier/orders')} className="rounded-lg bg-[#4A3432] px-5 py-2.5 text-sm font-bold text-white">
+          View Orders
+        </button>
       </header>
       <section className="mt-8 grid gap-5 md:grid-cols-3">
         <Metric label="Available tables" value="—" />

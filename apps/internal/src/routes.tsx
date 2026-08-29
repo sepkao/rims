@@ -3,23 +3,25 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import App from './App'
 import { useAuth, type Role } from './contexts/AuthContext'
 import { InventoryProvider } from './contexts/InventoryContext'
-import LoginPage from './pages/auth/LoginPage'
-import RegisterPage from './pages/auth/RegisterPage'
-import DashboardPage from './pages/owner/DashboardPage'
-import ExpiredGoodsPage from './pages/owner/ExpiredGoodsPage'
-import InventoryLogsPage from './pages/owner/InventoryLogsPage'
-import MenuManagementPage from './pages/owner/MenuManagementPage'
-import SystemLogsPage from './pages/owner/SystemLogsPage'
-import UserManagementPage from './pages/owner/UserManagementPage'
-import AddLotPage from './pages/staff/AddLotPage'
-import KitchenStockPage from './pages/staff/KitchenStockPage'
-import StaffDashboardPage from './pages/staff/StaffDashboardPage'
-import StaffKitchenQueuePage from './pages/staff/StaffKitchenQueuePage'
-import StaffPrepFridgePage from './pages/staff/StaffPrepFridgePage'
-import StaffServingQueuePage from './pages/staff/StaffServingQueuePage'
-import TransferStocksPage from './pages/staff/TransferStocksPage'
+import LoginPage from './pages/login'
+import RegisterPage from './pages/register'
+import DashboardPage from './pages/owner/Dashboard'
+import ExpiredGoodsPage from './pages/owner/NotFreshInventory'
+import InventoryLogsPage from './pages/owner/StockMovementHistory'
+import MenuManagementPage from './pages/owner/MenuManagement'
+import SystemLogsPage from './pages/owner/SystemLogs'
+import BuffetPricesPage from './pages/owner/QrSettings'
+import UserManagementPage from './pages/owner/UserManagement'
+import AddLotPage from './pages/staff/ReceiveLot'
+import KitchenStockPage from './pages/staff/KitchenStock'
+import StaffDashboardPage from './pages/staff/StaffDashboard'
+import StaffKitchenQueuePage from './pages/staff/OrdersToServe'
+import StaffPrepFridgePage from './pages/staff/PrepFridge'
+import StaffServingQueuePage from './pages/staff/ServingQueue'
+import TransferStocksPage from './pages/staff/TransferToThawPrep'
 import TableList from './pages/cashier/TableList'
 import CheckIn from './pages/cashier/CheckIn'
+import OrderList from './pages/cashier/OrderList'
 import CheckOut from './pages/cashier/CheckOut'
 
 function RequireRole({ role: requiredRole, children }: { role: Role; children: ReactNode }) {
@@ -51,6 +53,7 @@ export function AppRoutes() {
           <Route path="/owner/history" element={<RequireRole role="owner"><InventoryLogsPage /></RequireRole>} />
           <Route path="/owner/expired" element={<RequireRole role="owner"><ExpiredGoodsPage /></RequireRole>} />
           <Route path="/owner/system-logs" element={<RequireRole role="owner"><SystemLogsPage /></RequireRole>} />
+          <Route path="/owner/settings" element={<RequireRole role="owner"><BuffetPricesPage /></RequireRole>} />
 
           <Route path="/staff/dashboard" element={<RequireRole role="staff"><StaffDashboardPage /></RequireRole>} />
           <Route path="/staff/freezer-stock" element={<RequireRole role="staff"><KitchenStockPage area="Freezer Stock" /></RequireRole>} />
@@ -62,6 +65,7 @@ export function AppRoutes() {
 
           <Route path="/cashier/tables" element={<RequireRole role="cashier"><TableList /></RequireRole>} />
           <Route path="/cashier/check-in" element={<RequireRole role="cashier"><CheckIn /></RequireRole>} />
+          <Route path="/cashier/orders" element={<RequireRole role="cashier"><OrderList /></RequireRole>} />
           <Route path="/cashier/payment" element={<RequireRole role="cashier"><CheckOut /></RequireRole>} />
         </Route>
         <Route path="*" element={<Navigate to="/login" replace />} />

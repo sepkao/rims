@@ -6,3 +6,4 @@ export default function StaffServingQueuePage() {
 }
 
 function Row({ label, value }: { label: string; value: string }) { return <div className="flex items-center justify-between rounded-lg bg-[#F4EFEA] px-3 py-2"><span className="text-[#7B726B]">{label}</span><span className="font-bold text-[#302221]">{value}</span></div> }
+

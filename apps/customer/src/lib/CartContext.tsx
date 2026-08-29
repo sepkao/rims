@@ -3,7 +3,6 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 export type MenuItem = {
   id: string;
   name: string;
-  price: number;
   description: string | null;
   ingredients: Array<{ id: string; name: string; removable: boolean }>;
 };

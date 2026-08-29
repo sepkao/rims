@@ -164,7 +164,6 @@ export default function OrderHistory() {
                     <div key={item.cartItemId} className={`p-4 flex justify-between items-center ${idx !== cartItems.length - 1 ? 'border-b border-[#F4EFEA]' : ''}`}>
                       <div className="flex-1 pr-4">
                         <h3 className="text-[14px] font-bold text-[#302221] mb-0.5">{item.menuItem.name}</h3>
-                        <p className="text-xs text-[#b97861] font-bold">฿{item.menuItem.price.toLocaleString()}</p>
                         {removedNames && <p className="text-[11px] text-[#E53E3E] mt-1 font-medium">(ไม่ใส่: {removedNames})</p>}
                       </div>
                       

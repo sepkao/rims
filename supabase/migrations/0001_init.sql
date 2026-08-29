@@ -158,11 +158,13 @@ CREATE INDEX idx_waste_records_confirmed_created ON waste_records (created_at) W
 CREATE TABLE menu_items (
     id              BIGSERIAL PRIMARY KEY,
     name            TEXT NOT NULL,
-    price           DECIMAL(10,2) NOT NULL,
     description     TEXT,
     is_active       BOOLEAN NOT NULL DEFAULT true,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- No `price` column: this restaurant is buffet-only (locked 2026-08-23) — the customer
+-- pays a flat per-head buffet price (see `table_sessions`/`settings.buffet_price_*`),
+-- never a per-dish price. Menu items exist only to define what's on the buffet and their BOM.
 
 -- ---------------------------------------------------------------------
 -- 9. menu_item_ingredients — BOM. removable=true enables UC-N9 for that ingredient.
@@ -198,6 +200,13 @@ CREATE TABLE settings (
 
 INSERT INTO settings (key, value) VALUES ('qr_duration_minutes', '120');
 
+-- Buffet pricing per head, by category (locked 2026-08-23 — restaurant is buffet-only,
+-- no per-dish pricing; disabled diners eat free by default).
+INSERT INTO settings (key, value) VALUES ('buffet_price_adult', '0');
+INSERT INTO settings (key, value) VALUES ('buffet_price_child', '0');
+INSERT INTO settings (key, value) VALUES ('buffet_price_senior', '0');
+INSERT INTO settings (key, value) VALUES ('buffet_price_disabled', '0');
+
 -- ---------------------------------------------------------------------
 -- 11. table_sessions — history (B5). expires_at = started_at + Owner-set QR duration (e.g. 2h)
 -- ---------------------------------------------------------------------
@@ -209,10 +218,24 @@ CREATE TABLE table_sessions (
     started_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     expires_at          TIMESTAMPTZ NOT NULL,
     ended_at            TIMESTAMPTZ,
-    ended_by            BIGINT REFERENCES users(id)  -- cashier if manual early close, NULL if auto-expired
+    ended_by            BIGINT REFERENCES users(id),  -- cashier if manual early close, NULL if auto-expired
+
+    -- Buffet headcount by category, fixed at check-in (not editable after open — locked 2026-08-23).
+    adult_count         INT NOT NULL DEFAULT 0,
+    child_count         INT NOT NULL DEFAULT 0,
+    senior_count        INT NOT NULL DEFAULT 0,
+    disabled_count      INT NOT NULL DEFAULT 0,
+
+    -- Price per head snapshotted from `settings` at check-in time, so a later Owner price
+    -- change never rewrites the revenue of a session that already happened.
+    price_per_adult     DECIMAL(10,2) NOT NULL DEFAULT 0,
+    price_per_child     DECIMAL(10,2) NOT NULL DEFAULT 0,
+    price_per_senior    DECIMAL(10,2) NOT NULL DEFAULT 0,
+    price_per_disabled  DECIMAL(10,2) NOT NULL DEFAULT 0
 );
 
 CREATE INDEX idx_table_sessions_active ON table_sessions (dining_table_id) WHERE ended_at IS NULL;
+CREATE INDEX idx_table_sessions_started ON table_sessions (started_at);  -- revenue range-scan in get_weekly_cost_profit_report()
 
 -- ---------------------------------------------------------------------
 -- 12. orders — single stock-deduction point is auto-confirm (System), not submit
@@ -229,7 +252,7 @@ CREATE TABLE orders (
 );
 
 CREATE INDEX idx_orders_pending_confirm ON orders (confirm_at) WHERE status = 'pending';
-CREATE INDEX idx_orders_confirmed_created ON orders (confirmed_at) WHERE status = 'confirmed';  -- revenue range-scan in get_weekly_cost_profit_report()
+CREATE INDEX idx_orders_confirmed_created ON orders (confirmed_at) WHERE status = 'confirmed';  -- order-history range-scan (revenue now comes from table_sessions, see idx_table_sessions_started)
 CREATE INDEX idx_orders_table_session ON orders (table_session_id);  -- customer order history per table (US-04), staff OrdersToServe
 
 ALTER TABLE stock_movements ADD CONSTRAINT fk_stock_movements_order
@@ -684,12 +707,14 @@ DECLARE
     v_prev_profit DECIMAL;
     v_trend DECIMAL;
 BEGIN
-    SELECT COALESCE(SUM(oi.quantity * mi.price), 0) INTO v_revenue
-    FROM orders o
-    JOIN order_items oi ON oi.order_id = o.id
-    JOIN menu_items mi ON mi.id = oi.menu_item_id
-    WHERE o.status = 'confirmed'
-      AND o.confirmed_at >= p_week_start AND o.confirmed_at < p_week_start + INTERVAL '7 days';
+    -- Revenue is buffet-only: per-head price × headcount, snapshotted on table_sessions at
+    -- check-in (locked 2026-08-23) — there is no per-dish price on menu_items anymore.
+    SELECT COALESCE(SUM(
+        ts.adult_count * ts.price_per_adult + ts.child_count * ts.price_per_child +
+        ts.senior_count * ts.price_per_senior + ts.disabled_count * ts.price_per_disabled
+    ), 0) INTO v_revenue
+    FROM table_sessions ts
+    WHERE ts.started_at >= p_week_start AND ts.started_at < p_week_start + INTERVAL '7 days';
 
     SELECT COALESCE(SUM(-sm.quantity * sl.unit_cost), 0) INTO v_cogs
     FROM stock_movements sm
@@ -707,9 +732,11 @@ BEGIN
     SELECT (prev.revenue - prev.cogs - prev.waste) INTO v_prev_profit
     FROM (
         SELECT
-          (SELECT COALESCE(SUM(oi2.quantity * mi2.price), 0) FROM orders o2
-             JOIN order_items oi2 ON oi2.order_id = o2.id JOIN menu_items mi2 ON mi2.id = oi2.menu_item_id
-             WHERE o2.status = 'confirmed' AND o2.confirmed_at >= p_week_start - INTERVAL '7 days' AND o2.confirmed_at < p_week_start) AS revenue,
+          (SELECT COALESCE(SUM(
+               ts2.adult_count * ts2.price_per_adult + ts2.child_count * ts2.price_per_child +
+               ts2.senior_count * ts2.price_per_senior + ts2.disabled_count * ts2.price_per_disabled
+           ), 0) FROM table_sessions ts2
+             WHERE ts2.started_at >= p_week_start - INTERVAL '7 days' AND ts2.started_at < p_week_start) AS revenue,
           (SELECT COALESCE(SUM(-sm2.quantity * sl2.unit_cost), 0) FROM stock_movements sm2
              JOIN stock_lots sl2 ON sl2.id = sm2.stock_lot_id
              WHERE sm2.movement_type = 'deduction' AND sm2.created_at >= p_week_start - INTERVAL '7 days' AND sm2.created_at < p_week_start) AS cogs,

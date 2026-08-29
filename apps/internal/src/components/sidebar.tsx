@@ -1,4 +1,4 @@
-import { History, LayoutDashboard, LogOut, PackagePlus, Refrigerator, ScrollText, ShoppingBasket, Table2, UtensilsCrossed, Users, Warehouse } from 'lucide-react'
+import { CircleDollarSign, History, LayoutDashboard, LogOut, PackagePlus, Refrigerator, ScrollText, ShoppingBasket, Table2, UtensilsCrossed, Users, Warehouse } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth, type Role } from '../contexts/AuthContext'
 
@@ -10,6 +10,7 @@ const navItems: Record<Role, Array<{ to: string; label: string; icon: typeof Lay
     { to: '/owner/history', label: 'Inventory history', icon: History },
     { to: '/owner/expired', label: 'Expired inventory', icon: Warehouse },
     { to: '/owner/system-logs', label: 'System logs', icon: ScrollText },
+    { to: '/owner/settings', label: 'Buffet prices', icon: CircleDollarSign },
   ],
   staff: [
     { to: '/staff/dashboard', label: 'Dashboard', icon: LayoutDashboard },
