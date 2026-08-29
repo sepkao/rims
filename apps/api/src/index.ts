@@ -269,34 +269,271 @@ app.get('/owner/system-logs', async (c) => {
   return c.json({ logs: result.rows })
 })
 
+
+async function ensureMockSession(sessionId: number) {
+  const res = await pool.query('SELECT id FROM table_sessions WHERE id = $1', [sessionId]);
+  if (res.rows.length === 0) {
+    const userRes = await pool.query('SELECT id FROM users LIMIT 1');
+    let userId = userRes.rows[0]?.id;
+    if (!userId) {
+      const u = await pool.query(`INSERT INTO users (name, email, password_hash, role) VALUES ('Mock Cashier', 'mock@example.com', 'mock', 'cashier') RETURNING id`);
+      userId = u.rows[0].id;
+    }
+    const tableRes = await pool.query(`INSERT INTO dining_tables (table_number, status) VALUES ('MOCK-' || $1, 'occupied') ON CONFLICT (table_number) DO UPDATE SET status = 'occupied' RETURNING id`, [sessionId]);
+    const tableId = tableRes.rows[0].id;
+    await pool.query(`INSERT INTO table_sessions (id, dining_table_id, qr_code, opened_by, expires_at) VALUES ($1, $2, 'mock-qr', $3, now() + interval '100 years')`, [sessionId, tableId, userId]);
+  }
+}
+
+async function ensureMockMenu() {
+  const res = await pool.query('SELECT id FROM menu_items LIMIT 1');
+  if (res.rows.length === 0) {
+    await pool.query(`INSERT INTO ingredients (name, category, default_portion_size_kg) VALUES 
+      ('หมูสามชั้นสไลด์', 'meat', 0.1), 
+      ('เนื้อวากิวสไลด์', 'meat', 0.1), 
+      ('ผักกาดขาว', 'vegetable', 0.05),
+      ('ผักบุ้ง', 'vegetable', 0.05)
+      ON CONFLICT (name) DO NOTHING`);
+      
+    const menuRes = await pool.query(`INSERT INTO menu_items (name, description) VALUES 
+      ('ชุดหมูรวม', 'รวมหมูสามชั้นและสันคอ'),
+      ('เนื้อวากิวพรีเมียม', 'เนื้อวากิว A4 ละลายในปาก'),
+      ('ชุดผักรวม', 'ผักกาดขาว ผักบุ้ง เห็ดเข็มทอง')
+      RETURNING id`);
+      
+    const menuIds = menuRes.rows.map(r => r.id);
+    
+    const ingRes = await pool.query(`SELECT id, name FROM ingredients WHERE name IN ('หมูสามชั้นสไลด์', 'เนื้อวากิวสไลด์', 'ผักกาดขาว')`);
+    const ingMap = {} as any;
+    ingRes.rows.forEach(r => { ingMap[r.name] = r.id; });
+    
+    if (ingMap['หมูสามชั้นสไลด์']) await pool.query(`INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, removable) VALUES ($1, $2, true)`, [menuIds[0], ingMap['หมูสามชั้นสไลด์']]);
+    if (ingMap['เนื้อวากิวสไลด์']) await pool.query(`INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, removable) VALUES ($1, $2, true)`, [menuIds[1], ingMap['เนื้อวากิวสไลด์']]);
+    if (ingMap['ผักกาดขาว']) await pool.query(`INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, removable) VALUES ($1, $2, true)`, [menuIds[2], ingMap['ผักกาดขาว']]);
+  }
+}
+
 app.get('/menu-items', async (c) => {
   try {
-    const result = await pool.query(
-      `SELECT mi.id::text,
-              mi.name,
-              mi.price::float8 AS price,
-              mi.description,
-              COALESCE(
-                json_agg(
-                  json_build_object(
-                    'id', i.id::text,
-                    'name', i.name,
-                    'quantityRequiredPlates', mii.quantity_required_plates,
-                    'removable', mii.removable
-                  ) ORDER BY i.name
-                ) FILTER (WHERE mii.id IS NOT NULL),
-                '[]'::json
-              ) AS ingredients
-       FROM menu_items mi
-       LEFT JOIN menu_item_ingredients mii ON mii.menu_item_id = mi.id
-       LEFT JOIN ingredients i ON i.id = mii.ingredient_id
-       GROUP BY mi.id
-       ORDER BY mi.name`,
-    )
-    return c.json({ menuItems: result.rows })
+    await ensureMockMenu();
+    const result = await pool.query(`
+      SELECT 
+        mi.id::text, 
+        mi.name, 
+        0 AS price, 
+        mi.description,
+        COALESCE(
+          json_agg(
+            json_build_object('id', i.id::text, 'name', i.name, 'removable', mii.removable)
+          ) FILTER (WHERE i.id IS NOT NULL), '[]'::json
+        ) as ingredients
+      FROM menu_items mi
+      LEFT JOIN menu_item_ingredients mii ON mii.menu_item_id = mi.id
+      LEFT JOIN ingredients i ON i.id = mii.ingredient_id
+      WHERE mi.is_active = true
+      GROUP BY mi.id, mi.name, mi.price, mi.description
+      ORDER BY mi.id ASC
+    `);
+    return c.json({ menuItems: result.rows });
+  } catch (error) {
+    console.error(error);
+    return c.json({ error: 'Unable to load menu items', details: String(error) }, 500);
+  }
+});
+
+app.post('/customer/call-staff', async (c) => {
+  try {
+    const body = await c.req.json<{ tableSessionId?: number }>()
+    const tableSessionId = body.tableSessionId || 1
+    
+    await ensureMockSession(tableSessionId);
+    
+    const sessionRes = await pool.query(
+      `SELECT dt.table_number 
+       FROM table_sessions ts 
+       JOIN dining_tables dt ON dt.id = ts.dining_table_id 
+       WHERE ts.id = $1`, [tableSessionId]
+    );
+      
+    const tableNum = sessionRes.rows[0]?.table_number || 'Unknown';
+
+    await pool.query(
+      `INSERT INTO system_logs (action, details) VALUES ($1, $2)`,
+      ['UC-N13_call_staff', { tableSessionId, tableNumber: tableNum, message: 'Customer needs assistance' }]
+    );
+    return c.json({ success: true })
   } catch (error) {
     console.error(error)
-    return c.json({ error: 'Unable to load menu items' }, 500)
+    return c.json({ error: 'Unable to call staff' }, 500)
+  }
+})
+
+app.post('/dev/reset-session', async (c) => {
+  try {
+    await pool.query(`UPDATE table_sessions SET expires_at = now() + interval '100 years' WHERE id = 1`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return c.json({ error: 'Failed' }, 500);
+  }
+});
+
+app.get('/customer/orders', async (c) => {
+  try {
+    const tableSessionId = Number(c.req.query('table_session_id')) || 1
+    await ensureMockSession(tableSessionId)
+    
+    const result = await pool.query(
+      `SELECT
+          oi.id AS "id",
+          o.id AS "orderId",
+          mi.name AS "name",
+          oi.quantity AS "qty",
+          CASE
+              WHEN o.served_at IS NOT NULL THEN 'served'
+              WHEN o.status = 'confirmed' THEN 'cooking'
+              WHEN o.status = 'pending' THEN 'pending'
+              ELSE o.status
+          END AS "status",
+          TO_CHAR(o.created_at, 'HH24:MI') AS "time"
+       FROM orders o
+       JOIN order_items oi ON oi.order_id = o.id
+       JOIN menu_items mi ON mi.id = oi.menu_item_id
+       WHERE o.table_session_id = $1
+         AND o.status != 'cancelled'
+       ORDER BY o.created_at DESC`,
+      [tableSessionId]
+    )
+    
+    const sessionRes = await pool.query(
+      `SELECT started_at, expires_at FROM table_sessions WHERE id = $1`,
+      [tableSessionId]
+    )
+    
+    return c.json({ 
+      items: result.rows,
+      session: sessionRes.rows[0] ? {
+        startedAt: sessionRes.rows[0].started_at,
+        expiresAt: sessionRes.rows[0].expires_at
+      } : null
+    })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Unable to load orders' }, 500)
+  }
+})
+
+app.post('/customer/orders', async (c) => {
+  const client = await pool.connect()
+  try {
+    const body = await c.req.json<{
+      tableSessionId?: number
+      items: Array<{ menuItemId: string; quantity: number; removedIngredients: string[] }>
+    }>()
+    
+    const tableSessionId = body.tableSessionId || 1
+    await ensureMockSession(tableSessionId)
+
+    if (!body.items || body.items.length === 0) {
+      return c.json({ error: 'Order must contain items' }, 400)
+    }
+
+    await client.query('BEGIN')
+
+    const orderRes = await client.query(
+      `INSERT INTO orders (table_session_id, confirm_at)
+       VALUES ($1, now() + interval '60 seconds')
+       RETURNING id`,
+      [tableSessionId]
+    )
+    const orderId = orderRes.rows[0].id
+
+    for (const item of body.items) {
+      const oiRes = await client.query(
+        `INSERT INTO order_items (order_id, menu_item_id, quantity)
+         VALUES ($1, $2, $3)
+         RETURNING id`,
+        [orderId, item.menuItemId, item.quantity]
+      )
+      const orderItemId = oiRes.rows[0].id
+
+      if (item.removedIngredients && item.removedIngredients.length > 0) {
+        for (const ingredientId of item.removedIngredients) {
+          await client.query(
+            `INSERT INTO order_item_customizations (order_item_id, ingredient_id)
+             VALUES ($1, $2)`,
+            [orderItemId, ingredientId]
+          )
+        }
+      }
+    }
+
+    await client.query('COMMIT')
+    return c.json({ orderId }, 201)
+  } catch (error) {
+    await client.query('ROLLBACK')
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 500)
+  } finally {
+    client.release()
+  }
+})
+
+app.get('/customer/session', async (c) => {
+  try {
+    const tableSessionId = Number(c.req.query('table_session_id')) || 1
+    await ensureMockSession(tableSessionId)
+    
+    const sessionRes = await pool.query(
+      `SELECT 
+         ts.started_at, 
+         ts.expires_at,
+         dt.table_number,
+         dt.capacity
+       FROM table_sessions ts
+       JOIN dining_tables dt ON ts.dining_table_id = dt.id
+       WHERE ts.id = $1`,
+      [tableSessionId]
+    )
+    
+    return c.json({
+      session: sessionRes.rows[0] ? {
+        startedAt: sessionRes.rows[0].started_at,
+        expiresAt: sessionRes.rows[0].expires_at,
+        tableNumber: sessionRes.rows[0].table_number,
+        capacity: sessionRes.rows[0].capacity
+      } : null
+    })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Unable to load session' }, 500)
+  }
+})
+
+app.post('/customer/start-timer', async (c) => {
+  try {
+    const tableSessionId = 1; // hardcoded for customer app mock
+    await ensureMockSession(tableSessionId);
+    
+    // Check if the current expires_at is far in the future (> 24 hours)
+    const res = await pool.query(`SELECT expires_at FROM table_sessions WHERE id = $1`, [tableSessionId]);
+    if (res.rows.length > 0) {
+      const expiresAt = new Date(res.rows[0].expires_at).getTime();
+      const now = Date.now();
+      
+      // If it expires more than 24 hours from now, it means it hasn't started yet
+      if (expiresAt > now + 24 * 60 * 60 * 1000) {
+        await pool.query(
+          `UPDATE table_sessions SET started_at = now(), expires_at = now() + interval '2 hours' WHERE id = $1`, 
+          [tableSessionId]
+        );
+      }
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return c.json({ error: 'Unable to start timer' }, 500);
   }
 })
 
@@ -437,6 +674,72 @@ app.post('/inventory/lots', async (c) => {
   }
 })
 
+app.post('/customer/orders/:id/cancel', async (c) => {
+  const orderId = c.req.param('id')
+  try {
+    const result = await pool.query(
+      `UPDATE orders 
+       SET status = 'cancelled', cancelled_at = now() 
+       WHERE id = $1 AND status = 'pending' 
+       RETURNING id`,
+      [orderId]
+    )
+    if (result.rows.length === 0) {
+      return c.json({ error: 'Order cannot be cancelled' }, 400)
+    }
+    return c.json({ success: true })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Failed to cancel order' }, 500)
+  }
+})
+
+// === DEV TOOLS API ===
+app.post('/dev/time-shift', async (c) => {
+  try {
+    const { minutes, tableSessionId = 1 } = await c.req.json<{ minutes: number, tableSessionId?: number }>()
+    await pool.query(
+      `UPDATE table_sessions 
+       SET expires_at = expires_at + ($1 || ' minutes')::interval 
+       WHERE id = $2`,
+      [minutes, tableSessionId]
+    )
+    return c.json({ success: true })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Failed to shift time' }, 500)
+  }
+})
+
+app.post('/dev/force-confirm', async (c) => {
+  try {
+    const { tableSessionId = 1 } = await c.req.json<{ tableSessionId?: number }>()
+    // Make pending orders confirmable immediately by pushing their confirm_at to the past
+    await pool.query(
+      `UPDATE orders SET confirm_at = now() - interval '1 second' 
+       WHERE status = 'pending' AND table_session_id = $1`,
+      [tableSessionId]
+    )
+    return c.json({ success: true })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Failed to force confirm' }, 500)
+  }
+})
+
 serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 3000) }, (info) => {
   console.log(`Server is running on http://localhost:${info.port}`)
 })
+
+// === BACKGROUND WORKER (MOCK PG_CRON) ===
+setInterval(async () => {
+  try {
+    const res = await pool.query(`SELECT id FROM orders WHERE status = 'pending' AND now() >= confirm_at`);
+    for (const row of res.rows) {
+      await pool.query(`SELECT auto_confirm_order($1)`, [row.id]);
+      console.log(`Auto-confirmed order ${row.id}`);
+    }
+  } catch (e) {
+    console.error("Auto confirm error:", e);
+  }
+}, 5000);

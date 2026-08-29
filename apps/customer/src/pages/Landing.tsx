@@ -9,15 +9,16 @@ const Icons = {
       <line x1="12" y1="16" x2="12.01" y2="16"></line>
     </svg>
   ),
-  Utensils: () => (
-    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path>
-      <path d="M7 2v20"></path>
-      <path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path>
+  HotPot: () => (
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 4s-.5 2 0 3 1.5 2 1.5 4-.5 3-.5 3" />
+      <path d="M12 3s-.5 2 0 3 1.5 2 1.5 4-.5 3-.5 3" />
+      <path d="M17 4s-.5 2 0 3 1.5 2 1.5 4-.5 3-.5 3" />
+      <path d="M2 16c0 3.5 4.5 6 10 6s10-2.5 10-6" />
     </svg>
   ),
   CheckCircle: () => (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
       <polyline points="22 4 12 14.01 9 11.01"></polyline>
     </svg>
@@ -27,128 +28,166 @@ const Icons = {
 export default function Landing() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  
-  // สมมติว่าเราดึงข้อมูลจาก URL เช่น ?table=8&token=xyz
-  // และนี่คือการจำลองสถานะว่า QR Code หมดอายุหรือไม่
   const [isExpired, setIsExpired] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+
+  const [session, setSession] = useState<{
+    startedAt: string;
+    expiresAt: string;
+    tableNumber: string;
+    capacity: number;
+  } | null>(null);
 
   useEffect(() => {
-    // จำลองการโหลดข้อมูล 1.5 วินาที เพื่อเช็คสถานะโต๊ะจาก Backend
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1500);
-    return () => clearTimeout(timer);
+    fetch('http://localhost:3000/customer/session?table_session_id=1')
+      .then(res => res.json())
+      .then(data => {
+        if (data.session) {
+          setSession(data.session);
+          const expiresAt = new Date(data.session.expiresAt).getTime();
+          if (expiresAt < Date.now()) {
+            setIsExpired(true);
+          }
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-200 flex justify-center font-sans">
-        <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center neo-wrapper">
-          <div className="w-12 h-12 border-4 border-[#EAE5DF] border-t-[#5A403E] rounded-full animate-spin mb-4"></div>
+      <div className="min-h-screen bg-[#EAE5DF] flex justify-center font-sans">
+        <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center shadow-xl">
+          <div className="w-10 h-10 border-[3px] border-[#EAE5DF] border-t-[#5A403E] rounded-full animate-spin mb-6"></div>
           <p className="text-[#7B726B] font-bold text-sm">กำลังตรวจสอบข้อมูลโต๊ะ...</p>
         </div>
       </div>
     );
   }
 
-  // กรณี QR Code หมดอายุ หรือยังไม่ได้เปิดโต๊ะ
   if (isExpired) {
     return (
-      <div className="min-h-screen bg-gray-200 flex justify-center font-sans">
-        <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center px-8 text-center neo-wrapper relative">
-          
-          {/* ปุ่มสลับสถานะ (สำหรับเทสเท่านั้น) */}
-          <button onClick={() => setIsExpired(false)} className="absolute top-4 right-4 text-[10px] bg-gray-200 px-2 py-1 rounded text-gray-500">
+      <div className="min-h-screen bg-[#EAE5DF] flex justify-center font-sans">
+        <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center px-8 text-center shadow-xl relative">
+          <button onClick={() => setIsExpired(false)} className="absolute top-4 right-4 text-[10px] bg-gray-100 px-3 py-1.5 rounded-full text-gray-500 hover:bg-gray-200 transition-colors">
             [Dev] เปลี่ยนเป็นปกติ
           </button>
 
-          <div className="bg-[#FEF2F2] p-4 rounded-full mb-6">
+          <div className="bg-[#FEF2F2] p-5 rounded-full mb-8 shadow-sm">
             <Icons.AlertCircle />
           </div>
           
-          <h1 className="text-2xl font-black text-[#302221] mb-2">QR Code หมดอายุ</h1>
-          <p className="text-sm text-[#7B726B] font-medium leading-relaxed mb-10">
+          <h1 className="text-2xl font-bold text-[#302221] mb-3">QR Code หมดอายุ</h1>
+          <p className="text-sm text-[#7B726B] leading-relaxed mb-12">
             เซสชันสำหรับโต๊ะนี้หมดอายุแล้ว หรือยังไม่ได้ทำการเปิดโต๊ะ<br/><br/>
             กรุณาติดต่อพนักงานหรือแคชเชียร์เพื่อเปิดโต๊ะใหม่ และรับ QR Code ล่าสุดค่ะ
           </p>
 
-          <div className="neo-card py-4 px-6 w-full text-left">
-            <p className="text-xs font-bold text-[#302221] mb-2">คำแนะนำ:</p>
-            <ul className="text-[11px] text-[#7B726B] list-disc pl-4 space-y-1">
+          <div className="bg-white border border-[#EAE5DF] rounded-xl p-5 w-full text-left shadow-sm">
+            <p className="text-xs font-bold text-[#302221] mb-3 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#E53E3E]"></span>
+              คำแนะนำ
+            </p>
+            <ul className="text-[12px] text-[#7B726B] list-disc pl-4 space-y-2">
               <li>QR Code จะมีอายุการใช้งานจำกัดเพื่อความปลอดภัย</li>
               <li>ห้ามแชร์ภาพ QR Code ให้บุคคลภายนอกร้าน</li>
             </ul>
           </div>
-
         </div>
       </div>
     );
   }
 
-  // กรณี QR Code ใช้งานได้ปกติ
   return (
-    <div className="min-h-screen bg-gray-200 flex justify-center font-sans">
-      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative neo-wrapper overflow-hidden">
+    <div className="min-h-screen bg-[#EAE5DF] flex justify-center font-sans selection:bg-[#5A403E] selection:text-white">
+      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative shadow-xl overflow-hidden">
         
-        {/* ปุ่มสลับสถานะ (สำหรับเทสเท่านั้น) */}
-        <button onClick={() => setIsExpired(true)} className="absolute top-4 right-4 text-[10px] bg-gray-200 px-2 py-1 rounded text-gray-500 z-50">
+        <button onClick={() => setIsExpired(true)} className="absolute top-4 right-4 text-[10px] bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full text-white/90 z-50 border border-white/30 hover:bg-white/30 transition-colors">
           [Dev] ทดสอบหมดอายุ
         </button>
 
         {/* ภาพพื้นหลังด้านบน */}
-        <div className="h-[45%] bg-[#5A403E] relative flex flex-col items-center justify-center text-white p-6">
-          {/* ใส่ภาพแพทเทิร์นหรือเงาจางๆ ด้านหลังได้ (Mock) */}
-          <div className="absolute inset-0 opacity-10 bg-[url('https://images.unsplash.com/photo-1555939594-58d7cb561ad1?q=80&w=600&auto=format&fit=crop')] bg-cover bg-center"></div>
+        <div className="h-[42%] bg-[#5A403E] relative flex flex-col items-center justify-center text-white p-6 overflow-hidden">
+          {/* Minimal Japanese Wave/Shabu Pattern */}
+          <div className="absolute inset-0 opacity-10" 
+               style={{ 
+                 backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M20 20.5V18H0v-2h20v-2H0v-2h20v-2H0V8h20V6H0V4h20V2H0V0h22v20h2V0h2v20h2V0h2v20h2V0h2v20h2V0h2v20h2v2H20v-1.5zM0 20h2v20H0V20zm4 0h2v20H4V20zm4 0h2v20H8V20zm4 0h2v20h-2V20zm4 0h2v20h-2V20zm4 4h20v2H20v-2zm0 4h20v2H20v-2zm0 4h20v2H20v-2zm0 4h20v2H20v-2z' fill='%23ffffff' fill-opacity='1' fill-rule='evenodd'/%3E%3C/svg%3E")`,
+                 backgroundSize: '24px 24px'
+               }}>
+          </div>
           
-          <div className="relative z-10 text-center flex flex-col items-center">
-            <div className="bg-white/10 p-4 rounded-full backdrop-blur-sm mb-4 border border-white/20">
-              <Icons.Utensils />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#5A403E]/50 to-[#302221]/80"></div>
+          
+          <div className="relative z-10 text-center flex flex-col items-center mt-2">
+            <div className="text-white mb-4 drop-shadow-md">
+              <Icons.HotPot />
             </div>
-            <h1 className="text-3xl font-black tracking-widest mb-1">SHABU INVEN</h1>
-            <p className="text-white/80 text-sm font-medium tracking-wide">Premium Buffet Experience</p>
+            <h1 className="text-[32px] font-bold mb-2 text-white drop-shadow-sm">Shabu</h1>
+            <div className="w-10 h-[2px] bg-[#b97861] mb-4"></div>
+            <p className="text-white/90 text-sm font-medium drop-shadow-sm">All-you-can-eat buffet</p>
           </div>
         </div>
 
         {/* ส่วนรายละเอียดด้านล่าง */}
-        <div className="flex-1 bg-[#FDFBF7] -mt-6 rounded-t-3xl relative z-20 px-6 pt-8 pb-6 flex flex-col">
+        <div className="flex-1 bg-[#FDFBF7] relative z-20 px-8 pt-8 pb-10 flex flex-col justify-between rounded-t-[2.5rem] -mt-10 shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
           
-          <div className="flex items-center justify-between mb-8 p-4 neo-card">
-            <div>
-              <p className="text-[11px] font-bold text-[#7B726B] uppercase tracking-wider mb-0.5">Table Number</p>
-              <p className="text-3xl font-black text-[#5A403E]">08</p>
-            </div>
-            <div className="text-right">
-              <div className="flex items-center gap-1.5 justify-end mb-1">
-                <Icons.CheckCircle />
-                <span className="text-sm font-bold text-[#10B981]">พร้อมสั่งอาหาร</span>
+          <div>
+            <div className="flex items-center justify-between mb-10 bg-white p-5 rounded-xl border border-[#EAE5DF] shadow-sm">
+              <div>
+                <p className="text-xs font-bold text-[#b97861] mb-1 uppercase">Table Number</p>
+                <p className="text-4xl font-bold text-[#302221]">{session?.tableNumber?.replace('MOCK-', '') || '00'}</p>
               </div>
-              <p className="text-xs text-[#7B726B] font-medium">เข้าใช้งานเมื่อ 11:45 น.</p>
+              <div className="text-right flex flex-col items-end">
+                <div className="flex items-center gap-1.5 justify-end mb-2 bg-[#10B981]/10 px-2.5 py-1 rounded-full">
+                  <Icons.CheckCircle />
+                  <span className="text-[11px] font-bold text-[#10B981]">พร้อมสั่งอาหาร</span>
+                </div>
+                <p className="text-xs text-[#7B726B] font-medium">เข้าใช้งานเมื่อ {session?.startedAt ? new Date(session.startedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '--:--'} น.</p>
+              </div>
             </div>
-          </div>
 
-          <div className="mb-auto">
-            <h2 className="text-[13px] font-bold text-[#302221] mb-3">ข้อตกลงในการรับประทาน</h2>
-            <ul className="text-xs text-[#7B726B] space-y-2.5 font-medium leading-relaxed">
-              <li className="flex items-start gap-2">
-                <span className="text-[#5A403E] mt-0.5">•</span>
-                ระยะเวลาทานบุฟเฟต์ 120 นาที
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#5A403E] mt-0.5">•</span>
-                กรุณาสั่งอาหารแต่พอทาน หากทานไม่หมดทางร้านขออนุญาตปรับตามราคาในเมนู
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#5A403E] mt-0.5">•</span>
-                ไม่อนุญาตให้นำอาหารหรือเครื่องดื่มจากภายนอกเข้ามาทานในร้าน
-              </li>
-            </ul>
+            <div className="px-2">
+              <h2 className="text-[14px] font-bold text-[#302221] mb-5 flex items-center gap-2">
+                <span className="w-1 h-4 bg-[#b97861] rounded-full"></span>
+                ข้อตกลงในการรับประทาน
+              </h2>
+              <ul className="text-sm text-[#7B726B] space-y-4 leading-relaxed font-medium">
+                <li className="flex items-start gap-3">
+                  <span className="text-[#b97861] mt-1 text-[10px]">■</span>
+                  <span>ระยะเวลาทานบุฟเฟต์ <strong className="font-bold text-[#5A403E]">120 นาที</strong></span>
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="text-[#b97861] mt-1 text-[10px]">■</span>
+                  <span>กรุณาสั่งอาหารแต่พอทาน หากทานไม่หมดทางร้านขออนุญาตปรับตามราคาในเมนู</span>
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="text-[#b97861] mt-1 text-[10px]">■</span>
+                  <span>ไม่อนุญาตให้นำอาหารหรือเครื่องดื่มจากภายนอกเข้ามาทานในร้าน</span>
+                </li>
+              </ul>
+            </div>
           </div>
 
           <button 
-            onClick={() => navigate('/order')}
-            className="w-full py-4 mt-6 neo-btn font-bold text-lg flex items-center justify-center gap-2"
+            onClick={async () => {
+              setIsStarting(true);
+              try {
+                await fetch('http://localhost:3000/customer/start-timer', { method: 'POST' });
+              } catch (e) {
+                console.error(e);
+              }
+              navigate('/order');
+            }}
+            disabled={isStarting}
+            className="w-full mt-8 rounded-lg bg-[#5A403E] px-8 py-3.5 text-sm font-bold text-white transition-colors hover:bg-[#4A3432] active:bg-[#302221] disabled:opacity-70 flex items-center justify-center gap-2"
           >
-            เริ่มสั่งอาหาร
+            {isStarting ? 'กำลังเข้าสู่ระบบ...' : 'เริ่มสั่งอาหาร'}
+            {!isStarting && (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14"></path>
+                <path d="m12 5 7 7-7 7"></path>
+              </svg>
+            )}
           </button>
           
         </div>
