@@ -58,6 +58,16 @@ export default function OrderHistory() {
   const [session, setSession] = useState<{ startedAt: string, expiresAt: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isExpired, setIsExpired] = useState(false);
+
+  useEffect(() => {
+    if (!session) return;
+    const interval = setInterval(() => {
+      setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+    }, 1000);
+    setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+    return () => clearInterval(interval);
+  }, [session]);
 
   const fetchOrders = async () => {
     try {
@@ -256,12 +266,12 @@ export default function OrderHistory() {
         {/* --- Sticky Bottom Button --- */}
         <div className="absolute bottom-0 left-0 w-full bg-white border-t border-[#EAE5DF] p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-30">
           <button 
-            disabled={cartItems.length === 0 || isSubmitting}
+            disabled={cartItems.length === 0 || isSubmitting || isExpired}
             onClick={handleCheckout} 
             className={`w-full py-3.5 flex items-center justify-center gap-2 font-bold transition-colors rounded-lg text-sm
-              ${cartItems.length > 0 && !isSubmitting ? 'bg-[#5A403E] hover:bg-[#4A3432] text-white shadow-md' : 'bg-[#F4EFEA] text-[#999] cursor-not-allowed'}`}
+              ${isExpired ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : (cartItems.length > 0 && !isSubmitting ? 'bg-[#5A403E] hover:bg-[#4A3432] text-white shadow-md' : 'bg-[#F4EFEA] text-[#999] cursor-not-allowed')}`}
           >
-            {isSubmitting ? 'กำลังส่งออเดอร์...' : `ส่งออเดอร์เข้าครัว ${cartItems.length > 0 ? `(${cartItems.reduce((acc, i) => acc + i.quantity, 0)} รายการ)` : ''}`}
+            {isExpired ? 'หมดเวลาสั่งอาหาร' : (isSubmitting ? 'กำลังส่งออเดอร์...' : `ส่งออเดอร์เข้าครัว ${cartItems.length > 0 ? `(${cartItems.reduce((acc, i) => acc + i.quantity, 0)} รายการ)` : ''}`)}
           </button>
         </div>
 

@@ -52,6 +52,17 @@ export default function OrderBuilder() {
   const [showConfirm, setShowConfirm] = useState(false);
   
   const [removedIngredients, setRemovedIngredients] = useState<string[]>([]);
+  const [session, setSession] = useState<{ startedAt: string, expiresAt: string } | null>(null);
+  const [isExpired, setIsExpired] = useState(false);
+
+  useEffect(() => {
+    if (!session) return;
+    const interval = setInterval(() => {
+      setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+    }, 1000);
+    setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+    return () => clearInterval(interval);
+  }, [session]);
 
   useEffect(() => {
     apiFetch<{ menuItems: MenuItem[] }>('/menu-items')
@@ -65,6 +76,12 @@ export default function OrderBuilder() {
       })
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดข้อมูลไม่สำเร็จ'))
       .finally(() => setLoading(false));
+
+    fetch('http://localhost:3000/customer/session?table_session_id=1')
+      .then(res => res.json())
+      .then(data => {
+        if (data.session) setSession(data.session);
+      }).catch(console.error);
   }, [id]);
 
   const handleToggleIngredient = (ingredientId: string) => {
@@ -188,10 +205,11 @@ export default function OrderBuilder() {
         {/* --- ปุ่มยืนยันด้านล่าง --- */}
         <div className="absolute bottom-0 left-0 w-full bg-white border-t border-[#EAE5DF] p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-30">
           <button 
+            disabled={isExpired}
             onClick={() => setShowConfirm(true)}
-            className="w-full py-3.5 bg-[#5A403E] hover:bg-[#4A3432] text-white rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-md"
+            className={`w-full py-3.5 text-white rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-md ${isExpired ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#5A403E] hover:bg-[#4A3432]'}`}
           >
-            เพิ่มลงตะกร้า • {qty} ที่
+            {isExpired ? 'หมดเวลาสั่งอาหาร' : `เพิ่มลงตะกร้า • ${qty} ที่`}
           </button>
         </div>
 

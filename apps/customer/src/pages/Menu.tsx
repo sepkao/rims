@@ -58,6 +58,16 @@ export default function Menu() {
     tableNumber: string;
     capacity: number;
   } | null>(null);
+  const [isExpired, setIsExpired] = useState(false);
+
+  useEffect(() => {
+    if (!session) return;
+    const interval = setInterval(() => {
+      setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+    }, 1000);
+    setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+    return () => clearInterval(interval);
+  }, [session]);
 
   const fetchItems = () => {
     setLoading(true);
@@ -86,6 +96,7 @@ export default function Menu() {
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   const handleAdd = (item: MenuItem) => {
+    if (isExpired) return;
     if (item.ingredients.length > 0) {
       navigate(`/build/${item.id}`);
     } else {
@@ -94,6 +105,7 @@ export default function Menu() {
   };
 
   const handleQuickAdd = (item: MenuItem) => {
+    if (isExpired) return;
     addItem({ menuItem: item, quantity: 1, removedIngredients: [] });
   };
 
@@ -191,14 +203,14 @@ export default function Menu() {
                   </div>
                   
                   {getItemQuantity(item.id) > 0 ? (
-                    <div className="flex items-center justify-between bg-[#F4EFEA] rounded-lg p-1 mt-auto">
-                      <button onClick={() => handleRemoveOne(item)} className="w-7 h-7 bg-white rounded-md flex items-center justify-center text-[#5A403E] font-bold shadow-sm"><Icons.Minus /></button>
+                    <div className={`flex items-center justify-between rounded-lg p-1 mt-auto ${isExpired ? 'bg-gray-100 opacity-50' : 'bg-[#F4EFEA]'}`}>
+                      <button disabled={isExpired} onClick={() => handleRemoveOne(item)} className="w-7 h-7 bg-white rounded-md flex items-center justify-center text-[#5A403E] font-bold shadow-sm"><Icons.Minus /></button>
                       <span className="font-bold text-[#302221] text-xs">{getItemQuantity(item.id)}</span>
-                      <button onClick={() => handleQuickAdd(item)} className="w-7 h-7 bg-[#5A403E] rounded-md flex items-center justify-center text-white font-bold shadow-sm"><Icons.Plus /></button>
+                      <button disabled={isExpired} onClick={() => handleQuickAdd(item)} className={`w-7 h-7 rounded-md flex items-center justify-center text-white font-bold shadow-sm ${isExpired ? 'bg-gray-400' : 'bg-[#5A403E]'}`}><Icons.Plus /></button>
                     </div>
                   ) : (
-                    <button onClick={() => handleAdd(item)} className="w-full py-2 bg-white border border-[#EAE5DF] text-[#302221] hover:bg-gray-50 rounded-lg text-xs font-bold mt-auto transition-colors shadow-sm">
-                      + สั่งเลย
+                    <button disabled={isExpired} onClick={() => handleAdd(item)} className={`w-full py-2 border text-[#302221] rounded-lg text-xs font-bold mt-auto transition-colors shadow-sm ${isExpired ? 'bg-gray-200 border-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white border-[#EAE5DF] hover:bg-gray-50'}`}>
+                      {isExpired ? 'หมดเวลาสั่งอาหาร' : '+ สั่งเลย'}
                     </button>
                   )}
                 </div>
