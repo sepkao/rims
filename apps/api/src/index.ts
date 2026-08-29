@@ -331,7 +331,7 @@ app.get('/menu-items', async (c) => {
       LEFT JOIN menu_item_ingredients mii ON mii.menu_item_id = mi.id
       LEFT JOIN ingredients i ON i.id = mii.ingredient_id
       WHERE mi.is_active = true
-      GROUP BY mi.id, mi.name, mi.price, mi.description
+      GROUP BY mi.id, mi.name, mi.description
       ORDER BY mi.id ASC
     `);
     return c.json({ menuItems: result.rows });
