@@ -488,8 +488,7 @@ app.get('/customer/session', async (c) => {
       `SELECT 
          ts.started_at, 
          ts.expires_at,
-         dt.table_number,
-         dt.capacity
+         dt.table_number
        FROM table_sessions ts
        JOIN dining_tables dt ON ts.dining_table_id = dt.id
        WHERE ts.id = $1`,
@@ -501,7 +500,7 @@ app.get('/customer/session', async (c) => {
         startedAt: sessionRes.rows[0].started_at,
         expiresAt: sessionRes.rows[0].expires_at,
         tableNumber: sessionRes.rows[0].table_number,
-        capacity: sessionRes.rows[0].capacity
+        capacity: 4
       } : null
     })
   } catch (error) {
