@@ -125,11 +125,16 @@ All routes below live in **`apps/api/src/index.ts`**. This is the *entire* backe
 |---|---|---|---|
 | GET | `/health` | DB connectivity check, returns `{ now: ... }` | none |
 | POST | `/auth/login` | Body: `{ email, password }`. Sets a signed `session` cookie on success, returns `{ role }` | none |
-| POST | `/owner/logout` ⚠️ | Clears the session cookie | owner only (see warning) |
+| POST | `/auth/logout` | Clears the session cookie — works for every role now (was `/owner/logout` and broken for non-owners; fixed) | must be logged in |
 | POST | `/owner/users` | Body: `{ name, email, password, role }`. Creates a staff/cashier account | owner only |
-| PUT | `/owner/users/:id` | Body: `{ email, password, role }`. Updates an existing account | owner only |
+| PUT | `/owner/users/:id` | Body: `{ email, password, role }`. Updates an existing account — **no `is_active` toggle or dedicated reset-password route yet**, this one endpoint does full-overwrite edits including password | owner only |
+| POST | `/owner/menu-items` | Body: `{ name, price, description }`. Creates a menu item | owner only |
+| POST | `/owner/menu-items/:id/ingredients` | Body: `{ ingredient_id, quantity_required_plates, removable }`. Adds one BOM line to a menu item's recipe | owner only |
+| GET | `/owner/menu-items` | Lists every menu item joined with its BOM lines (flat rows — one row per ingredient, group by `id` client-side if you want nested) | owner only |
+| PUT | `/owner/menu-items/:id` | Body: `{ name, description, price, is_active }`. Edits a menu item (`is_active` is a soft-delete flag — set `false` to hide from customers instead of deleting) | owner only |
+| DELETE | `/owner/menu-items/:id` | Deletes a menu item — blocked if any `order_items` reference it; otherwise deletes its BOM rows first, then the item | owner only |
 
-⚠️ **Known bug**: logout is registered at `/owner/logout`, which means it's caught by the owner-only `/owner/*` middleware below — a staff or cashier account (or anyone whose session already expired) currently **cannot log out**, they'll get `403`/`401` instead. This should eventually move to `/auth/logout` outside the middleware. Don't build a frontend logout button assuming it works for every role until this is fixed.
+CORS is enabled (`hono/cors`) for `http://localhost:5173` with `credentials: true` — if your frontend runs on a different port, update the `origin` in `apps/api/src/index.ts` to match, or the browser will block every request with a CORS error.
 
 **Auth model**: this is cookie-session auth, not a token you attach to headers manually. When you `fetch()` from the frontend, you must pass `credentials: 'include'` or the browser will not send/receive the session cookie, and every protected route will 401/403:
 
@@ -147,7 +152,7 @@ const data = await res.json()
 
 Every route under `/owner/*` requires the cookie to belong to an active user with `role = 'owner'` — anything else gets `401 Unauthorized` (no/invalid cookie) or `403 Forbidden` (valid cookie, wrong role or account deactivated).
 
-**Nothing else exists yet** — no menu endpoints, no order endpoints, no stock endpoints. Check [`docs/rims_jira_backlog.csv`](docs/rims_jira_backlog.csv) (Sprint column) for what's planned and roughly when.
+**Still missing**: no order endpoints, no stock-lot endpoints (receive/transfer), no ingredient-threshold settings endpoint, no table-session (QR check-in/check-out) endpoints, no reports/notifications/waste-review endpoints. Check [`docs/rims_jira_backlog.csv`](docs/rims_jira_backlog.csv) (Sprint column, now kept up to date) for what's planned and roughly when.
 
 ---
 
@@ -155,34 +160,43 @@ Every route under `/owner/*` requires the cookie to belong to an active user wit
 
 Entry chain: **`main.tsx`** → wraps everything in `<AuthProvider>` (from `contexts/AuthContext.tsx`) → renders **`routes.tsx`** (`AppRoutes`) → each `/owner/*` route is wrapped in **`App.tsx`** (renders `<Sidebar />` + the page via `<Outlet />`).
 
-### ⚠️ Read this before touching login/auth-related pages
+### Auth is real now — read this if you're used to the old mock
 
-**`apps/internal/src/contexts/AuthContext.tsx`** is currently **fake**. It does not call the backend at all — it just waits 300ms and hardcodes `role = "staff"`. This means right now, no matter what you do, the app always behaves as if a staff user is logged in. Don't be confused if `/owner/*` pages redirect you to `/login` — that's this mock rejecting you because the hardcoded role isn't `"owner"`.
+**`apps/internal/src/contexts/AuthContext.tsx`** now calls the real backend. `login(role)` and `logout()` both exist on the context: `logout()` calls `POST /auth/logout` with `credentials: 'include'` then clears local state; `login(role)` is called by `login.tsx` after a successful `POST /auth/login` response. There's still one real gap: there's no "who am I" endpoint (`GET /auth/me`), so **refreshing the browser loses the role and sends you back to `/login`** even though the session cookie is still valid server-side — you have to log back in after every full page reload. That's a known limitation, not a bug you introduced.
 
-**`apps/internal/src/pages/login.tsx`** is a placeholder — literally just the text "login form goes here but not built". There is no login form yet. Building this page (a real form that POSTs to `/auth/login` with `credentials: 'include'`, then updates `AuthContext` with the real role) is one of the most valuable things to pick up, since almost everything else in the internal app is blocked behind it.
+**`apps/internal/src/pages/login.tsx`** has a working form now (email + password → `fetch POST /auth/login` → `login(data.role)` on success). A `useEffect` watches `role` and redirects: `owner` → `/owner/dashboard`, `staff` → `/staff/orders`, `cashier` → `/cashier/tables`.
+
+Logout is available from **every** role now — the button lives in `Sidebar.tsx` (calls `logout()` from `useAuth()`), not duplicated per-page.
 
 ### Route table (from `routes.tsx`)
 
 | Route | Page file | Role required |
 |---|---|---|
-| `/login` | `pages/login.tsx` | none (placeholder, not built) |
+| `/login` | `pages/login.tsx` | none |
 | `/owner/dashboard` | `pages/owner/Dashboard.tsx` | owner |
 | `/owner/menu` | `pages/owner/MenuManagement.tsx` | owner |
 | `/owner/users` | `pages/owner/UserManagement.tsx` | owner |
 | `/owner/settings` | `pages/owner/IngredientSettings.tsx` | owner |
 | `/owner/history` | `pages/owner/StockMovementHistory.tsx` | owner |
+| `/staff/orders` | `pages/staff/OrdersToServe.tsx` | staff |
+| `/staff/available-servings` | `pages/staff/AvailableServings.tsx` | staff |
+| `/staff/notifications` | `pages/staff/Notifications.tsx` | staff |
+| `/staff/receive-lot` | `pages/staff/ReceiveLot.tsx` | staff |
+| `/staff/thaw-prep-recommendation` | `pages/staff/ThawPrepRecommendation.tsx` | staff |
+| `/staff/transfer-to-thaw-prep` | `pages/staff/TransferToThawPrep.tsx` | staff |
+| `/cashier/tables` | `pages/cashier/TableList.tsx` | cashier |
+| `/cashier/checkin` | `pages/cashier/CheckIn.tsx` | cashier |
+| `/cashier/checkout` | `pages/cashier/CheckOut.tsx` | cashier |
 
-**Not wired into `routes.tsx` yet** (files exist, but there's no `<Route>` for them — you need to add the route yourself if you build these pages out):
+**Not wired into `routes.tsx` yet** (files exist, but there's no `<Route>` for them):
 - `pages/owner/NotFreshInventory.tsx`
 - `pages/owner/Notifications.tsx`
 - `pages/owner/ProcurementRecommendation.tsx`
 - `pages/owner/QrSettings.tsx`
 - `pages/owner/SystemLogs.tsx`
 - `pages/owner/WasteReview.tsx`
-- `pages/staff/*` (5 files: `AvailableServings`, `Notifications`, `OrdersToServe`, `ReceiveLot`, `ThawPrepRecommendation`, `TransferToThawPrep`)
-- `pages/cashier/*` (3 files: `CheckIn`, `CheckOut`, `TableList`)
 
-To wire one in, follow the exact pattern already in `routes.tsx` for e.g. `/owner/menu`: import the component at the top, add a `<Route path="/staff/..." element={<RequireRole role="staff"><YourPage /></RequireRole>} />` inside the `<Route element={<App/>}>` block.
+To wire one in, follow the exact pattern already in `routes.tsx`: import the component at the top, add a `<Route path="/owner/..." element={<RequireRole role="owner"><YourPage /></RequireRole>} />` inside the `<Route element={<App/>}>` block, then add a matching entry to the nav array in `sidebar.tsx` if it should be reachable by click (routes and sidebar entries are two separate lists — adding one doesn't add the other).
 
 ### Sidebar nav (`components/sidebar.tsx`)
 
@@ -196,7 +210,14 @@ Nav items per role are defined as plain arrays near the top of the file (`ownerN
 
 ### Page-by-page status (internal app)
 
-Every page under `pages/owner/`, `pages/staff/`, `pages/cashier/` is close to empty right now — most are just a heading or a "Welcome, {role}" message with zero real markup. `Dashboard.tsx` is the most built-out example (still just a paragraph + one link + logout button) — read it as a reference for the `useAuth()` import pattern, not as a finished page. All of them need real JSX (tables, forms, cards) written against **mock/placeholder data** for now, since the matching backend endpoints mostly don't exist yet (see section 4). Wiring real `fetch()` calls in happens once each backend endpoint is ready — check the Jira backlog's Sprint column, or ask before building a real fetch call so you don't build against an endpoint that doesn't exist yet.
+Routing, sidebar nav, and logout now work for **every** role (owner/staff/cashier) — that part is done. But **page content is still almost entirely mock/placeholder**, even for pages whose backend endpoint is fully ready:
+
+- `MenuManagement.tsx` — still hardcoded `mockMenuItems` array, doesn't call `GET /owner/menu-items` at all, despite all 5 menu endpoints being done (see §4). This is the highest-value page to wire up next — backend is ready and waiting.
+- `UserManagement.tsx` — just a heading and a logout button, doesn't call `POST`/`PUT /owner/users` either, despite those being done and tested since early in the project.
+- `Dashboard.tsx` — just `Welcome, {role}!` + a link, no real cards; its backend (weekly report aggregates) doesn't exist yet anyway.
+- Every `pages/staff/*` and `pages/cashier/*` file is a one-line placeholder (`<p>... page</p>`) — enough to route to and see something render, nothing functional yet.
+
+Don't assume a page's backend is missing just because the page itself is empty — **check §4's endpoint table first**, since several pages (Menu, Users) are blocked on frontend work only, not backend work. Wiring real `fetch()` calls in happens per-page — check the Jira backlog's Sprint column for what's ready, or ask before building a fetch call so you don't build against an endpoint that doesn't exist yet.
 
 ### Page-by-page content spec — what each file is actually supposed to show
 
@@ -207,8 +228,8 @@ This is *what to build*, not just "it's empty". Grounded in `docs/rims_user_stor
 | File | What it's for |
 |---|---|
 | `Dashboard.tsx` | US-13. This-week vs last-week summary cards: revenue, ingredient cost (COGS), waste cost, net profit + % change. All numbers are plain SQL aggregates, never guessed/AI. Also shows a notification badge (count of UC-N7 low-stock alerts + pending waste reviews). View-only — cards don't need to be clickable except the badge, which links to `Notifications.tsx` / `WasteReview.tsx`. |
-| `MenuManagement.tsx` | US-10. List all menu items (name + price). **Create**: name + price + description, then build the BOM — pick each ingredient + `quantity_required_plates`, and a `removable` true/false toggle per ingredient (this is what lets customers remove that ingredient later, UC-N9). **Edit**: name/description freely; price change only affects *new* orders, not past ones; BOM rows can be added/removed/qty-changed/removable-toggled. **Delete**: blocked (FK constraint) if the item was ever ordered — show an error, don't silently fail; otherwise delete its BOM rows first, then the item. |
-| `UserManagement.tsx` | Already wired to real endpoints (`POST`/`PUT /owner/users`, see §4) — this one's the reference example for what "done" looks like. List name/email/role. Create needs name+email+password+role (staff or cashier only — owner accounts are never created through the UI, see §2/F9). Edit covers name/email, role switch, or password reset. Delete should be blocked if the account ever did anything in the system (received a lot, served an order, etc.) — no delete endpoint exists yet, don't build the button until it does. |
+| `MenuManagement.tsx` | US-10. **Backend is fully ready** (`GET`/`POST`/`PUT`/`DELETE /owner/menu-items`, `POST /owner/menu-items/:id/ingredients` — see §4) — the page itself is still hardcoded mock data, this is pure frontend work now. List all menu items (name + price) from `GET /owner/menu-items`. **Create**: name + price + description, then build the BOM — pick each ingredient + `quantity_required_plates`, and a `removable` true/false toggle per ingredient (this is what lets customers remove that ingredient later, UC-N9). **Edit**: name/description/price freely, plus toggle `is_active` to hide a discontinued item instead of deleting it. **Delete**: the endpoint already blocks it (FK constraint) if the item was ever ordered — surface that error to the Owner, don't let it fail silently. |
+| `UserManagement.tsx` | Backend is ready for create/edit (`POST`/`PUT /owner/users`, see §4) — the page itself is still just a heading, doesn't call either endpoint yet. List name/email/role. Create needs name+email+password+role (staff or cashier only — owner accounts are never created through the UI, see §2/F9). Edit covers name/email, role switch, or password reset (all via the same `PUT`, since there's no dedicated reset-password route or `is_active` toggle yet — see the known gap in §4). Delete should be blocked if the account ever did anything in the system — no delete endpoint exists yet, don't build the button until it does. |
 | `IngredientSettings.tsx` | US-11. Per-ingredient threshold form, **5 fields for meat**: `reorder_threshold_kg`, `thaw_prep_threshold_plates`, `buffer_percentage`, `supplier_pack_size_kg`, `freezer_expiry_warning_days`. **Vegetables don't have a Freezer**, so don't show `reorder_threshold_kg`/`freezer_expiry_warning_days` for them — only the thaw-prep-cabinet-related fields apply. |
 | `WasteReview.tsx` | US-12. Queue of lots the system already flagged (`pending_review`: near-expiry + no movement for 3+ days) with their potential cost shown. Owner clicks **Confirm** → stock is actually deducted and waste cost logged, or **Reject** → lot goes back to normal usable stock, nothing changes. This is a human-in-the-loop approval step, never auto-applied. |
 | `NotFreshInventory.tsx` | Read-only list of lots the `mark_not_fresh_lots` scheduled job has already auto-marked expired/not-fresh (past their `expiry_date`). This is the *already-happened* version — different from `WasteReview.tsx`, which is items still awaiting a human decision. |
@@ -285,15 +306,15 @@ Then open a PR targeting `mockupDEVKao` (not `main` — `main` only gets updated
 
 ---
 
-## 8. Current status (as of 18 Aug 2026)
+## 8. Current status (as of 23 Aug 2026)
 
 | Part | Status |
 |---|---|
 | Requirements / scope lock | ✅ Done |
 | Database schema + functions | ✅ Done in the reference file (16 tables, FIFO deduction, return, reports, notifications) — confirm with DB owner it's fully applied live, see warning in §2 |
-| Frontend scaffolding — internal app | 🔄 Partial — routing/sidebar/auth-guard wired for Owner role only; most pages are empty stubs; login form not built; auth is currently mocked/fake |
+| Frontend scaffolding — internal app | ✅ Routing/sidebar/auth-guard/logout wired for **all 3 roles** (owner, staff, cashier); auth is real (login/logout call the backend). Page *content* is still mostly mock — see §5 |
 | Frontend — customer app | ⬜ Not started — default Vite template only |
-| Backend API | 🔄 In progress — only `/health`, `/auth/login`, `/owner/logout`, `/owner/users` (POST + PUT) exist so far |
-| Frontend ⇄ backend wiring | ⬜ Not started anywhere — no page makes a real `fetch()` call yet |
+| Backend API | 🔄 In progress — auth (login/logout) done, full Menu+BOM CRUD done, Staff/cashier account CRUD partially done (missing `is_active` toggle + delete). Stock-lot intake/transfer, ingredient thresholds, table sessions, order flow, notifications, waste review, and reports are all not started — see §4 |
+| Frontend ⇄ backend wiring | 🔄 Partial — only login/logout call real endpoints. Menu Management and User Management pages have *ready* backends but still show mock data; everything else is blocked on its backend first |
 
-See [`docs/rims_jira_backlog.csv`](docs/rims_jira_backlog.csv) for the full sprint-by-sprint plan of what's left and roughly when it's scheduled.
+See [`docs/rims_jira_backlog.csv`](docs/rims_jira_backlog.csv) for the full sprint-by-sprint plan — statuses in that file are now kept in sync with actual code, not just the original plan.

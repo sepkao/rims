@@ -269,6 +269,28 @@ WHERE lot_id = X AND quantity_remaining >= 1;
 
 ---
 
+## 18. Pricing model: บุฟเฟ่ต์ต่อหัว ไม่ใช่ราคาต่อจาน (ใหม่ — ล็อก 2026-08-25)
+
+**พบระหว่าง merge งาน frontend**: โค้ดที่ทำไว้ก่อนหน้า (`menu_items.price`, `get_weekly_cost_profit_report()`) ถูกออกแบบบนสมมติฐาน "ขายเป็นจาน มีราคาต่อจาน" ซึ่ง**ไม่ตรงกับความจริงของร้าน** — ร้านนี้เป็น**บุฟเฟ่ต์ล้วนๆ ไม่มีการขายแบบจานเดี่ยวเลย**
+
+**ตัดสินใจแล้ว:**
+- **ราคาคิดต่อหัว แบ่ง 4 ประเภท**: ผู้ใหญ่ / เด็ก / ผู้สูงอายุ / ผู้พิการ (ผู้พิการฟรีโดย default, ราคา = 0)
+- **ไม่มีแพ็กเกจแยกระดับ** (เช่น "แพ็กเกจพรีเมียม 299 ปลดล็อกเมนูพิเศษ") — ทุกคนสั่งได้ทุกเมนูเหมือนกันหมด ต่างกันแค่ราคาต่อหัวตามประเภท
+- **1 โต๊ะมีคนหลายประเภทปนกันได้** (เช่น 2 คนราคาผู้ใหญ่ + 2 คนราคาเด็กในโต๊ะเดียวกัน)
+- **จำนวนคนแต่ละประเภท fix ตั้งแต่ตอนเช็คอิน** — แก้ไขทีหลังไม่ได้ (ลูกค้ามาเพิ่มกลางมื้อไม่รองรับในสโคปนี้)
+- **`menu_items` ไม่มีคอลัมน์ `price` อีกต่อไป** — เมนูมีไว้กำหนดว่าร้านมีอะไรขาย + BOM (ตัดสต็อกตามสูตร) เท่านั้น ไม่ผูกกับราคาเลย
+- **ราคาต่อหัว snapshot ใส่ `table_sessions` ตอนเช็คอิน** (ไม่ใช่ query ราคาปัจจุบันจาก `settings` ทุกครั้ง) — เหตุผลเดียวกับที่ราคาเมนูเก่าไม่กระทบออเดอร์เก่า: Owner ปรับราคาบุฟเฟ่ต์ทีหลังต้องไม่กระทบยอดรายได้ของโต๊ะที่เช็คอินไปแล้วก่อนหน้า
+
+**Schema ที่เพิ่ม/แก้** (`0001_init.sql`):
+- `settings` — เพิ่ม 4 key: `buffet_price_adult`, `buffet_price_child`, `buffet_price_senior`, `buffet_price_disabled`
+- `table_sessions` — เพิ่ม `adult_count`, `child_count`, `senior_count`, `disabled_count` (INT) และ `price_per_adult`, `price_per_child`, `price_per_senior`, `price_per_disabled` (DECIMAL, snapshot ตอนเช็คอิน)
+- `menu_items` — ลบคอลัมน์ `price`
+- `get_weekly_cost_profit_report()` — เปลี่ยนสูตรรายได้จาก `SUM(order_items.quantity * menu_items.price)` เป็น `SUM(table_sessions.<count> * table_sessions.price_per_<category>)` กรองด้วย `table_sessions.started_at` แทน `orders.confirmed_at`
+
+**ทางเลือกที่ไม่ได้เลือก**: ออกแบบ normalize เป็นตาราง `pricing_categories` + `table_session_headcounts` แยกต่างหาก (ยืดหยุ่นกว่าถ้าจะเพิ่ม/ลดประเภทราคาบ่อยในอนาคต) — ไม่เลือกเพราะร้านนี้ไม่คาดว่าจะเปลี่ยนประเภทราคาบ่อย และ scope โปรเจกต์นักศึกษามี deadline จำกัด เลือกความเรียบง่าย (คอลัมน์ตายตัว 4 ชุด) ก่อน
+
+---
+
 ## Open items / ยังไม่ได้ตัดสินใจ
 
 - **(ใหม่ 2026-07-15, F3d — ล็อกแบบ assumed, ยังไม่ confirm ชัดเจน)** UC-N10 **ใช้กับเนื้อเท่านั้น** ✅ (ไปย้ายเพิ่มจาก Freezer) — ผักไม่มี UC-N10 เพราะไม่มี lot ดิบให้ย้าย ใช้แค่ UC-N7 (เตือน Owner สั่งซื้อเพิ่ม) พอ — **ถือเป็นค่าเริ่มต้นชั่วคราวเพื่อไปต่อ DB ได้ ถ้าไม่ตรงแจ้งแก้ได้ทุกเมื่อ**
@@ -280,6 +302,7 @@ WHERE lot_id = X AND quantity_remaining >= 1;
 
 ## Changelog
 
+- **2026-08-25 (รอบ 18 — Pricing model, พบระหว่าง merge งาน frontend ของทีม):** ตรวจพบว่า `menu_items.price` และ `get_weekly_cost_profit_report()` ที่ทำไว้ก่อนหน้าตั้งอยู่บนสมมติฐานผิด (ขายเป็นจาน) ทั้งที่ร้านเป็นบุฟเฟ่ต์ล้วนไม่มีราคาต่อจานเลย — ล็อกโมเดลราคาใหม่ (ข้อ 18): บุฟเฟ่ต์ต่อหัว 4 ประเภท (ผู้ใหญ่/เด็ก/ผู้สูงอายุ/ผู้พิการ-ฟรี), ปนกันได้ในโต๊ะเดียว, fix ตอนเช็คอิน, ไม่มีแพ็กเกจปลดล็อกเมนู — ลบ `menu_items.price`, เพิ่ม headcount + price snapshot columns ใน `table_sessions`, เพิ่ม `settings.buffet_price_*`, เขียน `get_weekly_cost_profit_report()` ใหม่ให้คำนวณรายได้จาก `table_sessions` แทน `menu_items`/`order_items`
 - **2026-08-02 (รอบ 17 — Indexing pass, ตอบคำถาม "ข้อมูลเยอะในอนาคตทำยังไง"):** คุยกันเรื่องตารางธุรกรรม (`orders`/`order_items`/`stock_movements`/`waste_records`) จะโตเรื่อยๆ ตามอายุร้าน — สรุปว่าไม่ต้อง archive/partition ตอนนี้ (scale ร้านเดียวไม่ถึงจุดนั้น) แต่ควรมี index รองรับ query pattern ที่ใช้จริงในโค้ดที่มีอยู่แล้ว ไล่ตรวจแล้วเพิ่มใน `0001_init.sql`: `idx_stock_movements_order_item` (ใช้ใน `return_order_item_to_stock()`), `idx_stock_movements_deduction_created` + `idx_orders_confirmed_created` + `idx_waste_records_confirmed_created` (ใช้ใน `get_weekly_cost_profit_report()` ที่ Dashboard เรียกทุกครั้งที่โหลด), `idx_waste_records_pending` (คิวรอตรวจของเสีย, US-12), `idx_orders_table_session` + `idx_order_items_order` (order history ต่อโต๊ะ US-04, และ join คำนวณ revenue)
 - **2026-08-02 (รอบ 16 — User Management, เจอช่องโหว่ตอนออกแบบหน้าจัดการ user):** ระหว่างออกแบบ userflow หน้า User Management พบว่า `users` ไม่มีทางปิดใช้งาน account เลย (มีแต่ลบจริง ซึ่งชน FK ทันทีถ้าเคยมีกิจกรรม) ขัดกับที่ข้อ 15 อ้างว่า session-based auth "ยกเลิกสิทธิ์ได้ทันที" — เพิ่ม `users.is_active BOOLEAN DEFAULT true` ใน `0001_init.sql`, เพิ่มหมายเหตุในข้อ 11 (Roles) ว่า login ต้องเช็ค `is_active` เพิ่ม
 - **2026-07-17 (รอบ 15 — UC-N12 คืนสต็อกจานที่ยังไม่เสิร์ฟ + true FIFO splitting):** เพิ่ม **UC-N12** ใหม่ (ข้อ 17): พนักงานคืนจานที่ยังไม่เสิร์ฟ (`served_at IS NULL`) กลับเข้าล็อตเดิมได้เอง ไม่ต้อง Owner อนุมัติ รองรับคืนบางส่วนต่อ order_item — ระหว่างออกแบบพบว่า `deduct_stock_fifo` เดิม (ล็อตเดียวหรือ fail) ไม่ใช่ true FIFO จริง เลยแก้ให้ตัดข้ามล็อตได้ (ข้อ 7) ซึ่งกระทบต้องเพิ่ม `stock_movements.order_item_id` (แยกได้ว่าการตัด/คืนแต่ละแถวเป็นของจานไหน จำเป็นเพราะ 1 ออเดอร์มีหลายเมนูได้) และเจอบั๊กแฝงใน view `ingredient_usage_by_weekday` (เดิม AVG ทับกันข้ามแถวโดยไม่ SUM รายวันก่อน ทำให้ underestimate หนักขึ้นเมื่อการตัด 1 ครั้งแตกเป็นหลายแถว) — แก้ครบใน `rims_database_schema.sql`: `deduct_stock_fifo`, `return_order_item_to_stock` (ฟังก์ชันใหม่), `ingredient_usage_by_weekday`, เพิ่ม `order_items.quantity_returned`

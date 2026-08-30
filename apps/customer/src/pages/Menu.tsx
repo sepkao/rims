@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
+import CallStaffButton from '../components/CallStaffButton';
+import DevTimeTools from '../components/DevTimeTools';
+import BuffetTimer from '../components/BuffetTimer';
 
 type MenuItem = {
   id: string;
   name: string;
-  price: number;
   description: string | null;
   ingredients: Array<{ id: string; name: string; removable: boolean }>;
 };
+
+import { useCart } from '../lib/CartContext';
 
 // --- Icons สำหรับฝั่งลูกค้า ---
 const Icons = {
@@ -22,7 +26,6 @@ const Icons = {
 
 const categories = ["ทั้งหมด", "เนื้อวัว", "หมู", "ซีฟู้ด", "ลูกชิ้น/ผัก", "ของทานเล่น"];
 
-// ฟังก์ชันช่วยจัดหมวดหมู่จำลอง (เผื่อ API ยังไม่ส่ง category มา)
 const guessCategory = (name: string) => {
   if (name.includes("เนื้อ") || name.includes("วากิว") || name.includes("ริบอาย")) return "เนื้อวัว";
   if (name.includes("หมู") || name.includes("เบคอน")) return "หมู";
@@ -32,7 +35,6 @@ const guessCategory = (name: string) => {
   return "อื่นๆ";
 };
 
-// ฟังก์ชันจำลองรูปภาพ
 const mockImages = [
   "https://images.unsplash.com/photo-1600891964092-4316c288032e?q=80&w=400&auto=format&fit=crop",
   "https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?q=80&w=400&auto=format&fit=crop",
@@ -45,17 +47,44 @@ const mockImages = [
 export default function Menu() {
   const navigate = useNavigate();
   const [items, setItems] = useState<MenuItem[]>([]);
-  const [cart, setCart] = useState<Record<string, number>>({});
+  const { items: cartItems, addItem, removeItem, updateQuantity } = useCart();
   const [query, setQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState("ทั้งหมด");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [session, setSession] = useState<{
+    startedAt: string;
+    expiresAt: string;
+    tableNumber: string;
+    capacity: number;
+  } | null>(null);
+  const [isExpired, setIsExpired] = useState(false);
 
   useEffect(() => {
+    if (!session) return;
+    const interval = setInterval(() => {
+      setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+    }, 1000);
+    setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+    return () => clearInterval(interval);
+  }, [session]);
+
+  const fetchItems = () => {
+    setLoading(true);
     apiFetch<{ menuItems: MenuItem[] }>('/menu-items')
       .then((data) => setItems(data.menuItems))
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดเมนูไม่สำเร็จ'))
       .finally(() => setLoading(false));
+
+    fetch('http://localhost:3000/customer/session?table_session_id=1')
+      .then(r => r.json())
+      .then(data => {
+        if (data.session) setSession(data.session);
+      }).catch(console.error);
+  };
+
+  useEffect(() => {
+    fetchItems();
   }, []);
 
   const visible = useMemo(() => items.filter((item) => {
@@ -64,49 +93,60 @@ export default function Menu() {
     return matchesSearch && matchesCategory;
   }), [items, query, activeCategory]);
 
-  const totalItems = Object.values(cart).reduce((sum, quantity) => sum + quantity, 0);
+  const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
-  const handleAdd = (id: string) => {
-    setCart(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
+  const handleAdd = (item: MenuItem) => {
+    if (isExpired) return;
+    if (item.ingredients.length > 0) {
+      navigate(`/build/${item.id}`);
+    } else {
+      addItem({ menuItem: item, quantity: 1, removedIngredients: [] });
+    }
   };
 
-  const handleRemove = (id: string) => {
-    setCart(prev => {
-      const newCart = { ...prev };
-      if (newCart[id] > 1) {
-        newCart[id] -= 1;
+  const handleQuickAdd = (item: MenuItem) => {
+    if (isExpired) return;
+    addItem({ menuItem: item, quantity: 1, removedIngredients: [] });
+  };
+
+  const handleRemoveOne = (item: MenuItem) => {
+    const existingInstances = cartItems.filter(i => i.menuItem.id === item.id);
+    if (existingInstances.length > 0) {
+      const lastInstance = existingInstances[existingInstances.length - 1];
+      if (lastInstance.quantity > 1) {
+        updateQuantity(lastInstance.cartItemId, lastInstance.quantity - 1);
       } else {
-        delete newCart[id];
+        removeItem(lastInstance.cartItemId);
       }
-      return newCart;
-    });
+    }
+  };
+
+  const getItemQuantity = (itemId: string) => {
+    return cartItems.filter(i => i.menuItem.id === itemId).reduce((sum, i) => sum + i.quantity, 0);
   };
 
   return (
-    <div className="min-h-screen bg-gray-200 flex justify-center font-sans">
-      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative neo-wrapper overflow-hidden">
+    <div className="min-h-screen bg-[#EAE5DF] flex justify-center font-sans">
+      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative shadow-xl overflow-hidden">
         
         {/* --- Header --- */}
-        <div className="bg-white px-5 py-4 border-b-2 border-[#2d1b17] shrink-0 sticky top-0 z-20 shadow-sm">
+        <div className="bg-white px-5 py-4 border-b border-[#EAE5DF] shrink-0 sticky top-0 z-20 shadow-sm">
           <div className="flex justify-between items-center mb-3">
             <div>
-              <h1 className="text-xl font-black text-[#5A403E] tracking-wide">SHABU INVEN</h1>
-              <p className="text-[11px] font-bold text-[#7B726B]">Buffet Premium (฿599)</p>
+              <h1 className="text-xl font-bold text-[#5A403E]">Shabu</h1>
+              <p className="text-[11px] font-medium text-[#7B726B]">All-you-can-eat buffet</p>
             </div>
-            <div className="bg-[#FEF2F2] border border-[#FCA5A5] px-3 py-1.5 rounded-full flex items-center gap-1.5">
-              <span className="text-[#DC2626]"><Icons.Clock /></span>
-              <span className="text-sm font-bold text-[#DC2626] font-mono mt-0.5">01:29:45</span>
-            </div>
+            {session && <BuffetTimer expiresAt={session.expiresAt} />}
           </div>
           
           <div className="flex justify-between items-end">
-            <span className="text-lg font-bold text-[#302221]">โต๊ะ 08 <span className="text-sm font-normal text-[#7B726B] ml-1">(4 ท่าน)</span></span>
-            <span className="text-sm text-[#10B981] font-bold bg-[#D1FAE5] px-2 py-0.5 rounded">กำลังทาน</span>
+            <span className="text-lg font-bold text-[#302221]">โต๊ะ {session?.tableNumber?.replace('MOCK-', '') || '00'} <span className="text-sm font-normal text-[#7B726B] ml-1">({session?.capacity || 4} ท่าน)</span></span>
+            <span className="text-xs text-[#10B981] font-bold bg-[#D1FAE5] px-2 py-1 rounded-md">กำลังทาน</span>
           </div>
         </div>
 
         {/* --- Search & Category Tabs --- */}
-        <div className="bg-white px-5 pt-3 pb-2 shrink-0 z-10 border-b-2 border-[#2d1b17] shadow-[0_4px_0_#2d1b17]">
+        <div className="bg-white px-5 pt-3 pb-2 shrink-0 z-10 border-b border-[#EAE5DF]">
           <div className="relative mb-3">
             <div className="absolute left-3 top-1/2 -translate-y-1/2"><Icons.Search /></div>
             <input 
@@ -114,7 +154,7 @@ export default function Menu() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="ค้นหาเมนูหรือวัตถุดิบ..." 
-              className="w-full pl-10 pr-4 py-2 bg-white border-2 border-[#2d1b17] rounded-xl text-sm outline-none focus:shadow-[2px_2px_0_#2d1b17]"
+              className="w-full pl-10 pr-4 py-2.5 bg-[#F4EFEA] border-none rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#5A403E]/20 transition-all"
             />
           </div>
 
@@ -123,8 +163,10 @@ export default function Menu() {
               <button 
                 key={cat}
                 onClick={() => setActiveCategory(cat)}
-                className={`whitespace-nowrap px-4 py-1.5 text-[13px] font-bold transition-colors
-                  ${activeCategory === cat ? 'neo-btn' : 'neo-btn-secondary hover:bg-[#F4EFEA]'}`}
+                className={`whitespace-nowrap px-4 py-1.5 text-xs font-bold rounded-full transition-all border
+                  ${activeCategory === cat 
+                    ? 'bg-[#5A403E] text-white border-[#5A403E] shadow-sm' 
+                    : 'bg-white text-[#7B726B] border-[#EAE5DF] hover:bg-gray-50'}`}
               >
                 {cat}
               </button>
@@ -135,16 +177,15 @@ export default function Menu() {
         {/* --- Menu Grid --- */}
         <div className="flex-1 overflow-y-auto p-4 pb-[100px]">
           {loading && <div className="py-10 text-center text-sm font-bold text-[#7B726B]">กำลังโหลดเมนู…</div>}
-          {error && <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm font-bold text-red-700 mb-4">{error}</div>}
+          {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700 mb-4">{error}</div>}
           
           <div className="grid grid-cols-2 gap-4">
             {visible.map((item, index) => (
-              <div key={item.id} className="neo-card overflow-hidden flex flex-col">
-                <div className="h-32 bg-gray-200 relative border-b-2 border-[#2d1b17]">
+              <div key={item.id} className="rounded-xl bg-white border border-[#EAE5DF] shadow-sm overflow-hidden flex flex-col">
+                <div className="h-32 bg-[#F4EFEA] relative border-b border-[#EAE5DF]">
                   <img src={mockImages[index % mockImages.length]} alt={item.name} className="w-full h-full object-cover" />
-                  {/* สุ่มแสดงป้ายแนะนำ */}
                   {index % 3 === 0 && (
-                    <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-md flex items-center gap-1 shadow-sm">
+                    <div className="absolute top-2 left-2 bg-white/95 backdrop-blur-sm px-2 py-1 rounded-md flex items-center gap-1 shadow-sm">
                       <Icons.Fire /> <span className="text-[10px] font-bold text-[#E53E3E]">แนะนำ</span>
                     </div>
                   )}
@@ -152,25 +193,24 @@ export default function Menu() {
                 
                 <div className="p-3 flex flex-col flex-1">
                   <h3 className="text-[13px] font-bold text-[#302221] leading-tight mb-1">{item.name}</h3>
-                  <p className="text-[10px] font-bold text-[#5A403E] mb-2">฿{item.price.toLocaleString()}</p>
                   
                   <div className="flex flex-wrap gap-1 mb-3 flex-1 content-start">
                     {item.ingredients.map((ing) => (
-                      <span key={ing.id} className="text-[9px] text-[#7B726B] bg-[#F4EFEA] px-1.5 py-0.5 rounded">
+                      <span key={ing.id} className="text-[9px] text-[#7B726B] bg-[#F4EFEA] px-1.5 py-0.5 rounded-sm">
                         {ing.name} {ing.removable && <span className="text-[#999] ml-0.5">(ไม่เอา)</span>}
                       </span>
                     ))}
                   </div>
                   
-                  {cart[item.id] ? (
-                    <div className="flex items-center justify-between bg-[#F4EFEA] rounded-lg p-1 mt-auto">
-                      <button onClick={() => handleRemove(item.id)} className="w-7 h-7 bg-white rounded-md flex items-center justify-center text-[#5A403E] font-bold shadow-sm"><Icons.Minus /></button>
-                      <span className="font-bold text-[#302221]">{cart[item.id]}</span>
-                      <button onClick={() => handleAdd(item.id)} className="w-7 h-7 bg-[#5A403E] rounded-md flex items-center justify-center text-white font-bold shadow-sm"><Icons.Plus /></button>
+                  {getItemQuantity(item.id) > 0 ? (
+                    <div className={`flex items-center justify-between rounded-lg p-1 mt-auto ${isExpired ? 'bg-gray-100 opacity-50' : 'bg-[#F4EFEA]'}`}>
+                      <button disabled={isExpired} onClick={() => handleRemoveOne(item)} className="w-7 h-7 bg-white rounded-md flex items-center justify-center text-[#5A403E] font-bold shadow-sm"><Icons.Minus /></button>
+                      <span className="font-bold text-[#302221] text-xs">{getItemQuantity(item.id)}</span>
+                      <button disabled={isExpired} onClick={() => handleQuickAdd(item)} className={`w-7 h-7 rounded-md flex items-center justify-center text-white font-bold shadow-sm ${isExpired ? 'bg-gray-400' : 'bg-[#5A403E]'}`}><Icons.Plus /></button>
                     </div>
                   ) : (
-                    <button onClick={() => navigate('/build')} className="w-full py-1.5 neo-btn-secondary text-[13px] font-bold mt-auto">
-                      + สั่งเลย
+                    <button disabled={isExpired} onClick={() => handleAdd(item)} className={`w-full py-2 border text-[#302221] rounded-lg text-xs font-bold mt-auto transition-colors shadow-sm ${isExpired ? 'bg-gray-200 border-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white border-[#EAE5DF] hover:bg-gray-50'}`}>
+                      {isExpired ? 'หมดเวลาสั่งอาหาร' : '+ สั่งเลย'}
                     </button>
                   )}
                 </div>
@@ -180,19 +220,22 @@ export default function Menu() {
           {!loading && !error && visible.length === 0 && <div className="py-10 text-center text-sm text-[#7B726B]">ไม่พบเมนู</div>}
         </div>
 
+        <CallStaffButton />
+        <DevTimeTools onTriggerFetch={fetchItems} />
+
         {/* --- Floating Bottom Cart --- */}
-        <div className="absolute bottom-0 left-0 w-full bg-white border-t-2 border-[#2d1b17] p-4 shadow-[0_-4px_0_#2d1b17] z-30">
+        <div className="absolute bottom-0 left-0 w-full bg-white border-t border-[#EAE5DF] p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-30">
           <button 
             onClick={() => navigate('/order/cart')}
-            className={`w-full py-3.5 flex items-center justify-between px-5 font-bold transition-all
-            ${totalItems > 0 ? 'neo-btn' : 'bg-[#EAE5DF] text-[#999] cursor-not-allowed border-2 border-[#2d1b17] rounded-xl'}`}
+            className={`w-full py-3.5 flex items-center justify-between px-5 font-bold transition-colors rounded-lg
+            ${totalItems > 0 ? 'bg-[#5A403E] hover:bg-[#4A3432] text-white shadow-md' : 'bg-[#F4EFEA] text-[#999] cursor-not-allowed'}`}
             disabled={totalItems === 0}
           >
             <div className="flex items-center gap-3">
               <div className="relative">
                 <Icons.ShoppingBag />
                 {totalItems > 0 && (
-                  <span className="absolute -top-1.5 -right-2.5 bg-[#E53E3E] text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full border border-[#5A403E]">
+                  <span className="absolute -top-2 -right-2 bg-[#E53E3E] text-white text-[10px] w-4.5 h-4.5 flex items-center justify-center rounded-full shadow-sm">
                     {totalItems}
                   </span>
                 )}
