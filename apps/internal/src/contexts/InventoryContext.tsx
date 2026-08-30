@@ -27,6 +27,7 @@ type InventoryContextValue = {
 
 type ApiLot = {
   id: string
+  ingredientId: string
   item: string
   category: InventoryBatch['category']
   batch: string
@@ -44,12 +45,15 @@ const InventoryContext = createContext<InventoryContextValue | null>(null)
 function toBatch(lot: ApiLot): InventoryBatch {
   return {
     id: `LOT-${lot.id}`,
+    ingredientId: lot.ingredientId,
     item: lot.item,
     category: lot.category,
     batch: lot.batch,
     qty: `${lot.quantity} ${lot.unit}`,
     receiveDate: lot.receivedAt.slice(0, 10),
     expireDate: lot.expiryDate.slice(0, 10),
+    receivedAt: lot.receivedAt,
+    expiryAt: lot.expiryDate,
     status: lot.status,
     unitValue: lot.unitValue,
     location: lot.location,

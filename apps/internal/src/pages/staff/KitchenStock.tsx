@@ -77,7 +77,7 @@ export default function KitchenStockPage({ area }: { area: 'Freezer Stock' | 'Pr
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border-2 border-[#2D1B17] bg-[#B97861] text-xl font-black text-white shadow-[2px_2px_0_#2D1B17]">1</span>
             <div><p className="text-[10px] font-black uppercase tracking-[.15em] text-[#8B5746]">Pick me first</p><h2 className="mt-1 text-xl font-black">{priority.item} <span className="font-mono text-xs text-[#987D74]">#{priority.batch}</span></h2><p className="mt-1 text-xs font-semibold text-[#80675F]">เหลือ {priority.qty} · ใช้ภายใน {priority.expireDate}</p></div>
           </article>
-          <article className="rounded-[22px] border-2 border-[#2D1B17] bg-[#2D1B17] p-5 text-white shadow-[5px_5px_0_#B97861]"><p className="text-[10px] font-black uppercase tracking-[.15em] text-[#D4A996]">Data source</p><p className="mt-2 text-sm font-bold leading-6">ข้อมูลจะแสดงเมื่อเชื่อมต่อ API inventory แล้ว</p></article>
+          <article className="rounded-[22px] border-2 border-[#2D1B17] bg-[#2D1B17] p-5 text-white shadow-[5px_5px_0_#B97861]"><p className="text-[10px] font-black uppercase tracking-[.15em] text-[#D4A996]">Live inventory</p><p className="mt-2 text-sm font-bold leading-6">ข้อมูลล่าสุดจาก API inventory · เรียงลำดับหยิบแบบ FIFO</p></article>
         </section>}
 
         <section className="overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-white shadow-[7px_7px_0_#2D1B17]">
@@ -133,4 +133,3 @@ function Stat({ label, value, note, color, sign }: { label: string; value: numbe
 }
 
 function SearchIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m16 16 4 4" /></svg> }
-
