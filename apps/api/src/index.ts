@@ -4,6 +4,7 @@ import { Hono, type Context, type Next } from 'hono'
 import { cors } from 'hono/cors'
 import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie'
 import { pool } from './db.js'
+import { convertInventoryIntakeLine, type InventoryIntakeConversion } from './inventory-intake.js'
 import { InventoryTransferError, transferInventoryIngredientFifo, transferInventoryLot } from './inventory-transfer.js'
 
 type Role = 'owner' | 'staff' | 'cashier'
@@ -605,66 +606,35 @@ app.post('/inventory/lots', async (c) => {
       reference?: string
       receivedAt?: string
       items?: Array<{
-        item?: string
-        category?: 'Meat' | 'Vegetable'
+        ingredientId?: string
         quantity?: number
         unit?: string
         expiryDate?: string
         unitCost?: number
       }>
-      item?: string
-      category?: 'Meat' | 'Vegetable'
-      quantity?: number
-      unit?: string
-      expiryDate?: string
-      unitCost?: number
     }>()
-    const requestedItems = body.items?.length
-      ? body.items
-      : [{
-          item: body.item,
-          category: body.category,
-          quantity: body.quantity,
-          unit: body.unit,
-          expiryDate: body.expiryDate,
-          unitCost: body.unitCost,
-        }]
+    const requestedItems = body.items ?? []
 
     if (!requestedItems.length) return c.json({ error: 'At least one ingredient is required' }, 400)
 
-    const defaultPortionSizeKg = { meat: 0.1, vegetable: 0.05 } as const
     const lines = requestedItems.map((requestedItem, index) => {
-      const item = requestedItem.item?.trim()
+      const ingredientId = requestedItem.ingredientId?.trim()
       const quantity = Number(requestedItem.quantity)
       const unitCost = Number(requestedItem.unitCost)
-      if (!item || !requestedItem.category || !requestedItem.expiryDate || !Number.isFinite(quantity) || quantity <= 0) {
+      if (!ingredientId || !/^\d+$/.test(ingredientId) || !requestedItem.expiryDate || !Number.isFinite(quantity) || quantity <= 0) {
         throw new Error(`Ingredient line ${index + 1} is incomplete`)
       }
       if (!Number.isFinite(unitCost) || unitCost < 0) {
         throw new Error(`Unit cost for ingredient line ${index + 1} must be zero or greater`)
       }
 
-      const category: 'meat' | 'vegetable' = requestedItem.category === 'Meat' ? 'meat' : 'vegetable'
       const normalizedUnit = requestedItem.unit?.trim().toLowerCase()
-      if (category === 'meat' && normalizedUnit !== 'kg') {
-        throw new Error(`${item} must be received in kg`)
-      }
-      if (category === 'vegetable' && normalizedUnit !== 'kg' && normalizedUnit !== 'plate' && normalizedUnit !== 'plates') {
-        throw new Error(`${item} must be received in kg or plates`)
-      }
-
-      const storedQuantity = category === 'vegetable' && normalizedUnit === 'kg'
-        ? Math.floor(quantity / defaultPortionSizeKg[category])
-        : quantity
-      if (storedQuantity <= 0) throw new Error(`${item} is too small to create one plate`)
-
       return {
-        item,
-        category,
-        quantity: storedQuantity,
+        ingredientId,
+        quantity,
+        unit: normalizedUnit,
         unitCost,
         expiryDate: requestedItem.expiryDate,
-        storageName: category === 'meat' ? 'Freezer' : 'ตู้พักละลาย',
       }
     })
 
@@ -678,29 +648,40 @@ app.post('/inventory/lots', async (c) => {
     )
 
     const lotIds: string[] = []
+    const receivedLines: Array<InventoryIntakeConversion & {
+      ingredientId: string
+      item: string
+      category: 'meat' | 'vegetable'
+      storageName: string
+    }> = []
     for (const line of lines) {
-      const existingIngredient = await client.query(
-        `SELECT id, category FROM ingredients WHERE lower(name) = lower($1) LIMIT 1`,
-        [line.item],
+      const ingredientResult = await client.query<{
+        id: string
+        name: string
+        category: 'meat' | 'vegetable'
+        defaultPortionSizeKg: number
+      }>(
+        `SELECT id::text, name, category,
+                default_portion_size_kg::float8 AS "defaultPortionSizeKg"
+         FROM ingredients
+         WHERE id = $1`,
+        [line.ingredientId],
       )
-      let ingredientId: string
-      if (existingIngredient.rows[0]) {
-        if (existingIngredient.rows[0].category !== line.category) {
-          throw new Error(`${line.item} already exists with a different category`)
-        }
-        ingredientId = String(existingIngredient.rows[0].id)
-      } else {
-        const insertedIngredient = await client.query(
-          `INSERT INTO ingredients (name, category, default_portion_size_kg)
-           VALUES ($1, $2, $3)
-           RETURNING id`,
-          [line.item, line.category, defaultPortionSizeKg[line.category]],
-        )
-        ingredientId = String(insertedIngredient.rows[0].id)
-      }
+      const ingredient = ingredientResult.rows[0]
+      if (!ingredient) throw new Error(`Registered ingredient ${line.ingredientId} was not found`)
 
-      const storageResult = await client.query(`SELECT id FROM storage_locations WHERE name = $1`, [line.storageName])
-      if (!storageResult.rows[0]) throw new Error(`Storage location ${line.storageName} is missing`)
+      const conversion = convertInventoryIntakeLine({
+        ingredientName: ingredient.name,
+        category: ingredient.category,
+        quantity: line.quantity,
+        unit: line.unit,
+        unitCost: line.unitCost,
+        defaultPortionSizeKg: Number(ingredient.defaultPortionSizeKg),
+      })
+      const storageName = ingredient.category === 'meat' ? 'Freezer' : 'ตู้พักละลาย'
+
+      const storageResult = await client.query(`SELECT id FROM storage_locations WHERE name = $1`, [storageName])
+      if (!storageResult.rows[0]) throw new Error(`Storage location ${storageName} is missing`)
 
       const lotResult = await client.query(
         `INSERT INTO stock_lots (
@@ -709,15 +690,29 @@ app.post('/inventory/lots', async (c) => {
          )
          VALUES ($1, $2, $3, $4, $4, $5, $6)
          RETURNING id`,
-        [headerResult.rows[0].id, ingredientId, storageResult.rows[0].id, line.quantity, line.unitCost, line.expiryDate],
+        [
+          headerResult.rows[0].id,
+          ingredient.id,
+          storageResult.rows[0].id,
+          conversion.storedQuantity,
+          conversion.storedUnitCost,
+          line.expiryDate,
+        ],
       )
       const lotId = String(lotResult.rows[0].id)
       lotIds.push(lotId)
       await client.query(
         `INSERT INTO stock_movements (stock_lot_id, movement_type, quantity, actor_id)
          VALUES ($1, 'intake', $2, $3)`,
-        [lotId, line.quantity, actor.id],
+        [lotId, conversion.storedQuantity, actor.id],
       )
+      receivedLines.push({
+        ingredientId: ingredient.id,
+        item: ingredient.name,
+        category: ingredient.category,
+        ...conversion,
+        storageName,
+      })
     }
 
     await client.query(
@@ -727,7 +722,7 @@ app.post('/inventory/lots', async (c) => {
         lotHeaderId: String(headerResult.rows[0].id),
         reference: body.reference?.trim() || null,
         lineCount: lines.length,
-        lines: lines.map(({ item, category, quantity, storageName }) => ({ item, category, quantity, storageName })),
+        lines: receivedLines,
       })],
     )
     await client.query('COMMIT')

@@ -33,9 +33,12 @@ export default function KitchenStockPage({ area }: { area: 'Freezer Stock' | 'Pr
 
   const items = useMemo(() => batches.filter((batch) => {
     const location = batch.location?.toLowerCase() ?? ''
-    return area === 'Freezer Stock'
+    const hasUsableStock = batch.status !== 'Expired' && Number.parseFloat(batch.qty) > 0
+    const isInArea = area === 'Freezer Stock'
       ? location.includes('freezer')
       : location.includes('prep') || location.includes('thaw') || location.includes('ละลาย')
+
+    return hasUsableStock && isInArea
   }), [area, batches])
 
   const visible = useMemo(() => items.filter((item) => (

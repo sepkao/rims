@@ -3,8 +3,7 @@ import { apiFetch } from '../lib/api'
 import type { InventoryBatch } from '../types/inventory'
 
 export type NewLotLine = {
-  item: string
-  category: Extract<InventoryBatch['category'], 'Meat' | 'Vegetable'>
+  ingredientId: string
   qty: string
   expireDate: string
   unitCost: number
@@ -89,8 +88,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         items: lot.items.map((item) => {
           const [quantity, unit = 'kg'] = item.qty.trim().split(/\s+/, 2)
           return {
-            item: item.item,
-            category: item.category,
+            ingredientId: item.ingredientId,
             quantity: Number(quantity),
             unit,
             expiryDate: item.expireDate,
@@ -104,7 +102,9 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   }, [refresh])
 
   const fifoQueue = useMemo(
-    () => [...batches].filter((batch) => batch.status !== 'Expired').sort((a, b) => a.expireDate.localeCompare(b.expireDate)),
+    () => [...batches]
+      .filter((batch) => batch.status !== 'Expired' && Number.parseFloat(batch.qty) > 0)
+      .sort((a, b) => a.expireDate.localeCompare(b.expireDate)),
     [batches],
   )
 
