@@ -71,7 +71,9 @@ export default function OrderHistory() {
 
   const fetchOrders = async () => {
     try {
-      const res = await fetch('http://localhost:3000/customer/orders?table_session_id=1');
+      const token = sessionStorage.getItem('qr_session');
+      const url = token ? `http://localhost:3000/customer/orders?qr_code=${token}` : `http://localhost:3000/customer/orders?table_session_id=1`;
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setOrderedItems(data.items || []);
@@ -94,8 +96,10 @@ export default function OrderHistory() {
     if (cartItems.length === 0 || isSubmitting) return;
     setIsSubmitting(true);
     try {
+      const token = sessionStorage.getItem('qr_session');
       const payload = {
         tableSessionId: 1,
+        qrCode: token || undefined,
         items: cartItems.map(i => ({
           menuItemId: i.menuItem.id,
           quantity: i.quantity,

@@ -76,7 +76,12 @@ export default function Menu() {
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดเมนูไม่สำเร็จ'))
       .finally(() => setLoading(false));
 
-    fetch('http://localhost:3000/customer/session?table_session_id=1')
+    const token = sessionStorage.getItem('qr_session');
+    const url = token
+      ? `http://localhost:3000/customer/session?qr_code=${token}`
+      : `http://localhost:3000/customer/session?table_session_id=1`;
+
+    fetch(url)
       .then(r => r.json())
       .then(data => {
         if (data.session) setSession(data.session);

@@ -7,6 +7,18 @@ import { pool } from './db.js'
 import { convertInventoryIntakeLine, type InventoryIntakeConversion } from './inventory-intake.js'
 import { InventoryTransferError, transferInventoryIngredientFifo, transferInventoryLot } from './inventory-transfer.js'
 
+// Init cashier_notifications table if not exists
+pool.query(`
+  CREATE TABLE IF NOT EXISTS cashier_notifications (
+    id SERIAL PRIMARY KEY,
+    table_session_id INT,
+    table_number VARCHAR(50),
+    message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    is_read BOOLEAN DEFAULT FALSE
+  )
+`).catch(console.error);
+
 type Role = 'owner' | 'staff' | 'cashier'
 
 type SessionUser = {
@@ -188,9 +200,15 @@ app.use('/cashier/*', (c, next) => requireRoles(c, next, ['cashier']))
 
 app.get('/cashier/dining-tables', async (c) => {
   const result = await pool.query(
-    `SELECT id::text, table_number AS "tableNumber", status
-     FROM dining_tables
-     ORDER BY table_number`,
+    `SELECT dt.id::text, dt.table_number AS "tableNumber", dt.status, ts.id::text AS "activeSessionId",
+            ts.started_at AS "startedAt", ts.expires_at AS "expiresAt",
+            ts.adult_count AS "adultCount", ts.child_count AS "childCount",
+            ts.senior_count AS "seniorCount", ts.disabled_count AS "disabledCount",
+            (SELECT COUNT(*) FROM orders o WHERE o.table_session_id = ts.id AND o.status = 'pending') AS "pendingOrders",
+            (SELECT COUNT(*) FROM orders o WHERE o.table_session_id = ts.id AND o.status = 'confirmed') AS "confirmedOrders"
+     FROM dining_tables dt
+     LEFT JOIN table_sessions ts ON ts.dining_table_id = dt.id AND ts.ended_at IS NULL
+     ORDER BY dt.table_number`,
   )
   return c.json({ diningTables: result.rows })
 })
@@ -230,30 +248,185 @@ app.post('/cashier/table-sessions', async (c) => {
 
     const qrCode = `${diningTableId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-    const result = await pool.query(
-      `INSERT INTO table_sessions (
-         dining_table_id, qr_code, opened_by, expires_at,
-         adult_count, child_count, senior_count, disabled_count,
-         price_per_adult, price_per_child, price_per_senior, price_per_disabled
-       )
-       VALUES ($1, $2, $3, now() + ($4 || ' minutes')::interval, $5, $6, $7, $8, $9, $10, $11, $12)
-       RETURNING id::text, dining_table_id::text AS "diningTableId", qr_code AS "qrCode",
-                 started_at AS "startedAt", expires_at AS "expiresAt",
-                 adult_count AS "adultCount", child_count AS "childCount",
-                 senior_count AS "seniorCount", disabled_count AS "disabledCount"`,
-      [
-        diningTableId, qrCode, actor.id, qrDurationMinutes,
-        adultCount, childCount, seniorCount, disabledCount,
-        Number(byKey.buffet_price_adult ?? 0), Number(byKey.buffet_price_child ?? 0),
-        Number(byKey.buffet_price_senior ?? 0), Number(byKey.buffet_price_disabled ?? 0),
-      ],
-    )
+    let result
+    try {
+      result = await pool.query(
+        `INSERT INTO table_sessions (
+           dining_table_id, qr_code, opened_by, expires_at,
+           adult_count, child_count, senior_count, disabled_count,
+           price_per_adult, price_per_child, price_per_senior, price_per_disabled
+         )
+         VALUES ($1, $2, $3, now() + ($4 || ' minutes')::interval, $5, $6, $7, $8, $9, $10, $11, $12)
+         RETURNING id::text, dining_table_id::text AS "diningTableId", qr_code AS "qrCode",
+                   started_at AS "startedAt", expires_at AS "expiresAt",
+                   adult_count AS "adultCount", child_count AS "childCount",
+                   senior_count AS "seniorCount", disabled_count AS "disabledCount"`,
+        [
+          diningTableId, qrCode, actor.id, qrDurationMinutes,
+          adultCount, childCount, seniorCount, disabledCount,
+          Number(byKey.buffet_price_adult ?? 0), Number(byKey.buffet_price_child ?? 0),
+          Number(byKey.buffet_price_senior ?? 0), Number(byKey.buffet_price_disabled ?? 0),
+        ],
+      )
+    } catch (err: any) {
+      if (err.code === '23505' && err.constraint === 'unique_active_table_session') {
+         return c.json({ error: 'โต๊ะนี้ถูกเปิดบิลไปแล้ว (Table is already occupied)' }, 409)
+      }
+      throw err
+    }
     await pool.query(`UPDATE dining_tables SET status = 'occupied' WHERE id = $1`, [diningTableId])
 
     return c.json({ tableSession: result.rows[0] }, 201)
   } catch (error) {
     console.error(error)
     return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
+app.post('/cashier/dining-tables/:id/clear', async (c) => {
+  try {
+    const tableId = c.req.param('id')
+    const result = await pool.query(
+      `UPDATE dining_tables SET status = 'empty' WHERE id = $1 AND status = 'pending_cleanup' RETURNING id`,
+      [tableId]
+    )
+    if (!result.rows[0]) return c.json({ error: 'Table is not pending cleanup' }, 400)
+    return c.json({ success: true })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Failed to clear table' }, 500)
+  }
+})
+
+app.get('/cashier/table-sessions/:id/bill', async (c) => {
+  try {
+    const sessionId = c.req.param('id')
+    const sessionRes = await pool.query(
+      `SELECT ts.id::text, ts.dining_table_id::text AS "diningTableId", dt.table_number AS "tableNumber",
+              ts.adult_count AS "adultCount", ts.child_count AS "childCount",
+              ts.senior_count AS "seniorCount", ts.disabled_count AS "disabledCount",
+              ts.price_per_adult AS "pricePerAdult", ts.price_per_child AS "pricePerChild",
+              ts.price_per_senior AS "pricePerSenior", ts.price_per_disabled AS "pricePerDisabled",
+              ts.started_at AS "startedAt", ts.expires_at AS "expiresAt", ts.ended_at AS "endedAt"
+       FROM table_sessions ts
+       JOIN dining_tables dt ON dt.id = ts.dining_table_id
+       WHERE ts.id = $1`,
+      [sessionId]
+    )
+    if (!sessionRes.rows[0]) return c.json({ error: 'Session not found' }, 404)
+    const session = sessionRes.rows[0]
+    
+    const total = 
+      Number(session.adultCount) * Number(session.pricePerAdult) +
+      Number(session.childCount) * Number(session.pricePerChild) +
+      Number(session.seniorCount) * Number(session.pricePerSenior) +
+      Number(session.disabledCount) * Number(session.pricePerDisabled)
+
+    const orderItemsRes = await pool.query(
+      `SELECT mi.name, SUM(oi.quantity) AS quantity, o.status
+       FROM orders o
+       JOIN order_items oi ON oi.order_id = o.id
+       JOIN menu_items mi ON mi.id = oi.menu_item_id
+       WHERE o.table_session_id = $1
+       GROUP BY mi.id, mi.name, o.status
+       ORDER BY o.status, mi.name`,
+      [sessionId]
+    )
+
+    return c.json({ session, total, items: orderItemsRes.rows })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Failed to load bill' }, 500)
+  }
+})
+
+app.get('/cashier/table-sessions/:id', async (c) => {
+  try {
+    const sessionId = c.req.param('id')
+    const result = await pool.query(
+      `SELECT ts.id::text, ts.dining_table_id::text AS "diningTableId", dt.table_number AS "tableNumber",
+              ts.qr_code AS "qrCode", ts.started_at AS "startedAt", ts.expires_at AS "expiresAt", ts.ended_at AS "endedAt",
+              ts.adult_count AS "adultCount", ts.child_count AS "childCount",
+              ts.senior_count AS "seniorCount", ts.disabled_count AS "disabledCount"
+       FROM table_sessions ts
+       JOIN dining_tables dt ON dt.id = ts.dining_table_id
+       WHERE ts.id = $1`,
+      [sessionId]
+    )
+    if (!result.rows[0]) return c.json({ error: 'Session not found' }, 404)
+    return c.json({ tableSession: result.rows[0] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Failed to load session' }, 500)
+  }
+})
+
+app.post('/cashier/table-sessions/:id/regenerate-qr', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    const sessionId = c.req.param('id')
+    const qrCode = `${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    
+    const result = await pool.query(
+      `UPDATE table_sessions SET qr_code = $1 WHERE id = $2 AND ended_at IS NULL RETURNING qr_code AS "qrCode"`,
+      [qrCode, sessionId]
+    )
+    if (!result.rows[0]) return c.json({ error: 'Active session not found' }, 404)
+    
+    return c.json({ qrCode: result.rows[0].qrCode })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Failed to regenerate QR code' }, 500)
+  }
+})
+
+app.post('/cashier/table-sessions/:id/checkout', async (c) => {
+  const client = await pool.connect()
+  try {
+    const sessionId = c.req.param('id')
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    
+    const body = await c.req.json<{ paymentMethod?: string }>().catch(() => ({ paymentMethod: undefined }))
+
+    await client.query('BEGIN')
+    const sessionRes = await client.query(
+      `UPDATE table_sessions 
+       SET ended_at = COALESCE(ended_at, now()), ended_by = $1
+       WHERE id = $2 AND ended_at IS NULL
+       RETURNING dining_table_id`,
+      [actor.id, sessionId]
+    )
+    if (!sessionRes.rows[0]) {
+      await client.query('ROLLBACK')
+      return c.json({ error: 'Session not found or already closed' }, 409)
+    }
+
+    // Cancel pending orders
+    await client.query(
+      `UPDATE orders SET status = 'cancelled', cancelled_at = now() WHERE table_session_id = $1 AND status = 'pending'`,
+      [sessionId]
+    )
+
+    await client.query(
+      `UPDATE dining_tables SET status = 'pending_cleanup' WHERE id = $1`,
+      [sessionRes.rows[0].dining_table_id]
+    )
+
+    await client.query(
+      `INSERT INTO system_logs (actor_id, action, details) VALUES ($1, $2, $3)`,
+      [actor.id, 'cashier.checkout', JSON.stringify({ tableSessionId: sessionId, paymentMethod: body.paymentMethod })]
+    )
+
+    await client.query('COMMIT')
+    return c.json({ success: true })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    console.error(error)
+    return c.json({ error: 'Failed to check out' }, 500)
+  } finally {
+    client.release()
   }
 })
 
@@ -852,8 +1025,13 @@ async function ensureMockMenu() {
 
 app.post('/customer/call-staff', async (c) => {
   try {
-    const body = await c.req.json<{ tableSessionId?: number }>()
-    const tableSessionId = body.tableSessionId || 1
+    const body = await c.req.json<{ tableSessionId?: number; qrCode?: string }>()
+    let tableSessionId = body.tableSessionId
+    if (body.qrCode) {
+      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [body.qrCode]);
+      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
+    }
+    tableSessionId = tableSessionId || 1
     
     await ensureMockSession(tableSessionId);
     
@@ -870,6 +1048,13 @@ app.post('/customer/call-staff', async (c) => {
       `INSERT INTO system_logs (action, details) VALUES ($1, $2)`,
       ['UC-N13_call_staff', { tableSessionId, tableNumber: tableNum, message: 'Customer needs assistance' }]
     );
+
+    // Insert into notifications
+    await pool.query(
+      `INSERT INTO cashier_notifications (table_session_id, table_number, message) VALUES ($1, $2, 'เรียกพนักงาน')`,
+      [tableSessionId, tableNum]
+    );
+
     return c.json({ success: true })
   } catch (error) {
     console.error(error)
@@ -879,7 +1064,52 @@ app.post('/customer/call-staff', async (c) => {
 
 app.post('/dev/reset-session', async (c) => {
   try {
-    await pool.query(`UPDATE table_sessions SET expires_at = now() + interval '100 years' WHERE id = 1`);
+    const body = await c.req.json<{ tableSessionId?: number; qrCode?: string }>().catch(() => ({}))
+    let tableSessionId = body.tableSessionId;
+    if (body.qrCode) {
+      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [body.qrCode]);
+      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
+    }
+    tableSessionId = tableSessionId || 1;
+
+    await pool.query(`UPDATE table_sessions SET expires_at = now() + interval '100 years' WHERE id = $1`, [tableSessionId]);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return c.json({ error: 'Failed' }, 500);
+  }
+});
+
+app.get('/cashier/notifications', async (c) => {
+  try {
+    const res = await pool.query(`
+      SELECT id, table_number AS "tableNumber", message, created_at AS "createdAt", is_read AS "isRead"
+      FROM cashier_notifications
+      WHERE is_read = false
+      ORDER BY created_at DESC
+      LIMIT 20
+    `);
+    return c.json({ notifications: res.rows });
+  } catch (error) {
+    console.error(error);
+    return c.json({ error: 'Failed to load notifications' }, 500);
+  }
+});
+
+app.post('/cashier/notifications/:id/read', async (c) => {
+  try {
+    const id = c.req.param('id');
+    await pool.query(`UPDATE cashier_notifications SET is_read = true WHERE id = $1`, [id]);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return c.json({ error: 'Failed' }, 500);
+  }
+});
+
+app.post('/cashier/notifications/read-all', async (c) => {
+  try {
+    await pool.query(`UPDATE cashier_notifications SET is_read = true WHERE is_read = false`);
     return c.json({ success: true });
   } catch (error) {
     console.error(error);
@@ -889,7 +1119,13 @@ app.post('/dev/reset-session', async (c) => {
 
 app.get('/customer/orders', async (c) => {
   try {
-    const tableSessionId = Number(c.req.query('table_session_id')) || 1
+    let tableSessionId = Number(c.req.query('table_session_id'))
+    const qrCode = c.req.query('qr_code')
+    if (qrCode) {
+      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [qrCode]);
+      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
+    }
+    tableSessionId = tableSessionId || 1
     await ensureMockSession(tableSessionId)
     
     const result = await pool.query(
@@ -937,10 +1173,16 @@ app.post('/customer/orders', async (c) => {
   try {
     const body = await c.req.json<{
       tableSessionId?: number
+      qrCode?: string
       items: Array<{ menuItemId: string; quantity: number; removedIngredients: string[] }>
     }>()
     
-    const tableSessionId = body.tableSessionId || 1
+    let tableSessionId = body.tableSessionId
+    if (body.qrCode) {
+      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [body.qrCode]);
+      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
+    }
+    tableSessionId = tableSessionId || 1
     await ensureMockSession(tableSessionId)
 
     if (!body.items || body.items.length === 0) {
@@ -990,19 +1232,41 @@ app.post('/customer/orders', async (c) => {
 
 app.get('/customer/session', async (c) => {
   try {
-    const tableSessionId = Number(c.req.query('table_session_id')) || 1
-    await ensureMockSession(tableSessionId)
-    
-    const sessionRes = await pool.query(
-      `SELECT 
-         ts.started_at, 
-         ts.expires_at,
-         dt.table_number
-       FROM table_sessions ts
-       JOIN dining_tables dt ON ts.dining_table_id = dt.id
-       WHERE ts.id = $1`,
-      [tableSessionId]
-    )
+    const tableSessionId = Number(c.req.query('table_session_id'))
+    const qrCode = c.req.query('qr_code')
+
+    if (!tableSessionId && !qrCode) {
+      return c.json({ error: 'table_session_id or qr_code is required' }, 400)
+    }
+
+    if (tableSessionId) {
+      await ensureMockSession(tableSessionId)
+    }
+
+    let sessionRes
+    if (qrCode) {
+      sessionRes = await pool.query(
+        `SELECT 
+           ts.started_at, 
+           ts.expires_at,
+           dt.table_number
+         FROM table_sessions ts
+         JOIN dining_tables dt ON ts.dining_table_id = dt.id
+         WHERE ts.qr_code = $1 AND ts.ended_at IS NULL`,
+        [qrCode]
+      )
+    } else {
+      sessionRes = await pool.query(
+        `SELECT 
+           ts.started_at, 
+           ts.expires_at,
+           dt.table_number
+         FROM table_sessions ts
+         JOIN dining_tables dt ON ts.dining_table_id = dt.id
+         WHERE ts.id = $1 AND ts.ended_at IS NULL`,
+        [tableSessionId]
+      )
+    }
     
     return c.json({
       session: sessionRes.rows[0] ? {
@@ -1020,7 +1284,13 @@ app.get('/customer/session', async (c) => {
 
 app.post('/customer/start-timer', async (c) => {
   try {
-    const tableSessionId = 1; // hardcoded for customer app mock
+    const body = await c.req.json<{ tableSessionId?: number; qrCode?: string }>().catch(() => ({}))
+    let tableSessionId = body.tableSessionId;
+    if (body.qrCode) {
+      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [body.qrCode]);
+      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
+    }
+    tableSessionId = tableSessionId || 1; // hardcoded for customer app mock
     await ensureMockSession(tableSessionId);
     
     // Check if the current expires_at is far in the future (> 24 hours)
@@ -1068,7 +1338,14 @@ app.post('/customer/orders/:id/cancel', async (c) => {
 // === DEV TOOLS API ===
 app.post('/dev/time-shift', async (c) => {
   try {
-    const { minutes, tableSessionId = 1 } = await c.req.json<{ minutes: number, tableSessionId?: number }>()
+    const { minutes, tableSessionId: reqSessionId, qrCode } = await c.req.json<{ minutes: number, tableSessionId?: number, qrCode?: string }>()
+    let tableSessionId = reqSessionId;
+    if (qrCode) {
+      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [qrCode]);
+      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
+    }
+    tableSessionId = tableSessionId || 1;
+    
     await pool.query(
       `UPDATE table_sessions 
        SET expires_at = expires_at + ($1 || ' minutes')::interval 
@@ -1082,9 +1359,39 @@ app.post('/dev/time-shift', async (c) => {
   }
 })
 
+app.post('/dev/set-time', async (c) => {
+  try {
+    const { minutesLeft, tableSessionId: reqSessionId, qrCode } = await c.req.json<{ minutesLeft: number, tableSessionId?: number, qrCode?: string }>()
+    let tableSessionId = reqSessionId;
+    if (qrCode) {
+      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [qrCode]);
+      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
+    }
+    tableSessionId = tableSessionId || 1;
+    
+    await pool.query(
+      `UPDATE table_sessions 
+       SET expires_at = now() + ($1 || ' minutes')::interval 
+       WHERE id = $2`,
+      [minutesLeft, tableSessionId]
+    )
+    return c.json({ success: true })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Failed to set time' }, 500)
+  }
+})
+
 app.post('/dev/force-confirm', async (c) => {
   try {
-    const { tableSessionId = 1 } = await c.req.json<{ tableSessionId?: number }>()
+    const { tableSessionId: reqSessionId, qrCode } = await c.req.json<{ tableSessionId?: number, qrCode?: string }>()
+    let tableSessionId = reqSessionId;
+    if (qrCode) {
+      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [qrCode]);
+      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
+    }
+    tableSessionId = tableSessionId || 1;
+
     // Make pending orders confirmable immediately by pushing their confirm_at to the past
     await pool.query(
       `UPDATE orders SET confirm_at = now() - interval '1 second' 
@@ -1112,5 +1419,52 @@ setInterval(async () => {
     }
   } catch (e) {
     console.error("Auto confirm error:", e);
+  }
+
+  try {
+    // Check table expirations for notifications
+    const activeSessions = await pool.query(`
+      SELECT ts.id, dt.table_number,
+             EXTRACT(EPOCH FROM (ts.expires_at - now())) / 60 AS mins_left
+      FROM table_sessions ts
+      JOIN dining_tables dt ON ts.dining_table_id = dt.id
+      WHERE ts.ended_at IS NULL AND ts.expires_at IS NOT NULL
+    `);
+    
+    for (const session of activeSessions.rows) {
+      const mins = parseFloat(session.mins_left);
+      
+      if (mins <= 30) {
+        const check30 = await pool.query(`SELECT id FROM cashier_notifications WHERE table_session_id = $1 AND message LIKE 'เหลือเวลา 30 นาที%'`, [session.id]);
+        if (check30.rows.length === 0) {
+          await pool.query(
+            `INSERT INTO cashier_notifications (table_session_id, table_number, message) VALUES ($1, $2, 'เหลือเวลา 30 นาที')`,
+            [session.id, session.table_number]
+          );
+        }
+      }
+      
+      if (mins <= 5) {
+        const check5 = await pool.query(`SELECT id FROM cashier_notifications WHERE table_session_id = $1 AND message LIKE 'เหลือเวลา 5 นาที%'`, [session.id]);
+        if (check5.rows.length === 0) {
+          await pool.query(
+            `INSERT INTO cashier_notifications (table_session_id, table_number, message) VALUES ($1, $2, 'เหลือเวลา 5 นาที (ใกล้หมดเวลา)')`,
+            [session.id, session.table_number]
+          );
+        }
+      }
+
+      if (mins <= 0) {
+        const check0 = await pool.query(`SELECT id FROM cashier_notifications WHERE table_session_id = $1 AND message LIKE 'หมดเวลา%'`, [session.id]);
+        if (check0.rows.length === 0) {
+          await pool.query(
+            `INSERT INTO cashier_notifications (table_session_id, table_number, message) VALUES ($1, $2, 'หมดเวลาทานบุฟเฟต์!')`,
+            [session.id, session.table_number]
+          );
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Table expiration notification error:", e);
   }
 }, 5000);
