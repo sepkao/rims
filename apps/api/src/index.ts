@@ -4,6 +4,8 @@ import { Hono, type Context, type Next } from 'hono'
 import { cors } from 'hono/cors'
 import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie'
 import { pool } from './db.js'
+import { convertInventoryIntakeLine, type InventoryIntakeConversion } from './inventory-intake.js'
+import { InventoryTransferError, transferInventoryIngredientFifo, transferInventoryLot } from './inventory-transfer.js'
 
 type Role = 'owner' | 'staff' | 'cashier'
 
@@ -568,6 +570,7 @@ app.put('/inventory/ingredients/:id/portion-preset', async (c) => {
 app.get('/inventory/lots', async (c) => {
   const result = await pool.query(
     `SELECT sl.id::text,
+            sl.ingredient_id::text AS "ingredientId",
             i.name AS item,
             CASE i.category WHEN 'meat' THEN 'Meat' ELSE 'Vegetable' END AS category,
             'LOT-' || lh.id AS batch,
@@ -603,66 +606,35 @@ app.post('/inventory/lots', async (c) => {
       reference?: string
       receivedAt?: string
       items?: Array<{
-        item?: string
-        category?: 'Meat' | 'Vegetable'
+        ingredientId?: string
         quantity?: number
         unit?: string
         expiryDate?: string
         unitCost?: number
       }>
-      item?: string
-      category?: 'Meat' | 'Vegetable'
-      quantity?: number
-      unit?: string
-      expiryDate?: string
-      unitCost?: number
     }>()
-    const requestedItems = body.items?.length
-      ? body.items
-      : [{
-          item: body.item,
-          category: body.category,
-          quantity: body.quantity,
-          unit: body.unit,
-          expiryDate: body.expiryDate,
-          unitCost: body.unitCost,
-        }]
+    const requestedItems = body.items ?? []
 
     if (!requestedItems.length) return c.json({ error: 'At least one ingredient is required' }, 400)
 
-    const defaultPortionSizeKg = { meat: 0.1, vegetable: 0.05 } as const
     const lines = requestedItems.map((requestedItem, index) => {
-      const item = requestedItem.item?.trim()
+      const ingredientId = requestedItem.ingredientId?.trim()
       const quantity = Number(requestedItem.quantity)
       const unitCost = Number(requestedItem.unitCost)
-      if (!item || !requestedItem.category || !requestedItem.expiryDate || !Number.isFinite(quantity) || quantity <= 0) {
+      if (!ingredientId || !/^\d+$/.test(ingredientId) || !requestedItem.expiryDate || !Number.isFinite(quantity) || quantity <= 0) {
         throw new Error(`Ingredient line ${index + 1} is incomplete`)
       }
       if (!Number.isFinite(unitCost) || unitCost < 0) {
         throw new Error(`Unit cost for ingredient line ${index + 1} must be zero or greater`)
       }
 
-      const category: 'meat' | 'vegetable' = requestedItem.category === 'Meat' ? 'meat' : 'vegetable'
       const normalizedUnit = requestedItem.unit?.trim().toLowerCase()
-      if (category === 'meat' && normalizedUnit !== 'kg') {
-        throw new Error(`${item} must be received in kg`)
-      }
-      if (category === 'vegetable' && normalizedUnit !== 'kg' && normalizedUnit !== 'plate' && normalizedUnit !== 'plates') {
-        throw new Error(`${item} must be received in kg or plates`)
-      }
-
-      const storedQuantity = category === 'vegetable' && normalizedUnit === 'kg'
-        ? Math.floor(quantity / defaultPortionSizeKg[category])
-        : quantity
-      if (storedQuantity <= 0) throw new Error(`${item} is too small to create one plate`)
-
       return {
-        item,
-        category,
-        quantity: storedQuantity,
+        ingredientId,
+        quantity,
+        unit: normalizedUnit,
         unitCost,
         expiryDate: requestedItem.expiryDate,
-        storageName: category === 'meat' ? 'Freezer' : 'ตู้พักละลาย',
       }
     })
 
@@ -676,29 +648,40 @@ app.post('/inventory/lots', async (c) => {
     )
 
     const lotIds: string[] = []
+    const receivedLines: Array<InventoryIntakeConversion & {
+      ingredientId: string
+      item: string
+      category: 'meat' | 'vegetable'
+      storageName: string
+    }> = []
     for (const line of lines) {
-      const existingIngredient = await client.query(
-        `SELECT id, category FROM ingredients WHERE lower(name) = lower($1) LIMIT 1`,
-        [line.item],
+      const ingredientResult = await client.query<{
+        id: string
+        name: string
+        category: 'meat' | 'vegetable'
+        defaultPortionSizeKg: number
+      }>(
+        `SELECT id::text, name, category,
+                default_portion_size_kg::float8 AS "defaultPortionSizeKg"
+         FROM ingredients
+         WHERE id = $1`,
+        [line.ingredientId],
       )
-      let ingredientId: string
-      if (existingIngredient.rows[0]) {
-        if (existingIngredient.rows[0].category !== line.category) {
-          throw new Error(`${line.item} already exists with a different category`)
-        }
-        ingredientId = String(existingIngredient.rows[0].id)
-      } else {
-        const insertedIngredient = await client.query(
-          `INSERT INTO ingredients (name, category, default_portion_size_kg)
-           VALUES ($1, $2, $3)
-           RETURNING id`,
-          [line.item, line.category, defaultPortionSizeKg[line.category]],
-        )
-        ingredientId = String(insertedIngredient.rows[0].id)
-      }
+      const ingredient = ingredientResult.rows[0]
+      if (!ingredient) throw new Error(`Registered ingredient ${line.ingredientId} was not found`)
 
-      const storageResult = await client.query(`SELECT id FROM storage_locations WHERE name = $1`, [line.storageName])
-      if (!storageResult.rows[0]) throw new Error(`Storage location ${line.storageName} is missing`)
+      const conversion = convertInventoryIntakeLine({
+        ingredientName: ingredient.name,
+        category: ingredient.category,
+        quantity: line.quantity,
+        unit: line.unit,
+        unitCost: line.unitCost,
+        defaultPortionSizeKg: Number(ingredient.defaultPortionSizeKg),
+      })
+      const storageName = ingredient.category === 'meat' ? 'Freezer' : 'ตู้พักละลาย'
+
+      const storageResult = await client.query(`SELECT id FROM storage_locations WHERE name = $1`, [storageName])
+      if (!storageResult.rows[0]) throw new Error(`Storage location ${storageName} is missing`)
 
       const lotResult = await client.query(
         `INSERT INTO stock_lots (
@@ -707,15 +690,29 @@ app.post('/inventory/lots', async (c) => {
          )
          VALUES ($1, $2, $3, $4, $4, $5, $6)
          RETURNING id`,
-        [headerResult.rows[0].id, ingredientId, storageResult.rows[0].id, line.quantity, line.unitCost, line.expiryDate],
+        [
+          headerResult.rows[0].id,
+          ingredient.id,
+          storageResult.rows[0].id,
+          conversion.storedQuantity,
+          conversion.storedUnitCost,
+          line.expiryDate,
+        ],
       )
       const lotId = String(lotResult.rows[0].id)
       lotIds.push(lotId)
       await client.query(
         `INSERT INTO stock_movements (stock_lot_id, movement_type, quantity, actor_id)
          VALUES ($1, 'intake', $2, $3)`,
-        [lotId, line.quantity, actor.id],
+        [lotId, conversion.storedQuantity, actor.id],
       )
+      receivedLines.push({
+        ingredientId: ingredient.id,
+        item: ingredient.name,
+        category: ingredient.category,
+        ...conversion,
+        storageName,
+      })
     }
 
     await client.query(
@@ -725,7 +722,7 @@ app.post('/inventory/lots', async (c) => {
         lotHeaderId: String(headerResult.rows[0].id),
         reference: body.reference?.trim() || null,
         lineCount: lines.length,
-        lines: lines.map(({ item, category, quantity, storageName }) => ({ item, category, quantity, storageName })),
+        lines: receivedLines,
       })],
     )
     await client.query('COMMIT')
@@ -734,6 +731,72 @@ app.post('/inventory/lots', async (c) => {
     if (transactionStarted) await client.query('ROLLBACK')
     console.error(error)
     return c.json({ error: errorMessage(error) }, 400)
+  } finally {
+    client.release()
+  }
+})
+
+app.post('/inventory/lots/:id/transfer', async (c) => {
+  const actor = await getSessionUser(c)
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+  if (actor.role !== 'staff') {
+    return c.json({ error: 'Only staff can transfer stock from Freezer to Prep' }, 403)
+  }
+
+  let body: { quantityKg?: number }
+  try {
+    body = await c.req.json<{ quantityKg?: number }>()
+  } catch {
+    return c.json({ error: 'Request body must be valid JSON' }, 400)
+  }
+
+  const client = await pool.connect()
+  try {
+    const transfer = await transferInventoryLot(client, {
+      lotId: c.req.param('id'),
+      quantityKg: Number(body.quantityKg),
+      actorId: actor.id,
+    })
+    return c.json({ transfer }, 201)
+  } catch (error) {
+    if (error instanceof InventoryTransferError) {
+      return c.json({ error: error.message, code: error.code }, error.status)
+    }
+    console.error(error)
+    return c.json({ error: 'Unable to transfer stock lot' }, 500)
+  } finally {
+    client.release()
+  }
+})
+
+app.post('/inventory/ingredients/:id/transfer', async (c) => {
+  const actor = await getSessionUser(c)
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+  if (actor.role !== 'staff') {
+    return c.json({ error: 'Only staff can transfer stock from Freezer to Prep' }, 403)
+  }
+
+  let body: { plateCount?: number }
+  try {
+    body = await c.req.json<{ plateCount?: number }>()
+  } catch {
+    return c.json({ error: 'Request body must be valid JSON' }, 400)
+  }
+
+  const client = await pool.connect()
+  try {
+    const transfer = await transferInventoryIngredientFifo(client, {
+      ingredientId: c.req.param('id'),
+      plateCount: Number(body.plateCount),
+      actorId: actor.id,
+    })
+    return c.json({ transfer }, 201)
+  } catch (error) {
+    if (error instanceof InventoryTransferError) {
+      return c.json({ error: error.message, code: error.code }, error.status)
+    }
+    console.error(error)
+    return c.json({ error: 'Unable to transfer ingredient stock' }, 500)
   } finally {
     client.release()
   }
@@ -979,143 +1042,6 @@ app.post('/customer/start-timer', async (c) => {
   } catch (error) {
     console.error(error);
     return c.json({ error: 'Unable to start timer' }, 500);
-  }
-})
-
-app.get('/inventory/ingredients', async (c) => {
-  const result = await pool.query(
-    `SELECT id::text, name, category, default_portion_size_kg::float8 AS "defaultPortionSizeKg"
-     FROM ingredients
-     ORDER BY name`,
-  )
-  return c.json({ ingredients: result.rows })
-})
-
-app.get('/inventory/lots', async (c) => {
-  const result = await pool.query(
-    `SELECT sl.id::text,
-            i.name AS item,
-            CASE i.category WHEN 'meat' THEN 'Meat' ELSE 'Vegetable' END AS category,
-            'LOT-' || sl.id AS batch,
-            sl.quantity_remaining::float8 AS quantity,
-            loc.unit_type AS unit,
-            lh.received_at AS "receivedAt",
-            sl.expiry_date AS "expiryDate",
-            sl.unit_cost::float8 AS "unitCost",
-            (sl.quantity_remaining * sl.unit_cost)::float8 AS "unitValue",
-            loc.name AS location,
-            CASE
-              WHEN sl.is_not_fresh OR sl.expiry_date < now() THEN 'Expired'
-              WHEN sl.expiry_date <= now() + interval '3 days' THEN 'Expiring Soon'
-              ELSE 'Fresh'
-            END AS status
-     FROM stock_lots sl
-     JOIN ingredients i ON i.id = sl.ingredient_id
-     JOIN storage_locations loc ON loc.id = sl.storage_location_id
-     JOIN lot_headers lh ON lh.id = sl.lot_header_id
-     ORDER BY sl.expiry_date, sl.created_at`,
-  )
-  return c.json({ lots: result.rows })
-})
-
-app.post('/inventory/lots', async (c) => {
-  const client = await pool.connect()
-  try {
-    const actor = await getSessionUser(c)
-    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
-
-    const body = await c.req.json<{
-      item?: string
-      category?: 'Meat' | 'Vegetable'
-      quantity?: number
-      unit?: string
-      receivedAt?: string
-      expiryDate?: string
-      unitCost?: number
-    }>()
-    const item = body.item?.trim()
-    const quantity = Number(body.quantity)
-    const unitCost = Number(body.unitCost)
-    if (!item || !body.category || !body.expiryDate || !Number.isFinite(quantity) || quantity <= 0) {
-      return c.json({ error: 'Item, category, positive quantity and expiry date are required' }, 400)
-    }
-    if (!Number.isFinite(unitCost) || unitCost < 0) {
-      return c.json({ error: 'Unit cost must be zero or greater' }, 400)
-    }
-
-    const category = body.category === 'Meat' ? 'meat' : 'vegetable'
-    const defaultPortionSizeKg = category === 'meat' ? 0.1 : 0.05
-    const normalizedUnit = body.unit?.trim().toLowerCase()
-    if (category === 'meat' && normalizedUnit !== 'kg') {
-      return c.json({ error: 'Meat must be received in kg' }, 400)
-    }
-    if (category === 'vegetable' && normalizedUnit !== 'kg' && normalizedUnit !== 'plate' && normalizedUnit !== 'plates') {
-      return c.json({ error: 'Vegetables must be received in kg or plates' }, 400)
-    }
-
-    const storageName = category === 'meat' ? 'Freezer' : 'ตู้พักละลาย'
-    const storedQuantity = category === 'vegetable' && normalizedUnit === 'kg'
-      ? Math.floor(quantity / defaultPortionSizeKg)
-      : quantity
-    if (storedQuantity <= 0) return c.json({ error: 'Quantity is too small to create one plate' }, 400)
-
-    await client.query('BEGIN')
-    const existingIngredient = await client.query(
-      `SELECT id, category FROM ingredients WHERE lower(name) = lower($1) LIMIT 1`,
-      [item],
-    )
-    let ingredientId: string
-    if (existingIngredient.rows[0]) {
-      if (existingIngredient.rows[0].category !== category) {
-        throw new Error('Ingredient already exists with a different category')
-      }
-      ingredientId = String(existingIngredient.rows[0].id)
-    } else {
-      const insertedIngredient = await client.query(
-        `INSERT INTO ingredients (name, category, default_portion_size_kg)
-         VALUES ($1, $2, $3)
-         RETURNING id`,
-        [item, category, defaultPortionSizeKg],
-      )
-      ingredientId = String(insertedIngredient.rows[0].id)
-    }
-
-    const storageResult = await client.query(`SELECT id FROM storage_locations WHERE name = $1`, [storageName])
-    if (!storageResult.rows[0]) throw new Error(`Storage location ${storageName} is missing`)
-
-    const headerResult = await client.query(
-      `INSERT INTO lot_headers (received_at, received_by)
-       VALUES (COALESCE($1::timestamptz, now()), $2)
-       RETURNING id`,
-      [body.receivedAt || null, actor.id],
-    )
-    const lotResult = await client.query(
-      `INSERT INTO stock_lots (
-         lot_header_id, ingredient_id, storage_location_id,
-         quantity_original, quantity_remaining, unit_cost, expiry_date
-       )
-       VALUES ($1, $2, $3, $4, $4, $5, $6)
-       RETURNING id`,
-      [headerResult.rows[0].id, ingredientId, storageResult.rows[0].id, storedQuantity, unitCost, body.expiryDate],
-    )
-    await client.query(
-      `INSERT INTO stock_movements (stock_lot_id, movement_type, quantity, actor_id)
-       VALUES ($1, 'intake', $2, $3)`,
-      [lotResult.rows[0].id, storedQuantity, actor.id],
-    )
-    await client.query(
-      `INSERT INTO system_logs (actor_id, action, details)
-       VALUES ($1, 'inventory.lot_received', $2::jsonb)`,
-      [actor.id, JSON.stringify({ lotId: String(lotResult.rows[0].id), item, quantity: storedQuantity, storageName })],
-    )
-    await client.query('COMMIT')
-    return c.json({ id: String(lotResult.rows[0].id) }, 201)
-  } catch (error) {
-    await client.query('ROLLBACK')
-    console.error(error)
-    return c.json({ error: errorMessage(error) }, 400)
-  } finally {
-    client.release()
   }
 })
 

@@ -133,6 +133,14 @@ All routes below live in **`apps/api/src/index.ts`**. This is the *entire* backe
 | GET | `/owner/menu-items` | Lists every menu item joined with its BOM lines (flat rows — one row per ingredient, group by `id` client-side if you want nested) | owner only |
 | PUT | `/owner/menu-items/:id` | Body: `{ name, description, price, is_active }`. Edits a menu item (`is_active` is a soft-delete flag — set `false` to hide from customers instead of deleting) | owner only |
 | DELETE | `/owner/menu-items/:id` | Deletes a menu item — blocked if any `order_items` reference it; otherwise deletes its BOM rows first, then the item | owner only |
+| GET | `/inventory/ingredients` | Lists registered ingredients and their portion presets | owner or staff |
+| PUT | `/inventory/ingredients/:id/portion-preset` | Updates an ingredient's kg-per-plate preset | owner only |
+| GET | `/inventory/lots` | Lists all stock lots with storage, quantity, expiry and computed status | owner or staff |
+| POST | `/inventory/lots` | Receives a multi-line lot atomically; converts vegetable kg to whole Prep plates | owner or staff |
+| POST | `/inventory/lots/:id/transfer` | Transfers meat from one Freezer source lot into a traceable Prep sub-lot | staff only |
+| POST | `/inventory/ingredients/:id/transfer` | Transfers meat into Prep across fresh source lots in expiry-first order | staff only |
+
+For the implemented Inventory behavior, conversion rules, Prep expiry calculation, filtering, and verification status, see [`docs/inventory_implementation_status.md`](docs/inventory_implementation_status.md).
 
 CORS is enabled (`hono/cors`) for `http://localhost:5173` with `credentials: true` — if your frontend runs on a different port, update the `origin` in `apps/api/src/index.ts` to match, or the browser will block every request with a CORS error.
 
@@ -152,7 +160,7 @@ const data = await res.json()
 
 Every route under `/owner/*` requires the cookie to belong to an active user with `role = 'owner'` — anything else gets `401 Unauthorized` (no/invalid cookie) or `403 Forbidden` (valid cookie, wrong role or account deactivated).
 
-**Still missing**: no order endpoints, no stock-lot endpoints (receive/transfer), no ingredient-threshold settings endpoint, no table-session (QR check-in/check-out) endpoints, no reports/notifications/waste-review endpoints. Check [`docs/rims_jira_backlog.csv`](docs/rims_jira_backlog.csv) (Sprint column, now kept up to date) for what's planned and roughly when.
+**Still missing or incomplete**: ingredient-threshold settings, automated notifications/waste-review, and some reporting flows are not complete. Stock receive/transfer endpoints now exist; use the Inventory implementation document above as the source of truth for that module. Check [`docs/rims_jira_backlog.csv`](docs/rims_jira_backlog.csv) for the wider planned scope.
 
 ---
 
@@ -210,12 +218,12 @@ Nav items per role are defined as plain arrays near the top of the file (`ownerN
 
 ### Page-by-page status (internal app)
 
-Routing, sidebar nav, and logout now work for **every** role (owner/staff/cashier) — that part is done. But **page content is still almost entirely mock/placeholder**, even for pages whose backend endpoint is fully ready:
+Routing, sidebar nav, and logout work for **every** role (owner/staff/cashier). Implementation status varies by module; the Inventory receive, stock, transfer, expired-goods, and portion-preset flows now use real APIs (see the [Inventory implementation status](docs/inventory_implementation_status.md)), while several pages elsewhere are still mock/placeholder:
 
 - `MenuManagement.tsx` — still hardcoded `mockMenuItems` array, doesn't call `GET /owner/menu-items` at all, despite all 5 menu endpoints being done (see §4). This is the highest-value page to wire up next — backend is ready and waiting.
 - `UserManagement.tsx` — just a heading and a logout button, doesn't call `POST`/`PUT /owner/users` either, despite those being done and tested since early in the project.
 - `Dashboard.tsx` — just `Welcome, {role}!` + a link, no real cards; its backend (weekly report aggregates) doesn't exist yet anyway.
-- Every `pages/staff/*` and `pages/cashier/*` file is a one-line placeholder (`<p>... page</p>`) — enough to route to and see something render, nothing functional yet.
+- Staff Inventory pages are functional against the backend. Other staff/cashier flows should be checked individually before treating them as complete.
 
 Don't assume a page's backend is missing just because the page itself is empty — **check §4's endpoint table first**, since several pages (Menu, Users) are blocked on frontend work only, not backend work. Wiring real `fetch()` calls in happens per-page — check the Jira backlog's Sprint column for what's ready, or ask before building a fetch call so you don't build against an endpoint that doesn't exist yet.
 

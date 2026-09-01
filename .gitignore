@@ -30,6 +30,9 @@ lerna-debug.log*
 # Test coverage
 coverage/
 
+# Local knowledge graph output
+graphify-out/
+
 # Editor / IDE
 .vscode/*
 !.vscode/extensions.json

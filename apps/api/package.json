@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "test": "tsc && node --test dist/inventory-transfer.test.js dist/inventory-intake.test.js",
     "start": "node dist/index.js"
   },
   "dependencies": {

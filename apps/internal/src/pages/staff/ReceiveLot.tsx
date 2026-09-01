@@ -1,11 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useInventory } from '../../contexts/InventoryContext'
+import { apiFetch } from '../../lib/api'
+import type { IngredientPreset } from '../../types/ingredient'
 import type { InventoryBatch } from '../../types/inventory'
 
 type Category = Extract<InventoryBatch['category'], 'Meat' | 'Vegetable'>
 type Unit = 'kg' | 'plates'
 type DraftLine = {
   id: string
+  ingredientId: string
   item: string
   category: Category
   quantity: string
@@ -17,11 +20,12 @@ type DraftLine = {
 const field = 'mt-2 w-full rounded-xl border-2 border-[#2D1B17] bg-[#FFFDF9] px-3.5 py-3 font-semibold text-[#2D1B17] outline-none transition placeholder:text-[#A99188] focus:-translate-y-0.5 focus:shadow-[3px_3px_0_#B97861] disabled:cursor-not-allowed disabled:bg-[#F1E2CF]'
 const today = new Date().toISOString().slice(0, 10)
 
-function createDraftLine(category: Category = 'Meat'): DraftLine {
+function createDraftLine(): DraftLine {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    ingredientId: '',
     item: '',
-    category,
+    category: 'Meat',
     quantity: '',
     unit: 'kg',
     unitCost: '',
@@ -38,11 +42,21 @@ export default function AddLotPage() {
   const { receiveLot } = useInventory()
   const [entry, setEntry] = useState<DraftLine>(() => createDraftLine())
   const [lines, setLines] = useState<DraftLine[]>([])
+  const [ingredients, setIngredients] = useState<IngredientPreset[]>([])
+  const [ingredientLoading, setIngredientLoading] = useState(true)
+  const [ingredientError, setIngredientError] = useState('')
   const [reference, setReference] = useState('')
   const [receiveDate, setReceiveDate] = useState(today)
   const [savedLot, setSavedLot] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    apiFetch<{ ingredients: IngredientPreset[] }>('/inventory/ingredients')
+      .then((data) => setIngredients(data.ingredients))
+      .catch((caught) => setIngredientError(caught instanceof Error ? caught.message : 'โหลดทะเบียนวัตถุดิบไม่สำเร็จ'))
+      .finally(() => setIngredientLoading(false))
+  }, [])
 
   const totalValue = useMemo(
     () => lines.reduce((total, line) => total + Number(line.quantity || 0) * Number(line.unitCost || 0), 0),
@@ -53,19 +67,35 @@ export default function AddLotPage() {
     setEntry((current) => ({ ...current, [key]: value }))
   }
 
-  function handleCategoryChange(category: Category) {
-    setEntry((current) => ({ ...current, category, unit: category === 'Meat' ? 'kg' : current.unit }))
+  function handleIngredientChange(value: string) {
+    const normalizedValue = value.trim().toLocaleLowerCase('th-TH')
+    const ingredient = ingredients.find((candidate) => candidate.name.trim().toLocaleLowerCase('th-TH') === normalizedValue)
+    setEntry((current) => ({
+      ...current,
+      ingredientId: ingredient?.id ?? '',
+      item: ingredient?.name ?? value,
+      category: ingredient?.category === 'vegetable' ? 'Vegetable' : 'Meat',
+      unit: ingredient?.category === 'vegetable' ? current.unit : 'kg',
+    }))
   }
 
   function addLine() {
     setError('')
     setSavedLot(null)
-    if (!entry.item.trim() || !entry.quantity || !entry.expireDate || entry.unitCost.trim() === '') {
-      setError('กรอกข้อมูลวัตถุดิบ จำนวน ต้นทุน และวันหมดอายุให้ครบก่อนเพิ่มเข้ารายการ')
+    if (!entry.ingredientId) {
+      setError('กรุณาเลือกวัตถุดิบจากทะเบียน ห้ามใช้ชื่อที่พิมพ์ขึ้นเอง')
+      return
+    }
+    if (!entry.quantity || !entry.expireDate || entry.unitCost.trim() === '') {
+      setError('กรอกจำนวน ต้นทุน และวันหมดอายุให้ครบก่อนเพิ่มเข้ารายการ')
       return
     }
     if (!Number.isFinite(Number(entry.quantity)) || Number(entry.quantity) <= 0) {
       setError('จำนวนต้องมากกว่า 0')
+      return
+    }
+    if (entry.unit === 'plates' && !Number.isInteger(Number(entry.quantity))) {
+      setError('จำนวนจานต้องเป็นจำนวนเต็ม')
       return
     }
     if (!Number.isFinite(Number(entry.unitCost)) || Number(entry.unitCost) < 0) {
@@ -74,7 +104,7 @@ export default function AddLotPage() {
     }
 
     setLines((current) => [...current, { ...entry, item: entry.item.trim(), id: `${Date.now()}-${current.length}` }])
-    setEntry(createDraftLine(entry.category))
+    setEntry(createDraftLine())
   }
 
   function removeLine(id: string) {
@@ -86,7 +116,7 @@ export default function AddLotPage() {
     setSavedLot(null)
     setError('')
     if (!reference.trim()) {
-      setError('กรอกเลขอ้างอิงจากใบส่งของก่อนยืนยัน LOT')
+      setError('กรอกเลขใบเสร็จส่งของก่อนยืนยัน LOT')
       return
     }
     if (!lines.length) {
@@ -100,8 +130,7 @@ export default function AddLotPage() {
         reference: reference.trim(),
         receiveDate,
         items: lines.map((line) => ({
-          item: line.item,
-          category: line.category,
+          ingredientId: line.ingredientId,
           qty: `${line.quantity} ${line.unit}`,
           expireDate: line.expireDate,
           unitCost: Number(line.unitCost),
@@ -133,7 +162,7 @@ export default function AddLotPage() {
       </section>
 
       {savedLot && <div className="mb-5 rounded-2xl border-2 border-[#2D1B17] bg-[#E8D8CA] px-5 py-4 text-sm font-black shadow-[4px_4px_0_#2D1B17]">✓ เพิ่มสต็อกสำเร็จใน LOT #{savedLot}</div>}
-      {error && <div className="mb-5 rounded-2xl border-2 border-red-700 bg-red-50 px-5 py-4 text-sm font-bold text-red-700">{error}</div>}
+      {(error || ingredientError) && <div className="mb-5 rounded-2xl border-2 border-red-700 bg-red-50 px-5 py-4 text-sm font-bold text-red-700">{error || ingredientError}</div>}
 
       <form onSubmit={submitLot}>
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,.9fr)]">
@@ -141,11 +170,11 @@ export default function AddLotPage() {
             <div className="border-b-2 border-[#2D1B17] bg-[#E7C7B8] px-6 py-5">
               <p className="text-[10px] font-black uppercase tracking-[.16em] text-[#8B5746]">Goods receiving</p>
               <h2 className="mt-1 text-xl font-black">เพิ่มวัตถุดิบเข้าคิว LOT</h2>
-              <p className="mt-1 text-xs font-bold text-[#76564A]">ข้อมูลวันที่และเลขอ้างอิงใช้ร่วมกันทั้ง LOT</p>
+              <p className="mt-1 text-xs font-bold text-[#76564A]">ข้อมูลวันที่และเลขใบเสร็จใช้ร่วมกันทั้ง LOT</p>
             </div>
 
             <div className="grid gap-5 border-b-2 border-[#2D1B17]/15 p-6 sm:grid-cols-2">
-              <Field label="เลขอ้างอิงจากใบส่งของ">
+              <Field label="เลขใบเสร็จส่งของ">
                 <input value={reference} onChange={(event) => setReference(event.target.value)} required className={field} placeholder="เช่น B-0817" />
               </Field>
               <Field label="วันที่รับเข้า">
@@ -164,27 +193,28 @@ export default function AddLotPage() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="ชื่อวัตถุดิบ">
-                  <input value={entry.item} onChange={(event) => updateEntry('item', event.target.value)} className={field} placeholder="เช่น หมูสามชั้นสไลด์" />
+                  <input list="registered-ingredients" value={entry.item} onChange={(event) => handleIngredientChange(event.target.value)} disabled={ingredientLoading} className={field} placeholder={ingredientLoading ? 'กำลังโหลดทะเบียน…' : 'พิมพ์เพื่อค้นหาและเลือก'} autoComplete="off" />
+                  <datalist id="registered-ingredients">
+                    {ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.name}>{ingredient.category === 'meat' ? 'เนื้อสัตว์' : 'ผัก'}</option>)}
+                  </datalist>
+                  <span className={`mt-2 block text-[10px] font-bold normal-case tracking-normal ${entry.ingredientId ? 'text-green-800' : 'text-[#8B5746]'}`}>{entry.ingredientId ? `✓ เลือกจากทะเบียนแล้ว · ID ${entry.ingredientId}` : 'ต้องเลือกชื่อที่มีในรายการ เพื่อป้องกันสต็อกชื่อซ้ำ'}</span>
                 </Field>
                 <Field label="หมวดวัตถุดิบ">
-                  <select value={entry.category} onChange={(event) => handleCategoryChange(event.target.value as Category)} className={field}>
-                    <option value="Meat">{categoryLabel.Meat}</option>
-                    <option value="Vegetable">{categoryLabel.Vegetable}</option>
-                  </select>
+                  <input disabled value={entry.ingredientId ? categoryLabel[entry.category] : 'เลือกวัตถุดิบก่อน'} className={field} />
                 </Field>
                 <Field label="พื้นที่จัดเก็บ">
-                  <input disabled value={entry.category === 'Meat' ? 'Freezer (kg)' : 'ตู้พักละลาย (plate)'} className={field} />
+                  <input disabled value={entry.ingredientId ? (entry.category === 'Meat' ? 'Freezer (kg)' : 'ตู้พักละลาย (plate)') : 'เลือกวัตถุดิบก่อน'} className={field} />
                 </Field>
                 <Field label="จำนวน">
-                  <input value={entry.quantity} onChange={(event) => updateEntry('quantity', event.target.value)} type="number" min="0.001" step="0.001" className={field} placeholder="0.000" />
+                  <input value={entry.quantity} onChange={(event) => updateEntry('quantity', event.target.value)} type="number" min={entry.unit === 'plates' ? '1' : '0.001'} step={entry.unit === 'plates' ? '1' : '0.001'} className={field} placeholder={entry.unit === 'plates' ? '0' : '0.000'} />
                 </Field>
                 <Field label="หน่วย">
-                  <select value={entry.unit} onChange={(event) => updateEntry('unit', event.target.value as Unit)} className={field}>
+                  <select value={entry.unit} onChange={(event) => updateEntry('unit', event.target.value as Unit)} disabled={!entry.ingredientId || entry.category === 'Meat'} className={field}>
                     <option value="kg">kg</option>
                     {entry.category === 'Vegetable' && <option value="plates">plates</option>}
                   </select>
                 </Field>
-                <Field label="ต้นทุนต่อหน่วย (บาท)">
+                <Field label={`ต้นทุนต่อ${entry.unit === 'plates' ? 'จาน' : 'kg'} (บาท)`}>
                   <input value={entry.unitCost} onChange={(event) => updateEntry('unitCost', event.target.value)} type="number" min="0" step="0.01" className={field} placeholder="0.00" />
                 </Field>
                 <Field label="วันหมดอายุ">
@@ -223,7 +253,7 @@ export default function AddLotPage() {
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2 border-t border-white/15 pt-3 text-[10px] font-bold text-[#E8D8CA]">
                     <span>จำนวน<strong className="mt-1 block text-sm text-white">{line.quantity} {line.unit}</strong></span>
-                    <span>ต้นทุน<strong className="mt-1 block text-sm text-white">฿{Number(line.unitCost).toFixed(2)}</strong></span>
+                    <span>ต้นทุน<strong className="mt-1 block text-sm text-white">฿{Number(line.unitCost).toFixed(2)}/{line.unit === 'plates' ? 'จาน' : 'kg'}</strong></span>
                     <span>หมดอายุ<strong className="mt-1 block text-sm text-white">{line.expireDate}</strong></span>
                   </div>
                 </article>
