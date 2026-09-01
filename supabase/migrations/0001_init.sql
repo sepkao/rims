@@ -231,9 +231,13 @@ CREATE TABLE table_sessions (
     price_per_adult     DECIMAL(10,2) NOT NULL DEFAULT 0,
     price_per_child     DECIMAL(10,2) NOT NULL DEFAULT 0,
     price_per_senior    DECIMAL(10,2) NOT NULL DEFAULT 0,
-    price_per_disabled  DECIMAL(10,2) NOT NULL DEFAULT 0
+    price_per_disabled  DECIMAL(10,2) NOT NULL DEFAULT 0,
+
+    CONSTRAINT check_expires_after_start CHECK (expires_at > started_at),
+    CONSTRAINT check_headcount_positive CHECK (adult_count >= 0 AND child_count >= 0 AND senior_count >= 0 AND disabled_count >= 0)
 );
 
+CREATE UNIQUE INDEX unique_active_table_session ON table_sessions (dining_table_id) WHERE ended_at IS NULL;
 CREATE INDEX idx_table_sessions_active ON table_sessions (dining_table_id) WHERE ended_at IS NULL;
 CREATE INDEX idx_table_sessions_started ON table_sessions (started_at);  -- revenue range-scan in get_weekly_cost_profit_report()
 

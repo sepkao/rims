@@ -8,10 +8,11 @@ export default function CallStaffButton() {
     if (status === 'calling') return;
     setStatus('calling');
     try {
+      const token = sessionStorage.getItem('qr_session');
       const res = await fetch('http://localhost:3000/customer/call-staff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tableSessionId: 1 })
+        body: JSON.stringify({ tableSessionId: 1, qrCode: token || undefined })
       });
       if (res.ok) {
         setStatus('success');

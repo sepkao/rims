@@ -34,3 +34,9 @@ button { cursor: pointer; }
   .sidebar-nav { flex-direction: row; overflow-x: auto; }
   .sidebar-bottom { margin-top: 0; }
 }
+
+@media print {
+  .sidebar { display: none !important; }
+  .app-content { margin-left: 0 !important; width: 100% !important; padding: 0 !important; }
+  body, html { background: white !important; }
+}

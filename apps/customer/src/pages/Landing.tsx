@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const Icons = {
   AlertCircle: () => (
@@ -27,6 +27,9 @@ const Icons = {
 
 export default function Landing() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const sessionToken = searchParams.get('session');
+
   const [loading, setLoading] = useState(true);
   const [isExpired, setIsExpired] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
@@ -39,7 +42,16 @@ export default function Landing() {
   } | null>(null);
 
   useEffect(() => {
-    fetch('http://localhost:3000/customer/session?table_session_id=1')
+    if (sessionToken) {
+      sessionStorage.setItem('qr_session', sessionToken);
+    }
+    const tokenToUse = sessionToken || sessionStorage.getItem('qr_session');
+
+    const url = tokenToUse
+      ? `http://localhost:3000/customer/session?qr_code=${tokenToUse}`
+      : `http://localhost:3000/customer/session?table_session_id=1`;
+
+    fetch(url)
       .then(res => res.json())
       .then(data => {
         if (data.session) {
@@ -52,7 +64,7 @@ export default function Landing() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  }, [sessionToken]);
 
   if (loading) {
     return (
@@ -172,7 +184,12 @@ export default function Landing() {
             onClick={async () => {
               setIsStarting(true);
               try {
-                await fetch('http://localhost:3000/customer/start-timer', { method: 'POST' });
+                const token = sessionStorage.getItem('qr_session');
+                await fetch('http://localhost:3000/customer/start-timer', { 
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ tableSessionId: 1, qrCode: token || undefined })
+                });
               } catch (e) {
                 console.error(e);
               }
