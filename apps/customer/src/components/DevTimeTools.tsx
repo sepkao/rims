@@ -1,15 +1,15 @@
 import { useState } from 'react';
+import { apiFetch } from '../lib/api';
+import { requireQrCode } from '../lib/customer-session';
 
 export default function DevTimeTools({ onTriggerFetch }: { onTriggerFetch: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
 
   const shiftTime = async (minutes: number) => {
     try {
-      const qrCode = sessionStorage.getItem('qr_session') || undefined;
-      await fetch('http://localhost:3000/dev/time-shift', {
+      await apiFetch('/dev/time-shift', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ minutes, tableSessionId: 1, qrCode })
+        body: JSON.stringify({ minutes, qrCode: requireQrCode() })
       });
       onTriggerFetch();
     } catch (e) {
@@ -19,11 +19,9 @@ export default function DevTimeTools({ onTriggerFetch }: { onTriggerFetch: () =>
 
   const setExactTime = async (minutesLeft: number) => {
     try {
-      const qrCode = sessionStorage.getItem('qr_session') || undefined;
-      await fetch('http://localhost:3000/dev/set-time', {
+      await apiFetch('/dev/set-time', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ minutesLeft, tableSessionId: 1, qrCode })
+        body: JSON.stringify({ minutesLeft, qrCode: requireQrCode() })
       });
       onTriggerFetch();
     } catch (e) {
@@ -33,11 +31,9 @@ export default function DevTimeTools({ onTriggerFetch }: { onTriggerFetch: () =>
 
   const forceConfirm = async () => {
     try {
-      const qrCode = sessionStorage.getItem('qr_session') || undefined;
-      await fetch('http://localhost:3000/dev/force-confirm', {
+      await apiFetch('/dev/force-confirm', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tableSessionId: 1, qrCode })
+        body: JSON.stringify({ qrCode: requireQrCode() })
       });
       onTriggerFetch();
     } catch (e) {
@@ -47,11 +43,9 @@ export default function DevTimeTools({ onTriggerFetch }: { onTriggerFetch: () =>
 
   const resetSession = async () => {
     try {
-      const qrCode = sessionStorage.getItem('qr_session') || undefined;
-      await fetch('http://localhost:3000/dev/reset-session', {
+      await apiFetch('/dev/reset-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tableSessionId: 1, qrCode })
+        body: JSON.stringify({ qrCode: requireQrCode() })
       });
       onTriggerFetch();
       alert('รีเซ็ตเซสชันกลับไปสถานะ "ยังไม่เริ่ม" แล้วครับ\nสามารถไปเทสกด "เริ่มสั่งอาหาร" ที่หน้าแรกได้เลย');
@@ -59,6 +53,8 @@ export default function DevTimeTools({ onTriggerFetch }: { onTriggerFetch: () =>
       console.error(e);
     }
   };
+
+  if (!import.meta.env.DEV) return null;
 
   if (!isOpen) {
     return (

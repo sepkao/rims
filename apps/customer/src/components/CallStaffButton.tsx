@@ -1,29 +1,28 @@
 import { useState } from 'react';
+import { apiFetch } from '../lib/api';
+import { requireQrCode } from '../lib/customer-session';
 
 export default function CallStaffButton() {
   const [showModal, setShowModal] = useState(false);
   const [status, setStatus] = useState<'idle' | 'calling' | 'success'>('idle');
+  const [coolingDown, setCoolingDown] = useState(false);
+  const [error, setError] = useState('');
 
   const handleCall = async () => {
     if (status === 'calling') return;
+    if (coolingDown) return;
     setStatus('calling');
+    setError('');
     try {
-      const token = sessionStorage.getItem('qr_session');
-      const res = await fetch('http://localhost:3000/customer/call-staff', {
+      await apiFetch('/customer/call-staff', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tableSessionId: 1, qrCode: token || undefined })
+        body: JSON.stringify({ qrCode: requireQrCode() })
       });
-      if (res.ok) {
-        setStatus('success');
-      } else {
-        alert('เกิดข้อผิดพลาดในการเรียกพนักงาน');
-        setShowModal(false);
-        setStatus('idle');
-      }
+      setStatus('success');
+      setCoolingDown(true);
+      window.setTimeout(() => setCoolingDown(false), 30_000);
     } catch (e) {
-      alert('เกิดข้อผิดพลาดในการเรียกพนักงาน');
-      setShowModal(false);
+      setError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาดในการเรียกพนักงาน');
       setStatus('idle');
     }
   };
@@ -31,8 +30,11 @@ export default function CallStaffButton() {
   return (
     <>
       <button 
-        onClick={() => { setShowModal(true); setStatus('idle'); }}
-        className="absolute bottom-24 right-5 w-14 h-14 bg-[#5A403E] text-white rounded-full shadow-[0_4px_15px_rgba(90,64,62,0.3)] flex items-center justify-center z-40 hover:scale-105 active:scale-95 transition-all"
+        onClick={() => { setShowModal(true); setStatus('idle'); setError(''); }}
+        disabled={coolingDown}
+        aria-label="เรียกพนักงาน"
+        aria-disabled={coolingDown}
+        className="absolute bottom-24 right-5 w-14 h-14 bg-[#5A403E] text-white rounded-full shadow-[0_4px_15px_rgba(90,64,62,0.3)] flex items-center justify-center z-40 hover:scale-105 active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-50"
       >
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
       </button>
@@ -47,6 +49,7 @@ export default function CallStaffButton() {
                 </div>
                 <h3 className="text-lg font-bold text-[#302221] mb-2">ต้องการเรียกพนักงาน?</h3>
                 <p className="text-sm text-[#7B726B] mb-6">พนักงานจะรีบมาให้บริการที่โต๊ะของคุณ</p>
+                {error && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
                 <div className="flex gap-3">
                   <button onClick={() => setShowModal(false)} className="flex-1 py-3 bg-[#F4EFEA] text-[#5A403E] font-bold rounded-xl hover:bg-[#EAE5DF] transition-colors">
                     ยกเลิก

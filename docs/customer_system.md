@@ -1,100 +1,70 @@
-# Customer System Documentation
+# Customer System
 
-เอกสารนี้รวบรวมรายละเอียดเกี่ยวกับการทำงานของระบบฝั่งลูกค้า (Customer App) ที่ได้ถูกพัฒนาและปรับปรุงล่าสุด เพื่อให้นักพัฒนาท่านอื่นสามารถทำความเข้าใจและนำไปสานต่อในส่วนที่เกี่ยวข้องได้ง่ายขึ้น
+เอกสารนี้อ้างอิง `docs/rims_scope_lock_v2.md` และ `docs/rims_user_stories.md` เป็นหลัก
 
----
+## ขอบเขต
 
-## 📱 ภาพรวมของระบบ (Frontend)
+Customer เป็นเว็บ anonymous สำหรับลูกค้าที่สแกน QR ของโต๊ะเท่านั้น ไม่มีการ login และไม่มีสิทธิ์เริ่มหรือยืดเวลาบุฟเฟต์เอง. Cashier เปิดโต๊ะ, สร้าง QR และเริ่ม `started_at`/`expires_at` ตั้งแต่ check-in.
 
-ระบบฝั่งลูกค้าพัฒนาด้วย **React + Vite** (อยู่ใน `apps/customer`) มีเป้าหมายเพื่อให้ลูกค้าสามารถดูเมนู สั่งอาหารแบบบุฟเฟต์ด้วยตนเอง เรียกพนักงาน และดูประวัติการสั่งอาหารได้ โดยมีการออกแบบในสไตล์มินิมอล (สีแนวเอิร์ธโทน) และจำกัดการเข้าถึงเมนูผ่านการเปิดบิล/เซสชันจากแคชเชียร์เท่านั้น
+## หน้าจอ
 
-### หน้าจอหลัก (Pages)
+| หน้า | หน้าที่ |
+|---|---|
+| `Landing.tsx` | อ่าน token จาก `?qr=...`, ตรวจ session จริง, เก็บ token ใน `sessionStorage`, ปฏิเสธ QR ปิด/หมดอายุ |
+| `Menu.tsx` | เมนู active, search, แสดง BOM ที่ถอดได้, จำนวนที่สั่งได้จากตู้พักละลาย, ตะกร้า และ timer |
+| `OrderBuilder.tsx` | เลือกจำนวนไม่เกิน stock และถอดได้เฉพาะ ingredient `removable` |
+| `OrderHistory.tsx` | ส่งตะกร้า, ดูสถานะออเดอร์ของ QR นี้, แสดง pending/กำลังทำ/เสิร์ฟ/ยกเลิก |
+| `GracePeriodCountdown.tsx` | poll สถานะออเดอร์จริง, ยกเลิกได้ก่อน `confirm_at` |
+| `QrExpiryBanner.tsx` | เตือนเมื่อเหลือไม่เกิน 5 นาทีหรือหมดอายุ |
+| `CallStaffButton.tsx` | เรียกพนักงาน พร้อม client/server cooldown 30 วินาที |
 
-1. **Landing Page (`Landing.tsx`)**
-   - **หน้าที่:** เป็นหน้าแรกที่ลูกค้าสแกน QR Code เข้ามา จะแสดงหมายเลขโต๊ะ, ข้อมูลการเข้าใช้งาน, เวลาเริ่มต้น, และข้อตกลงในการทานบุฟเฟต์
-   - **การทำงาน:** 
-     - ดึงข้อมูลโต๊ะจาก API `/customer/session`
-     - หากลูกค้ากดยืนยันปุ่ม **"เริ่มสั่งอาหาร"** ระบบจะยิง API `POST /customer/start-timer` เพื่อเริ่มจับเวลาบุฟเฟต์ (2 ชั่วโมง)
-     - มีระบบตรวจสอบสถานะหมดอายุ หากสแกนหลังจากโต๊ะหมดเวลาหรือยังไม่ได้เปิดบิล จะขึ้นแจ้งเตือน "QR Code หมดอายุ"
+รูปอาหารและหมวดไม่ถูกเดาจากชื่อหรือใช้ Unsplash mock เพราะ schema ปัจจุบันไม่มีสอง field นี้. UI แสดง placeholder ของชื่อเมนูจนกว่าจะเพิ่มข้อมูลจริงใน schema/API.
 
-2. **Menu Page (`Menu.tsx`)**
-   - **หน้าที่:** แสดงรายการอาหารทั้งหมด แบ่งตามหมวดหมู่ มีช่องค้นหา, แสดงเวลาคงเหลือของบุฟเฟต์, และตะกร้าสินค้าแบบ Floating (ลอยอยู่ด้านล่าง)
-   - **การทำงาน:**
-     - ดึงรายการอาหารจาก API `GET /menu-items` (กรองเฉพาะเมนูที่เปิดขาย `is_active = true`)
-     - รองรับการกดเพิ่มอาหารเข้าตะกร้าทั้งแบบธรรมดา และแบบมีวัตถุดิบเสริม (นำไปสู่หน้า OrderBuilder)
-     - ใช้งาน `BuffetTimer` component เพื่อแสดงเวลาคงเหลือ
+## Session และ QR
 
-3. **Order Builder (`OrderBuilder.tsx`)**
-   - **หน้าที่:** กรณีที่เมนูนั้นๆ มีวัตถุดิบที่ "ตัดออกได้" (removable) ลูกค้าจะสามารถเลือกติ๊กออกได้ก่อนเพิ่มเข้าตะกร้า
+- URL รับ `?qr=<token>`.
+- `GET /customer/session?qr_code=<token>` คืนเฉพาะ session ที่ยังเปิด; response บอก `status: active|expired`.
+- ทุกคำขอที่แก้ข้อมูลส่ง `qrCode`; server หา session จาก QR และปฏิเสธ session ปิด/หมดอายุ.
+- ไม่มี `table_session_id=1`, mock session หรือ endpoint เริ่มเวลา. `POST /customer/start-timer` ตอบ `410` เพื่อกัน client เก่า.
+- ตะกร้าแยกตาม QR ใน `sessionStorage`; เปลี่ยน QR จะล้างตะกร้าเดิม.
 
-4. **Order History & Cart (`OrderHistory.tsx`)**
-   - **หน้าที่:** เป็นหน้าตะกร้าของลูกค้าที่จะแสดง:
-     1. รายการที่เพิ่งเลือก (รอกดสั่ง)
-     2. ประวัติการสั่งอาหาร (ที่สั่งไปแล้ว) 
-   - **การทำงาน:**
-     - ดึงประวัติจาก `GET /customer/orders`
-     - **Grace Period (1 นาที):** เมื่อกดส่งออเดอร์ ข้อมูลจะถูกยิงเข้าฐานข้อมูลแต่ออเดอร์จะอยู่ในสถานะ `pending` เป็นเวลา 1 นาที ลูกค้าจะเห็นออเดอร์ในหน้าประวัติขึ้นว่า **"รอครัวยืนยัน"** พร้อมปุ่มให้กด **ยกเลิก (เปลี่ยนใจ)** ได้ผ่าน API `POST /customer/orders/:id/cancel`
-     - เมื่อเลย 1 นาที ออเดอร์จะเปลี่ยนสถานะเป็น `cooking` เองตามอัตโนมัติ
+## เมนูและสต็อก
 
-5. **Grace Period Countdown (`GracePeriodCountdown.tsx`)**
-   - **หน้าที่:** หน้าจอ Success หลังจากลูกค้ากดสั่งอาหาร โดยมีแอนิเมชันนับถอยหลัง 60 วินาที เพื่อให้ลูกค้าเห็นชัดเจนว่ายังมีเวลายกเลิกออเดอร์ได้
+`GET /customer/menu-items` ส่งเฉพาะ `menu_items.is_active = true` พร้อม BOM และ `availableServings`.
 
-### ส่วนประกอบย่อย (Components)
+- คำนวณจาก lot ที่ยังไม่หมดอายุใน location `ตู้พักละลาย` เท่านั้น.
+- Freezer ไม่นับเป็นของพร้อมขาย.
+- เมนูไม่มี BOM มี `availableServings = 0` เพื่อไม่ให้สั่งของที่ระบบไม่สามารถตัดสต็อกได้.
+- Client จำกัดจำนวนเพื่อ UX; server ตรวจซ้ำเสมอ จึงไม่เชื่อจำนวนจาก browser.
 
-- **`BuffetTimer.tsx`**: Component สำหรับนับถอยหลังเวลาบุฟเฟต์ โดยคำนวณจากเวลา `expires_at` ที่ได้จากฐานข้อมูล 
-- **`DevTimeTools.tsx`**: **เครื่องมือสำหรับนักพัฒนาเท่านั้น** (ไอคอนมุมซ้ายล่าง) สามารถกดเพื่อจำลองการเลื่อนเวลา (+10m, -10m), บังคับออเดอร์ข้าม Grace period ทันที (`force-confirm`), และรีเซ็ตเซสชัน (`reset-session`) 
+## Order flow
 
----
+1. `POST /customer/orders` รับ `{ qrCode, items }`.
+2. Server lock session, ตรวจ active menu, จำนวน 1–20, ingredient ที่ลูกค้าถอด, และ stock สดในตู้พักละลายภายใน transaction.
+3. สร้าง order `pending` และ `confirm_at = now() + 60 seconds`; ยังไม่หัก stock.
+4. ลูกค้ายกเลิกด้วย `POST /customer/orders/:id/cancel` ก่อนเวลาได้เฉพาะ order ของ QR เดียวกัน.
+5. worker ทุก 5 วินาทีเรียก `auto_confirm_order()` สำหรับ pending ที่ครบเวลา. ถ้าสต็อกหายไปก่อน confirm, function ยกเลิกทั้งออเดอร์ ไม่ตัดบางรายการ.
+6. ถ้ายืนยันสำเร็จ status เป็น `confirmed`; Customer แสดงเป็น `cooking`.
 
-## ⚙️ ระบบหลังบ้านและ API (Backend)
+`0002_cashier_hardening.sql` override `auto_confirm_order()` ให้ FIFO deduction อยู่ใน PL/pgSQL subtransaction. หาก ingredient ใดไม่พอ การตัดทั้งหมดในรอบนั้น rollback ก่อนบันทึก `cancelled`.
 
-Backend พัฒนาด้วย **Hono + Node.js** ใช้เชื่อมต่อกับ PostgreSQL
+## Customer API
 
-### API ที่เปิดให้ใช้งานในฝั่ง Customer
+| Method | Endpoint | หน้าที่ |
+|---|---|---|
+| GET | `/customer/session?qr_code=` | ตรวจ QR และอ่านโต๊ะ/เวลา |
+| GET | `/customer/menu-items?qr_code=` | menu active + BOM + available servings |
+| GET | `/customer/orders?qr_code=` | order history ของ QR |
+| POST | `/customer/orders` | สร้าง pending order |
+| POST | `/customer/orders/:id/cancel` | ยกเลิก pending order ของ QR |
+| POST | `/customer/call-staff` | สร้าง cashier notification; จำกัด 30 วินาที/โต๊ะ |
 
-1. **`GET /customer/session?table_session_id={id}`**
-   - **หน้าที่:** ดึงข้อมูลของเซสชันโต๊ะ (Table Session)
-   - **สิ่งที่คืนค่า:** `startedAt`, `expiresAt`, `tableNumber`, `capacity`
+API dev (`/dev/*`) ใช้ได้เฉพาะ `NODE_ENV !== production`; ทุก endpoint รับ QR จริง ไม่มี default session.
 
-2. **`POST /customer/start-timer`**
-   - **หน้าที่:** กดเพื่อเริ่มจับเวลาบุฟเฟต์เมื่อลูกค้ากดยืนยันในหน้า Landing
-   - **เงื่อนไข (Anti-Cheat):** จะทำการอัปเดตเวลา `started_at` (เวลาปัจจุบัน) และ `expires_at` (+2 ชม.) **ก็ต่อเมื่อ** เซสชันยังอยู่ในสถานะ "ยังไม่เริ่ม" (ตั้งเวลาไว้ในอนาคตไกลๆ) หากมีการเริ่มไปแล้ว การยิง API นี้ซ้ำจะไม่ส่งผลใดๆ (ป้องกันลูกค้ารีเฟรชแล้วเวลารีเซ็ตใหม่)
+## ติดตั้งและตรวจสอบ
 
-3. **`GET /customer/orders`**
-   - **หน้าที่:** ดึงรายการอาหารทั้งหมดที่ลูกค้าคนนั้น/โต๊ะนั้นได้สั่งไป
-   - **สิ่งที่คืนค่า:** `id`, `name`, `status`, `time` (เวลาที่สั่งไป), `orderId`
-   - **เงื่อนไข:** ดึงออเดอร์ที่อยู่ในสถานะ `pending`, `cooking`, `served` และแยกประเภทสถานะอย่างถูกต้อง
-
-4. **`POST /customer/orders`**
-   - **หน้าที่:** รับข้อมูลออเดอร์จากตะกร้า แล้วสร้าง `order` รวบยอดพร้อมรายการย่อย (`order_items`) ในฐานข้อมูล
-
-5. **`POST /customer/orders/:id/cancel`**
-   - **หน้าที่:** ยกเลิกออเดอร์
-   - **เงื่อนไข:** ออเดอร์ต้องอยู่ในสถานะ `pending` เท่านั้นถึงจะยกเลิกได้ (อยู่ในช่วง Grace Period)
-
-6. **`GET /menu-items`**
-   - **หน้าที่:** ดึงรายการอาหารทั้งหมดที่พร้อมเสิร์ฟ (`is_active = true`) และดึงวัตถุดิบย่อยที่มากับเมนูนั้นๆ เพื่อให้รู้ว่าลูกค้าสามารถ custom เอาผักอะไรออกได้บ้าง
-
-### API พิเศษ (สำหรับการพัฒนา / Dev)
-
-- `POST /dev/force-confirm` : บังคับยืนยันออเดอร์ที่ค้างเป็น `pending` ข้าม 1 นาทีไปเข้าครัวทันที
-- `POST /dev/time-shift` : เลื่อนเวลาหมดอายุบุฟเฟต์ `expires_at` บวกลบตามต้องการ
-- `POST /dev/reset-session` : รีเซ็ตเซสชันจำลองกลับไปเป็นสถานะ "ยังไม่เริ่ม" (100 ปีข้างหน้า)
-
----
-
-## 🏗️ โครงสร้างฐานข้อมูลที่เกี่ยวข้อง
-
-การพัฒนาในส่วนของ Customer ได้อิงไปตาม Scope กฎของร้านใน `rims_scope_lock_v2.md`
-- โต๊ะจะมีข้อมูลการเปิดบิลอยู่ที่ตาราง `table_sessions` 
-- การอัปเดต/ยกเลิกออเดอร์ จะต้องจัดการแบบ ACID เพื่อให้แน่ใจว่าวัตถุดิบ (Stock) ไม่ผิดพลาด
-- ปัจจุบันฟังก์ชัน `auto_confirm_order()` ใน SQL จะเป็นตัวประมวลผลการดึงออเดอร์เข้าครัว และหักสต๊อกวัตถุดิบแบบ FIFO ตามกฎที่วางไว้ โดยทาง Node.js จะมี Background Worker คอย `setInterval` ยิงคำสั่ง `SELECT auto_confirm_order()` ทุกๆ 5 วินาที เพื่อให้ระบบจัดการตัวเอง
-
----
-
-## 📝 ข้อควรทราบสำหรับนักพัฒนาท่านอื่น
-
-- **การ Mock Session:** ปัจจุบันฝั่ง Customer ยังไม่มีระบบแคชเชียร์/การแสกน QR Code ของจริง ในโค้ด Backend จึงมีฟังก์ชัน `ensureMockSession(1)` คอยสร้างโต๊ะเบอร์ 1 เตรียมไว้ให้ทดสอบเสมอ 
-- **หากทำระบบเปิดโต๊ะโดยแคชเชียร์เสร็จแล้ว:** ควรตรวจสอบให้มั่นใจว่าเมื่อแคชเชียร์สร้างบิลใหม่ ค่า `expires_at` จะถูกตั้งค่าเป็นอนาคตไกลๆ (เช่น +100 years หรือใส่ NULL ถ้าทำได้) เพื่อให้หน้า Landing Page ขึ้นข้อความ "ยังไม่เริ่มเวลา" และรอให้ลูกค้ากดเริ่มจับเวลาด้วยตนเอง
-- **การเชื่อมต่อ Backend - Frontend:** ฝั่ง Frontend (Vite) เลี่ยงการใช้ proxy ในบางจุด แนะนำให้กำหนด URL เต็มไปยัง `http://localhost:3000` โดยตรง หรือสร้าง Helper Method แยกต่างหาก
-- คอลัมน์ราคา (`price`) ในตาราง `menu_items` ไม่ได้ถูกนำมาคำนวณในฝั่งลูกค้า เพราะนี่คือระบบบุฟเฟต์ All-you-can-eat การแก้ไขโค้ดที่ดึงรายการเมนูต้องระวังอย่าให้บังคับใช้เรื่องราคา เพื่อไม่ให้แสดงผลผิดพลาด
+1. Apply `supabase/migrations/0001_init.sql` แล้ว `0002_cashier_hardening.sql`.
+2. Cashier ต้อง set `VITE_CUSTOMER_APP_URL` ให้เป็น URL customer app ก่อนเปิดโต๊ะ.
+3. Customer set `VITE_API_URL` เมื่อ API อยู่คนละ origin; local dev ที่ไม่ตั้งใช้ `http://localhost:3000`, production ที่ไม่ตั้งใช้ same-origin path.
+4. ตรวจ build ด้วย `tsc --noEmit -p apps/customer/tsconfig.json` และ `vite build`.
+5. UAT: cashier check-in, scan QR, สั่ง menu ที่มี stock, cancel ภายใน 60 วินาที, ปล่อย confirm, ลอง QR หมดอายุ และเรียกพนักงานซ้ำภายใน 30 วินาที.

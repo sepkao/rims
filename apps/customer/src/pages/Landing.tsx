@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { apiFetch } from '../lib/api';
+import { clearCustomerSession, getQrCode, storeQrCode, type CustomerSession } from '../lib/customer-session';
+import { useCart } from '../lib/CartContext';
 
 const Icons = {
   AlertCircle: () => (
@@ -28,43 +31,45 @@ const Icons = {
 export default function Landing() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const sessionToken = searchParams.get('session');
+  const sessionToken = searchParams.get('qr') ?? searchParams.get('session');
+  const { clearCart } = useCart();
 
   const [loading, setLoading] = useState(true);
   const [isExpired, setIsExpired] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [error, setError] = useState('');
 
-  const [session, setSession] = useState<{
-    startedAt: string;
-    expiresAt: string;
-    tableNumber: string;
-    capacity: number;
-  } | null>(null);
+  const [session, setSession] = useState<CustomerSession | null>(null);
 
   useEffect(() => {
     if (sessionToken) {
-      sessionStorage.setItem('qr_session', sessionToken);
+      if (getQrCode() !== sessionToken) clearCart();
+      storeQrCode(sessionToken);
     }
-    const tokenToUse = sessionToken || sessionStorage.getItem('qr_session');
-
-    const url = tokenToUse
-      ? `http://localhost:3000/customer/session?qr_code=${tokenToUse}`
-      : `http://localhost:3000/customer/session?table_session_id=1`;
-
-    fetch(url)
-      .then(res => res.json())
-      .then(data => {
+    const tokenToUse = sessionToken || getQrCode();
+    if (!tokenToUse) {
+      setError('ไม่พบ QR Code กรุณาสแกน QR จากแคชเชียร์');
+      setIsExpired(true);
+      setLoading(false);
+      return;
+    }
+    apiFetch<{ session: CustomerSession }>(`/customer/session?qr_code=${encodeURIComponent(tokenToUse)}`)
+      .then((data) => {
         if (data.session) {
           setSession(data.session);
           const expiresAt = new Date(data.session.expiresAt).getTime();
-          if (expiresAt < Date.now()) {
+          if (data.session.status === 'expired' || expiresAt <= Date.now()) {
             setIsExpired(true);
           }
         }
       })
-      .catch(console.error)
+      .catch((caught) => {
+        clearCustomerSession();
+        setError(caught instanceof Error ? caught.message : 'ตรวจสอบ QR ไม่สำเร็จ');
+        setIsExpired(true);
+      })
       .finally(() => setLoading(false));
-  }, [sessionToken]);
+  }, [clearCart, sessionToken]);
 
   if (loading) {
     return (
@@ -81,17 +86,13 @@ export default function Landing() {
     return (
       <div className="min-h-screen bg-[#EAE5DF] flex justify-center font-sans">
         <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center px-8 text-center shadow-xl relative">
-          <button onClick={() => setIsExpired(false)} className="absolute top-4 right-4 text-[10px] bg-gray-100 px-3 py-1.5 rounded-full text-gray-500 hover:bg-gray-200 transition-colors">
-            [Dev] เปลี่ยนเป็นปกติ
-          </button>
-
           <div className="bg-[#FEF2F2] p-5 rounded-full mb-8 shadow-sm">
             <Icons.AlertCircle />
           </div>
           
           <h1 className="text-2xl font-bold text-[#302221] mb-3">QR Code หมดอายุ</h1>
           <p className="text-sm text-[#7B726B] leading-relaxed mb-12">
-            เซสชันสำหรับโต๊ะนี้หมดอายุแล้ว หรือยังไม่ได้ทำการเปิดโต๊ะ<br/><br/>
+            {error || 'เซสชันสำหรับโต๊ะนี้หมดอายุแล้ว หรือยังไม่ได้ทำการเปิดโต๊ะ'}<br/><br/>
             กรุณาติดต่อพนักงานหรือแคชเชียร์เพื่อเปิดโต๊ะใหม่ และรับ QR Code ล่าสุดค่ะ
           </p>
 
@@ -114,9 +115,9 @@ export default function Landing() {
     <div className="min-h-screen bg-[#EAE5DF] flex justify-center font-sans selection:bg-[#5A403E] selection:text-white">
       <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative shadow-xl overflow-hidden">
         
-        <button onClick={() => setIsExpired(true)} className="absolute top-4 right-4 text-[10px] bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full text-white/90 z-50 border border-white/30 hover:bg-white/30 transition-colors">
+        {import.meta.env.DEV && <button onClick={() => setIsExpired(true)} className="absolute top-4 right-4 text-[10px] bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full text-white/90 z-50 border border-white/30 hover:bg-white/30 transition-colors">
           [Dev] ทดสอบหมดอายุ
-        </button>
+        </button>}
 
         {/* ภาพพื้นหลังด้านบน */}
         <div className="h-[42%] bg-[#5A403E] relative flex flex-col items-center justify-center text-white p-6 overflow-hidden">
@@ -181,18 +182,8 @@ export default function Landing() {
           </div>
 
           <button 
-            onClick={async () => {
+            onClick={() => {
               setIsStarting(true);
-              try {
-                const token = sessionStorage.getItem('qr_session');
-                await fetch('http://localhost:3000/customer/start-timer', { 
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ tableSessionId: 1, qrCode: token || undefined })
-                });
-              } catch (e) {
-                console.error(e);
-              }
               navigate('/order');
             }}
             disabled={isStarting}

@@ -4,12 +4,15 @@ import { apiFetch } from '../lib/api';
 import CallStaffButton from '../components/CallStaffButton';
 import DevTimeTools from '../components/DevTimeTools';
 import BuffetTimer from '../components/BuffetTimer';
+import QrExpiryBanner from '../components/QrExpiryBanner';
+import { customerQuery, type CustomerSession } from '../lib/customer-session';
 
 type MenuItem = {
   id: string;
   name: string;
   description: string | null;
   ingredients: Array<{ id: string; name: string; removable: boolean }>;
+  availableServings: number;
 };
 
 import { useCart } from '../lib/CartContext';
@@ -24,25 +27,8 @@ const Icons = {
   Plus: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
 };
 
-const categories = ["ทั้งหมด", "เนื้อวัว", "หมู", "ซีฟู้ด", "ลูกชิ้น/ผัก", "ของทานเล่น"];
-
-const guessCategory = (name: string) => {
-  if (name.includes("เนื้อ") || name.includes("วากิว") || name.includes("ริบอาย")) return "เนื้อวัว";
-  if (name.includes("หมู") || name.includes("เบคอน")) return "หมู";
-  if (name.includes("กุ้ง") || name.includes("ปลาหมึก") || name.includes("แซลมอน")) return "ซีฟู้ด";
-  if (name.includes("ผัก") || name.includes("เห็ด") || name.includes("ลูกชิ้น")) return "ลูกชิ้น/ผัก";
-  if (name.includes("เฟรนช์ฟรายส์") || name.includes("ทอด")) return "ของทานเล่น";
-  return "อื่นๆ";
-};
-
-const mockImages = [
-  "https://images.unsplash.com/photo-1600891964092-4316c288032e?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1577640905050-83665af216b9?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1599084993091-1cb5c0721cc6?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1591071477751-248358d7c4e5?q=80&w=400&auto=format&fit=crop"
-];
+// Backend has no menu category or image fields yet. Do not invent either in Customer.
+const categories = ["ทั้งหมด"];
 
 export default function Menu() {
   const navigate = useNavigate();
@@ -52,12 +38,7 @@ export default function Menu() {
   const [activeCategory, setActiveCategory] = useState("ทั้งหมด");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [session, setSession] = useState<{
-    startedAt: string;
-    expiresAt: string;
-    tableNumber: string;
-    capacity: number;
-  } | null>(null);
+  const [session, setSession] = useState<CustomerSession | null>(null);
   const [isExpired, setIsExpired] = useState(false);
 
   useEffect(() => {
@@ -71,21 +52,26 @@ export default function Menu() {
 
   const fetchItems = () => {
     setLoading(true);
-    apiFetch<{ menuItems: MenuItem[] }>('/menu-items')
-      .then((data) => setItems(data.menuItems))
+    setError('');
+    let sessionQuery: string;
+    try {
+      sessionQuery = customerQuery();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'ไม่พบ QR session');
+      setLoading(false);
+      return;
+    }
+    Promise.all([
+      apiFetch<{ menuItems: MenuItem[] }>(`/customer/menu-items${sessionQuery}`),
+      apiFetch<{ session: CustomerSession }>(`/customer/session${sessionQuery}`),
+    ])
+      .then(([menuData, sessionData]) => {
+        setItems(menuData.menuItems);
+        setSession(sessionData.session);
+        setIsExpired(sessionData.session.status === 'expired' || new Date(sessionData.session.expiresAt).getTime() <= Date.now());
+      })
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดเมนูไม่สำเร็จ'))
       .finally(() => setLoading(false));
-
-    const token = sessionStorage.getItem('qr_session');
-    const url = token
-      ? `http://localhost:3000/customer/session?qr_code=${token}`
-      : `http://localhost:3000/customer/session?table_session_id=1`;
-
-    fetch(url)
-      .then(r => r.json())
-      .then(data => {
-        if (data.session) setSession(data.session);
-      }).catch(console.error);
   };
 
   useEffect(() => {
@@ -94,14 +80,14 @@ export default function Menu() {
 
   const visible = useMemo(() => items.filter((item) => {
     const matchesSearch = `${item.name} ${item.description ?? ''} ${item.ingredients.map(i => i.name).join(' ')}`.toLowerCase().includes(query.toLowerCase());
-    const matchesCategory = activeCategory === "ทั้งหมด" || guessCategory(item.name) === activeCategory;
+    const matchesCategory = activeCategory === "ทั้งหมด";
     return matchesSearch && matchesCategory;
   }), [items, query, activeCategory]);
 
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   const handleAdd = (item: MenuItem) => {
-    if (isExpired) return;
+    if (isExpired || item.availableServings < 1) return;
     if (item.ingredients.length > 0) {
       navigate(`/build/${item.id}`);
     } else {
@@ -110,7 +96,7 @@ export default function Menu() {
   };
 
   const handleQuickAdd = (item: MenuItem) => {
-    if (isExpired) return;
+    if (isExpired || item.availableServings <= getItemQuantity(item.id)) return;
     addItem({ menuItem: item, quantity: 1, removedIngredients: [] });
   };
 
@@ -145,10 +131,11 @@ export default function Menu() {
           </div>
           
           <div className="flex justify-between items-end">
-            <span className="text-lg font-bold text-[#302221]">โต๊ะ {session?.tableNumber?.replace('MOCK-', '') || '00'} <span className="text-sm font-normal text-[#7B726B] ml-1">({session?.capacity || 4} ท่าน)</span></span>
+            <span className="text-lg font-bold text-[#302221]">โต๊ะ {session?.tableNumber || '--'}</span>
             <span className="text-xs text-[#10B981] font-bold bg-[#D1FAE5] px-2 py-1 rounded-md">กำลังทาน</span>
           </div>
         </div>
+        <QrExpiryBanner expiresAt={session?.expiresAt} />
 
         {/* --- Search & Category Tabs --- */}
         <div className="bg-white px-5 pt-3 pb-2 shrink-0 z-10 border-b border-[#EAE5DF]">
@@ -182,18 +169,13 @@ export default function Menu() {
         {/* --- Menu Grid --- */}
         <div className="flex-1 overflow-y-auto p-4 pb-[100px]">
           {loading && <div className="py-10 text-center text-sm font-bold text-[#7B726B]">กำลังโหลดเมนู…</div>}
-          {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700 mb-4">{error}</div>}
+          {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700 mb-4">{error}<button onClick={fetchItems} className="ml-3 underline">ลองใหม่</button></div>}
           
           <div className="grid grid-cols-2 gap-4">
-            {visible.map((item, index) => (
+            {visible.map((item) => (
               <div key={item.id} className="rounded-xl bg-white border border-[#EAE5DF] shadow-sm overflow-hidden flex flex-col">
                 <div className="h-32 bg-[#F4EFEA] relative border-b border-[#EAE5DF]">
-                  <img src={mockImages[index % mockImages.length]} alt={item.name} className="w-full h-full object-cover" />
-                  {index % 3 === 0 && (
-                    <div className="absolute top-2 left-2 bg-white/95 backdrop-blur-sm px-2 py-1 rounded-md flex items-center gap-1 shadow-sm">
-                      <Icons.Fire /> <span className="text-[10px] font-bold text-[#E53E3E]">แนะนำ</span>
-                    </div>
-                  )}
+                  <div className="grid h-full place-items-center bg-gradient-to-br from-[#E8DCD0] to-[#C7ACA0] px-3 text-center text-sm font-bold text-[#5A403E]">{item.name}</div>
                 </div>
                 
                 <div className="p-3 flex flex-col flex-1">
@@ -207,11 +189,13 @@ export default function Menu() {
                     ))}
                   </div>
                   
-                  {getItemQuantity(item.id) > 0 ? (
+                  {item.availableServings < 1 ? (
+                    <button disabled className="w-full rounded-lg bg-gray-200 py-2 text-xs font-bold text-gray-500">หมดแล้ว</button>
+                  ) : getItemQuantity(item.id) > 0 ? (
                     <div className={`flex items-center justify-between rounded-lg p-1 mt-auto ${isExpired ? 'bg-gray-100 opacity-50' : 'bg-[#F4EFEA]'}`}>
                       <button disabled={isExpired} onClick={() => handleRemoveOne(item)} className="w-7 h-7 bg-white rounded-md flex items-center justify-center text-[#5A403E] font-bold shadow-sm"><Icons.Minus /></button>
                       <span className="font-bold text-[#302221] text-xs">{getItemQuantity(item.id)}</span>
-                      <button disabled={isExpired} onClick={() => handleQuickAdd(item)} className={`w-7 h-7 rounded-md flex items-center justify-center text-white font-bold shadow-sm ${isExpired ? 'bg-gray-400' : 'bg-[#5A403E]'}`}><Icons.Plus /></button>
+                      <button disabled={isExpired || getItemQuantity(item.id) >= item.availableServings} onClick={() => handleQuickAdd(item)} className={`w-7 h-7 rounded-md flex items-center justify-center text-white font-bold shadow-sm ${isExpired || getItemQuantity(item.id) >= item.availableServings ? 'bg-gray-400' : 'bg-[#5A403E]'}`}><Icons.Plus /></button>
                     </div>
                   ) : (
                     <button disabled={isExpired} onClick={() => handleAdd(item)} className={`w-full py-2 border text-[#302221] rounded-lg text-xs font-bold mt-auto transition-colors shadow-sm ${isExpired ? 'bg-gray-200 border-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white border-[#EAE5DF] hover:bg-gray-50'}`}>
@@ -226,7 +210,7 @@ export default function Menu() {
         </div>
 
         <CallStaffButton />
-        <DevTimeTools onTriggerFetch={fetchItems} />
+        {import.meta.env.DEV && <DevTimeTools onTriggerFetch={fetchItems} />}
 
         {/* --- Floating Bottom Cart --- */}
         <div className="absolute bottom-0 left-0 w-full bg-white border-t border-[#EAE5DF] p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-30">

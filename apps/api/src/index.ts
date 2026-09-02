@@ -1,23 +1,13 @@
 import { serve } from '@hono/node-server'
 import bcrypt from 'bcryptjs'
+import { randomBytes } from 'node:crypto'
 import { Hono, type Context, type Next } from 'hono'
 import { cors } from 'hono/cors'
 import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie'
 import { pool } from './db.js'
 import { convertInventoryIntakeLine, type InventoryIntakeConversion } from './inventory-intake.js'
 import { InventoryTransferError, transferInventoryIngredientFifo, transferInventoryLot } from './inventory-transfer.js'
-
-// Init cashier_notifications table if not exists
-pool.query(`
-  CREATE TABLE IF NOT EXISTS cashier_notifications (
-    id SERIAL PRIMARY KEY,
-    table_session_id INT,
-    table_number VARCHAR(50),
-    message TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    is_read BOOLEAN DEFAULT FALSE
-  )
-`).catch(console.error);
+import { CashierPaymentError, parseCheckoutPayment } from './cashier-payment.js'
 
 type Role = 'owner' | 'staff' | 'cashier'
 
@@ -197,10 +187,20 @@ app.post('/auth/logout', async (c) => {
 app.use('/owner/*', (c, next) => requireRoles(c, next, ['owner']))
 app.use('/inventory/*', (c, next) => requireRoles(c, next, ['owner', 'staff']))
 app.use('/cashier/*', (c, next) => requireRoles(c, next, ['cashier']))
+app.use('/dev/*', async (c, next) => {
+  if (process.env.NODE_ENV === 'production') return c.json({ error: 'Development tools are disabled' }, 404)
+  await next()
+})
 
 app.get('/cashier/dining-tables', async (c) => {
   const result = await pool.query(
-    `SELECT dt.id::text, dt.table_number AS "tableNumber", dt.status, ts.id::text AS "activeSessionId",
+    `SELECT dt.id::text, dt.table_number AS "tableNumber",
+            CASE
+              WHEN ts.id IS NOT NULL AND ts.expires_at <= now() THEN 'expired'
+              WHEN ts.id IS NOT NULL AND ts.expires_at <= now() + INTERVAL '5 minutes' THEN 'near_expiry'
+              ELSE dt.status
+            END AS status,
+            ts.id::text AS "activeSessionId",
             ts.started_at AS "startedAt", ts.expires_at AS "expiresAt",
             ts.adult_count AS "adultCount", ts.child_count AS "childCount",
             ts.senior_count AS "seniorCount", ts.disabled_count AS "disabledCount",
@@ -214,6 +214,8 @@ app.get('/cashier/dining-tables', async (c) => {
 })
 
 app.post('/cashier/table-sessions', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
   try {
     const body = await c.req.json<{
       diningTableId?: string
@@ -238,7 +240,24 @@ app.post('/cashier/table-sessions', async (c) => {
     const actor = await getSessionUser(c)
     if (!actor) return c.json({ error: 'Unauthorized' }, 401)
 
-    const settingsResult = await pool.query<{ key: string; value: string }>(
+    await client.query('BEGIN')
+    transactionStarted = true
+    const tableResult = await client.query<{ status: string }>(
+      `SELECT status FROM dining_tables WHERE id = $1 FOR UPDATE`,
+      [diningTableId],
+    )
+    if (!tableResult.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Table not found' }, 404)
+    }
+    if (tableResult.rows[0].status !== 'empty') {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'โต๊ะนี้ไม่ว่างหรือยังไม่ได้เก็บโต๊ะ' }, 409)
+    }
+
+    const settingsResult = await client.query<{ key: string; value: string }>(
       `SELECT key, value FROM settings
        WHERE key = ANY($1::text[])`,
       [[...BUFFET_PRICE_KEYS, 'qr_duration_minutes']],
@@ -246,11 +265,11 @@ app.post('/cashier/table-sessions', async (c) => {
     const byKey = Object.fromEntries(settingsResult.rows.map((row) => [row.key, row.value]))
     const qrDurationMinutes = Number(byKey.qr_duration_minutes ?? 120)
 
-    const qrCode = `${diningTableId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const qrCode = randomBytes(24).toString('base64url')
 
     let result
     try {
-      result = await pool.query(
+      result = await client.query(
         `INSERT INTO table_sessions (
            dining_table_id, qr_code, opened_by, expires_at,
            adult_count, child_count, senior_count, disabled_count,
@@ -270,16 +289,23 @@ app.post('/cashier/table-sessions', async (c) => {
       )
     } catch (err: any) {
       if (err.code === '23505' && err.constraint === 'unique_active_table_session') {
+         await client.query('ROLLBACK')
+         transactionStarted = false
          return c.json({ error: 'โต๊ะนี้ถูกเปิดบิลไปแล้ว (Table is already occupied)' }, 409)
       }
       throw err
     }
-    await pool.query(`UPDATE dining_tables SET status = 'occupied' WHERE id = $1`, [diningTableId])
+    await client.query(`UPDATE dining_tables SET status = 'occupied' WHERE id = $1`, [diningTableId])
+    await client.query('COMMIT')
+    transactionStarted = false
 
     return c.json({ tableSession: result.rows[0] }, 201)
   } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
     console.error(error)
     return c.json({ error: errorMessage(error) }, 400)
+  } finally {
+    client.release()
   }
 })
 
@@ -291,6 +317,11 @@ app.post('/cashier/dining-tables/:id/clear', async (c) => {
       [tableId]
     )
     if (!result.rows[0]) return c.json({ error: 'Table is not pending cleanup' }, 400)
+    await pool.query(
+      `INSERT INTO system_logs (actor_id, action, details)
+       VALUES ($1, 'cashier.table_cleared', jsonb_build_object('diningTableId', $2::bigint))`,
+      [(await getSessionUser(c))?.id, tableId],
+    )
     return c.json({ success: true })
   } catch (error) {
     console.error(error)
@@ -366,7 +397,7 @@ app.post('/cashier/table-sessions/:id/regenerate-qr', async (c) => {
     const actor = await getSessionUser(c)
     if (!actor) return c.json({ error: 'Unauthorized' }, 401)
     const sessionId = c.req.param('id')
-    const qrCode = `${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const qrCode = randomBytes(24).toString('base64url')
     
     const result = await pool.query(
       `UPDATE table_sessions SET qr_code = $1 WHERE id = $2 AND ended_at IS NULL RETURNING qr_code AS "qrCode"`,
@@ -383,25 +414,68 @@ app.post('/cashier/table-sessions/:id/regenerate-qr', async (c) => {
 
 app.post('/cashier/table-sessions/:id/checkout', async (c) => {
   const client = await pool.connect()
+  let transactionStarted = false
   try {
     const sessionId = c.req.param('id')
     const actor = await getSessionUser(c)
     if (!actor) return c.json({ error: 'Unauthorized' }, 401)
     
-    const body = await c.req.json<{ paymentMethod?: string }>().catch(() => ({ paymentMethod: undefined }))
+    const body: unknown = await c.req.json().catch(() => null)
 
     await client.query('BEGIN')
-    const sessionRes = await client.query(
-      `UPDATE table_sessions 
-       SET ended_at = COALESCE(ended_at, now()), ended_by = $1
-       WHERE id = $2 AND ended_at IS NULL
-       RETURNING dining_table_id`,
-      [actor.id, sessionId]
+    transactionStarted = true
+    const sessionRes = await client.query<{
+      dining_table_id: string
+      adult_count: string
+      child_count: string
+      senior_count: string
+      disabled_count: string
+      price_per_adult: string
+      price_per_child: string
+      price_per_senior: string
+      price_per_disabled: string
+    }>(
+      `SELECT dining_table_id, adult_count, child_count, senior_count, disabled_count,
+              price_per_adult, price_per_child, price_per_senior, price_per_disabled
+       FROM table_sessions WHERE id = $1 AND ended_at IS NULL FOR UPDATE`,
+      [sessionId],
     )
     if (!sessionRes.rows[0]) {
       await client.query('ROLLBACK')
+      transactionStarted = false
       return c.json({ error: 'Session not found or already closed' }, 409)
     }
+    const session = sessionRes.rows[0]
+    const total =
+      Number(session.adult_count) * Number(session.price_per_adult) +
+      Number(session.child_count) * Number(session.price_per_child) +
+      Number(session.senior_count) * Number(session.price_per_senior) +
+      Number(session.disabled_count) * Number(session.price_per_disabled)
+    let payment
+    try {
+      payment = parseCheckoutPayment(body, total)
+    } catch (error) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      if (error instanceof CashierPaymentError) return c.json({ error: error.message }, 400)
+      throw error
+    }
+
+    const paymentResult = await client.query<{ id: string }>(
+      `INSERT INTO cashier_payments (
+         table_session_id, cashier_id, payment_method, subtotal, cash_received,
+         change_amount, payment_reference
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id::text`,
+      [sessionId, actor.id, payment.paymentMethod, total, payment.cashReceived, payment.changeAmount, payment.paymentReference],
+    )
+    const receiptNumber = `RIMS-${String(paymentResult.rows[0].id).padStart(8, '0')}`
+    await client.query(`UPDATE cashier_payments SET receipt_number = $1 WHERE id = $2`, [receiptNumber, paymentResult.rows[0].id])
+
+    await client.query(
+      `UPDATE table_sessions SET ended_at = now(), ended_by = $1 WHERE id = $2`,
+      [actor.id, sessionId],
+    )
 
     // Cancel pending orders
     await client.query(
@@ -411,18 +485,27 @@ app.post('/cashier/table-sessions/:id/checkout', async (c) => {
 
     await client.query(
       `UPDATE dining_tables SET status = 'pending_cleanup' WHERE id = $1`,
-      [sessionRes.rows[0].dining_table_id]
+      [session.dining_table_id]
     )
 
     await client.query(
       `INSERT INTO system_logs (actor_id, action, details) VALUES ($1, $2, $3)`,
-      [actor.id, 'cashier.checkout', JSON.stringify({ tableSessionId: sessionId, paymentMethod: body.paymentMethod })]
+      [actor.id, 'cashier.checkout', JSON.stringify({
+        tableSessionId: sessionId,
+        receiptNumber,
+        paymentMethod: payment.paymentMethod,
+        subtotal: total,
+        cashReceived: payment.cashReceived,
+        changeAmount: payment.changeAmount,
+        paymentReference: payment.paymentReference,
+      })]
     )
 
     await client.query('COMMIT')
-    return c.json({ success: true })
+    transactionStarted = false
+    return c.json({ success: true, receiptNumber, payment: { ...payment, subtotal: total, status: 'manually_confirmed' } })
   } catch (error) {
-    await client.query('ROLLBACK')
+    if (transactionStarted) await client.query('ROLLBACK')
     console.error(error)
     return c.json({ error: 'Failed to check out' }, 500)
   } finally {
@@ -562,7 +645,6 @@ app.put('/owner/settings/buffet-prices', async (c) => {
 
 app.get('/menu-items', async (c) => {
   try {
-    await ensureMockMenu();
     const result = await pool.query(
       `SELECT mi.id::text,
               mi.name,
@@ -588,6 +670,49 @@ app.get('/menu-items', async (c) => {
   } catch (error) {
     console.error(error)
     return c.json({ error: 'Unable to load menu items' }, 500)
+  }
+})
+
+app.get('/customer/menu-items', async (c) => {
+  try {
+    const session = await findCustomerSession(c.req.query('qr_code'))
+    if (!session) return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
+    const result = await pool.query(
+      `SELECT mi.id::text, mi.name, mi.description,
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'id', i.id::text,
+                    'name', i.name,
+                    'quantityRequiredPlates', mii.quantity_required_plates,
+                    'removable', mii.removable
+                  ) ORDER BY i.name
+                ) FILTER (WHERE mii.id IS NOT NULL),
+                '[]'::json
+              ) AS ingredients,
+              CASE WHEN COUNT(mii.id) = 0 THEN 0 ELSE COALESCE(MIN(
+                FLOOR(COALESCE(stock.available_plates, 0) / NULLIF(mii.quantity_required_plates, 0))
+              ), 0) END::int AS "availableServings"
+       FROM menu_items mi
+       LEFT JOIN menu_item_ingredients mii ON mii.menu_item_id = mi.id
+       LEFT JOIN ingredients i ON i.id = mii.ingredient_id
+       LEFT JOIN LATERAL (
+         SELECT SUM(sl.quantity_remaining) AS available_plates
+         FROM stock_lots sl
+         JOIN storage_locations loc ON loc.id = sl.storage_location_id
+         WHERE sl.ingredient_id = mii.ingredient_id
+           AND loc.name = 'ตู้พักละลาย'
+           AND sl.is_not_fresh = false
+           AND sl.expiry_date > now()
+       ) stock ON true
+       WHERE mi.is_active = true
+       GROUP BY mi.id
+       ORDER BY mi.name`,
+    )
+    return c.json({ menuItems: result.rows })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Unable to load available menu items' }, 500)
   }
 })
 
@@ -976,83 +1101,52 @@ app.post('/inventory/ingredients/:id/transfer', async (c) => {
 })
 
 
-async function ensureMockSession(sessionId: number) {
-
-  const res = await pool.query('SELECT id FROM table_sessions WHERE id = $1', [sessionId]);
-  if (res.rows.length === 0) {
-    const userRes = await pool.query('SELECT id FROM users LIMIT 1');
-    let userId = userRes.rows[0]?.id;
-    if (!userId) {
-      const u = await pool.query(`INSERT INTO users (name, email, password_hash, role) VALUES ('Mock Cashier', 'mock@example.com', 'mock', 'cashier') RETURNING id`);
-      userId = u.rows[0].id;
-    }
-    const tableRes = await pool.query(`INSERT INTO dining_tables (table_number, status) VALUES ('MOCK-' || $1, 'occupied') ON CONFLICT (table_number) DO UPDATE SET status = 'occupied' RETURNING id`, [sessionId]);
-    const tableId = tableRes.rows[0].id;
-    await pool.query(`INSERT INTO table_sessions (id, dining_table_id, qr_code, opened_by, expires_at) VALUES ($1, $2, 'mock-qr', $3, now() + interval '100 years')`, [sessionId, tableId, userId]);
-  }
+type CustomerSession = {
+  id: string
+  tableNumber: string
+  startedAt: string
+  expiresAt: string
+  endedAt: string | null
 }
 
-async function ensureMockMenu() {
-  const res = await pool.query('SELECT id FROM menu_items LIMIT 1');
-  if (res.rows.length === 0) {
-    await pool.query(`INSERT INTO ingredients (name, category, default_portion_size_kg) VALUES 
-      ('หมูสามชั้นสไลด์', 'meat', 0.1), 
-      ('เนื้อวากิวสไลด์', 'meat', 0.1), 
-      ('ผักกาดขาว', 'vegetable', 0.05),
-      ('ผักบุ้ง', 'vegetable', 0.05)
-      ON CONFLICT (name) DO NOTHING`);
-      
-    const menuRes = await pool.query(`INSERT INTO menu_items (name, description) VALUES 
-      ('ชุดหมูรวม', 'รวมหมูสามชั้นและสันคอ'),
-      ('เนื้อวากิวพรีเมียม', 'เนื้อวากิว A4 ละลายในปาก'),
-      ('ชุดผักรวม', 'ผักกาดขาว ผักบุ้ง เห็ดเข็มทอง')
-      RETURNING id`);
-      
-    const menuIds = menuRes.rows.map(r => r.id);
-    
-    const ingRes = await pool.query(`SELECT id, name FROM ingredients WHERE name IN ('หมูสามชั้นสไลด์', 'เนื้อวากิวสไลด์', 'ผักกาดขาว')`);
-    const ingMap = {} as any;
-    ingRes.rows.forEach(r => { ingMap[r.name] = r.id; });
-    
-    if (ingMap['หมูสามชั้นสไลด์']) await pool.query(`INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, removable) VALUES ($1, $2, true)`, [menuIds[0], ingMap['หมูสามชั้นสไลด์']]);
-    if (ingMap['เนื้อวากิวสไลด์']) await pool.query(`INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, removable) VALUES ($1, $2, true)`, [menuIds[1], ingMap['เนื้อวากิวสไลด์']]);
-    if (ingMap['ผักกาดขาว']) await pool.query(`INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, removable) VALUES ($1, $2, true)`, [menuIds[2], ingMap['ผักกาดขาว']]);
-  }
+async function findCustomerSession(qrCode: unknown, requireUnexpired = true): Promise<CustomerSession | null> {
+  if (typeof qrCode !== 'string' || !qrCode.trim()) return null
+  const result = await pool.query<CustomerSession>(
+    `SELECT ts.id::text, dt.table_number AS "tableNumber", ts.started_at AS "startedAt",
+            ts.expires_at AS "expiresAt", ts.ended_at AS "endedAt"
+     FROM table_sessions ts
+     JOIN dining_tables dt ON dt.id = ts.dining_table_id
+     WHERE ts.qr_code = $1
+       AND ts.ended_at IS NULL
+       ${requireUnexpired ? 'AND ts.expires_at > now()' : ''}`,
+    [qrCode.trim()],
+  )
+  return result.rows[0] ?? null
 }
-
-
-
 
 app.post('/customer/call-staff', async (c) => {
   try {
-    const body = await c.req.json<{ tableSessionId?: number; qrCode?: string }>()
-    let tableSessionId = body.tableSessionId
-    if (body.qrCode) {
-      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [body.qrCode]);
-      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
-    }
-    tableSessionId = tableSessionId || 1
-    
-    await ensureMockSession(tableSessionId);
-    
-    const sessionRes = await pool.query(
-      `SELECT dt.table_number 
-       FROM table_sessions ts 
-       JOIN dining_tables dt ON dt.id = ts.dining_table_id 
-       WHERE ts.id = $1`, [tableSessionId]
-    );
-      
-    const tableNum = sessionRes.rows[0]?.table_number || 'Unknown';
+    const body = await c.req.json<{ qrCode?: string }>()
+    const session = await findCustomerSession(body.qrCode)
+    if (!session) return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
+    const recentCall = await pool.query<{ recent: boolean }>(
+      `SELECT EXISTS(
+         SELECT 1 FROM cashier_notifications
+         WHERE table_session_id = $1 AND message = 'เรียกพนักงาน'
+           AND created_at > now() - INTERVAL '30 seconds'
+       ) AS recent`,
+      [session.id],
+    )
+    if (recentCall.rows[0].recent) return c.json({ error: 'พนักงานได้รับการเรียกแล้ว กรุณารอสักครู่' }, 429)
 
     await pool.query(
       `INSERT INTO system_logs (action, details) VALUES ($1, $2)`,
-      ['UC-N13_call_staff', { tableSessionId, tableNumber: tableNum, message: 'Customer needs assistance' }]
+      ['UC-N13_call_staff', { tableSessionId: session.id, tableNumber: session.tableNumber, message: 'Customer needs assistance' }]
     );
 
-    // Insert into notifications
     await pool.query(
       `INSERT INTO cashier_notifications (table_session_id, table_number, message) VALUES ($1, $2, 'เรียกพนักงาน')`,
-      [tableSessionId, tableNum]
+      [session.id, session.tableNumber]
     );
 
     return c.json({ success: true })
@@ -1064,15 +1158,11 @@ app.post('/customer/call-staff', async (c) => {
 
 app.post('/dev/reset-session', async (c) => {
   try {
-    const body = await c.req.json<{ tableSessionId?: number; qrCode?: string }>().catch(() => ({}))
-    let tableSessionId = body.tableSessionId;
-    if (body.qrCode) {
-      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [body.qrCode]);
-      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
-    }
-    tableSessionId = tableSessionId || 1;
+    const body = await c.req.json<{ qrCode?: string }>().catch((): { qrCode?: string } => ({}))
+    const session = await findCustomerSession(body.qrCode, false)
+    if (!session) return c.json({ error: 'QR session is invalid or closed' }, 404)
 
-    await pool.query(`UPDATE table_sessions SET expires_at = now() + interval '100 years' WHERE id = $1`, [tableSessionId]);
+    await pool.query(`UPDATE table_sessions SET expires_at = now() + interval '100 years' WHERE id = $1`, [session.id]);
     return c.json({ success: true });
   } catch (error) {
     console.error(error);
@@ -1119,15 +1209,8 @@ app.post('/cashier/notifications/read-all', async (c) => {
 
 app.get('/customer/orders', async (c) => {
   try {
-    let tableSessionId = Number(c.req.query('table_session_id'))
-    const qrCode = c.req.query('qr_code')
-    if (qrCode) {
-      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [qrCode]);
-      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
-    }
-    tableSessionId = tableSessionId || 1
-    await ensureMockSession(tableSessionId)
-    
+    const session = await findCustomerSession(c.req.query('qr_code'))
+    if (!session) return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
     const result = await pool.query(
       `SELECT
           oi.id AS "id",
@@ -1138,29 +1221,21 @@ app.get('/customer/orders', async (c) => {
               WHEN o.served_at IS NOT NULL THEN 'served'
               WHEN o.status = 'confirmed' THEN 'cooking'
               WHEN o.status = 'pending' THEN 'pending'
-              ELSE o.status
+              WHEN o.status = 'cancelled' THEN 'cancelled'
+              ELSE 'unknown'
           END AS "status",
-          TO_CHAR(o.created_at, 'HH24:MI') AS "time"
+          TO_CHAR(o.created_at, 'HH24:MI') AS "time",
+          o.confirm_at AS "confirmAt"
        FROM orders o
        JOIN order_items oi ON oi.order_id = o.id
        JOIN menu_items mi ON mi.id = oi.menu_item_id
        WHERE o.table_session_id = $1
-         AND o.status != 'cancelled'
        ORDER BY o.created_at DESC`,
-      [tableSessionId]
+      [session.id]
     )
-    
-    const sessionRes = await pool.query(
-      `SELECT started_at, expires_at FROM table_sessions WHERE id = $1`,
-      [tableSessionId]
-    )
-    
     return c.json({ 
       items: result.rows,
-      session: sessionRes.rows[0] ? {
-        startedAt: sessionRes.rows[0].started_at,
-        expiresAt: sessionRes.rows[0].expires_at
-      } : null
+      session,
     })
   } catch (error) {
     console.error(error)
@@ -1170,26 +1245,92 @@ app.get('/customer/orders', async (c) => {
 
 app.post('/customer/orders', async (c) => {
   const client = await pool.connect()
+  let transactionStarted = false
   try {
     const body = await c.req.json<{
-      tableSessionId?: number
       qrCode?: string
-      items: Array<{ menuItemId: string; quantity: number; removedIngredients: string[] }>
+      items?: Array<{ menuItemId?: string; quantity?: number; removedIngredients?: string[] }>
     }>()
-    
-    let tableSessionId = body.tableSessionId
-    if (body.qrCode) {
-      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [body.qrCode]);
-      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
+    const items = body.items
+    if (!Array.isArray(items) || items.length === 0 || items.length > 30) {
+      return c.json({ error: 'Order must contain 1 to 30 items' }, 400)
     }
-    tableSessionId = tableSessionId || 1
-    await ensureMockSession(tableSessionId)
-
-    if (!body.items || body.items.length === 0) {
-      return c.json({ error: 'Order must contain items' }, 400)
+    if (typeof body.qrCode !== 'string' || !body.qrCode.trim()) return c.json({ error: 'QR code is required' }, 400)
+    if (items.some((item) => !item.menuItemId || !Number.isInteger(item.quantity) || Number(item.quantity) < 1 || Number(item.quantity) > 20 || !Array.isArray(item.removedIngredients))) {
+      return c.json({ error: 'Every order item needs a menu item, quantity from 1 to 20, and removed ingredients array' }, 400)
     }
+    const validatedItems = items as Array<{ menuItemId: string; quantity: number; removedIngredients: string[] }>
 
     await client.query('BEGIN')
+    transactionStarted = true
+    const sessionRes = await client.query<{ id: string }>(
+      `SELECT id::text FROM table_sessions
+       WHERE qr_code = $1 AND ended_at IS NULL AND expires_at > now() FOR UPDATE`,
+      [body.qrCode.trim()],
+    )
+    if (!sessionRes.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
+    }
+    const tableSessionId = sessionRes.rows[0].id
+
+    const menuIds = [...new Set(validatedItems.map((item) => item.menuItemId))]
+    const bomRes = await client.query<{
+      menu_item_id: string
+      ingredient_id: string
+      quantity_required_plates: string
+      removable: boolean
+      is_active: boolean
+    }>(
+      `SELECT mi.id::text AS menu_item_id, mi.is_active, mii.ingredient_id::text,
+              mii.quantity_required_plates, mii.removable
+       FROM menu_items mi
+       LEFT JOIN menu_item_ingredients mii ON mii.menu_item_id = mi.id
+       WHERE mi.id = ANY($1::bigint[])`,
+      [menuIds],
+    )
+    const bomByMenu = new Map<string, typeof bomRes.rows>()
+    for (const row of bomRes.rows) {
+      const rows = bomByMenu.get(row.menu_item_id) ?? []
+      rows.push(row)
+      bomByMenu.set(row.menu_item_id, rows)
+    }
+    const requiredByIngredient = new Map<string, number>()
+    for (const item of validatedItems) {
+      const rows = bomByMenu.get(item.menuItemId)
+      if (!rows?.length || !rows[0].is_active || rows.some((row) => !row.ingredient_id)) {
+        await client.query('ROLLBACK')
+        transactionStarted = false
+        return c.json({ error: 'One or more menu items are unavailable' }, 409)
+      }
+      const removed = new Set(item.removedIngredients)
+      if (removed.size !== item.removedIngredients.length || [...removed].some((id) => !rows.some((row) => row.ingredient_id === id && row.removable))) {
+        await client.query('ROLLBACK')
+        transactionStarted = false
+        return c.json({ error: 'Removed ingredients must be removable ingredients in that menu item' }, 400)
+      }
+      for (const row of rows) {
+        if (removed.has(row.ingredient_id)) continue
+        requiredByIngredient.set(row.ingredient_id, (requiredByIngredient.get(row.ingredient_id) ?? 0) + Number(row.quantity_required_plates) * Number(item.quantity))
+      }
+    }
+    const ingredientIds = [...requiredByIngredient.keys()]
+    const stockRes = await client.query<{ ingredient_id: string; available: string }>(
+      `SELECT sl.ingredient_id::text, COALESCE(SUM(sl.quantity_remaining), 0) AS available
+       FROM stock_lots sl
+       JOIN storage_locations loc ON loc.id = sl.storage_location_id
+       WHERE sl.ingredient_id = ANY($1::bigint[]) AND loc.name = 'ตู้พักละลาย'
+         AND sl.is_not_fresh = false AND sl.expiry_date > now()
+       GROUP BY sl.ingredient_id`,
+      [ingredientIds],
+    )
+    const availableByIngredient = new Map(stockRes.rows.map((row) => [row.ingredient_id, Number(row.available)]))
+    if ([...requiredByIngredient].some(([ingredientId, required]) => (availableByIngredient.get(ingredientId) ?? 0) < required)) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'One or more items just sold out. Please refresh the menu.' }, 409)
+    }
 
     const orderRes = await client.query(
       `INSERT INTO orders (table_session_id, confirm_at)
@@ -1199,7 +1340,7 @@ app.post('/customer/orders', async (c) => {
     )
     const orderId = orderRes.rows[0].id
 
-    for (const item of body.items) {
+    for (const item of validatedItems) {
       const oiRes = await client.query(
         `INSERT INTO order_items (order_id, menu_item_id, quantity)
          VALUES ($1, $2, $3)
@@ -1208,7 +1349,7 @@ app.post('/customer/orders', async (c) => {
       )
       const orderItemId = oiRes.rows[0].id
 
-      if (item.removedIngredients && item.removedIngredients.length > 0) {
+      if (item.removedIngredients.length > 0) {
         for (const ingredientId of item.removedIngredients) {
           await client.query(
             `INSERT INTO order_item_customizations (order_item_id, ingredient_id)
@@ -1220,9 +1361,10 @@ app.post('/customer/orders', async (c) => {
     }
 
     await client.query('COMMIT')
-    return c.json({ orderId }, 201)
+    transactionStarted = false
+    return c.json({ orderId: String(orderId), confirmAt: new Date(Date.now() + 60_000).toISOString() }, 201)
   } catch (error) {
-    await client.query('ROLLBACK')
+    if (transactionStarted) await client.query('ROLLBACK')
     console.error(error)
     return c.json({ error: errorMessage(error) }, 500)
   } finally {
@@ -1232,50 +1374,11 @@ app.post('/customer/orders', async (c) => {
 
 app.get('/customer/session', async (c) => {
   try {
-    const tableSessionId = Number(c.req.query('table_session_id'))
     const qrCode = c.req.query('qr_code')
-
-    if (!tableSessionId && !qrCode) {
-      return c.json({ error: 'table_session_id or qr_code is required' }, 400)
-    }
-
-    if (tableSessionId) {
-      await ensureMockSession(tableSessionId)
-    }
-
-    let sessionRes
-    if (qrCode) {
-      sessionRes = await pool.query(
-        `SELECT 
-           ts.started_at, 
-           ts.expires_at,
-           dt.table_number
-         FROM table_sessions ts
-         JOIN dining_tables dt ON ts.dining_table_id = dt.id
-         WHERE ts.qr_code = $1 AND ts.ended_at IS NULL`,
-        [qrCode]
-      )
-    } else {
-      sessionRes = await pool.query(
-        `SELECT 
-           ts.started_at, 
-           ts.expires_at,
-           dt.table_number
-         FROM table_sessions ts
-         JOIN dining_tables dt ON ts.dining_table_id = dt.id
-         WHERE ts.id = $1 AND ts.ended_at IS NULL`,
-        [tableSessionId]
-      )
-    }
-    
-    return c.json({
-      session: sessionRes.rows[0] ? {
-        startedAt: sessionRes.rows[0].started_at,
-        expiresAt: sessionRes.rows[0].expires_at,
-        tableNumber: sessionRes.rows[0].table_number,
-        capacity: 4
-      } : null
-    })
+    const session = await findCustomerSession(qrCode, false)
+    if (!session) return c.json({ error: 'QR session is invalid or closed' }, 404)
+    const isExpired = new Date(session.expiresAt).getTime() <= Date.now()
+    return c.json({ session: { ...session, capacity: 4, status: isExpired ? 'expired' : 'active' } })
   } catch (error) {
     console.error(error)
     return c.json({ error: 'Unable to load session' }, 500)
@@ -1283,47 +1386,24 @@ app.get('/customer/session', async (c) => {
 })
 
 app.post('/customer/start-timer', async (c) => {
-  try {
-    const body = await c.req.json<{ tableSessionId?: number; qrCode?: string }>().catch(() => ({}))
-    let tableSessionId = body.tableSessionId;
-    if (body.qrCode) {
-      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [body.qrCode]);
-      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
-    }
-    tableSessionId = tableSessionId || 1; // hardcoded for customer app mock
-    await ensureMockSession(tableSessionId);
-    
-    // Check if the current expires_at is far in the future (> 24 hours)
-    const res = await pool.query(`SELECT expires_at FROM table_sessions WHERE id = $1`, [tableSessionId]);
-    if (res.rows.length > 0) {
-      const expiresAt = new Date(res.rows[0].expires_at).getTime();
-      const now = Date.now();
-      
-      // If it expires more than 24 hours from now, it means it hasn't started yet
-      if (expiresAt > now + 24 * 60 * 60 * 1000) {
-        await pool.query(
-          `UPDATE table_sessions SET started_at = now(), expires_at = now() + interval '2 hours' WHERE id = $1`, 
-          [tableSessionId]
-        );
-      }
-    }
-    
-    return c.json({ success: true });
-  } catch (error) {
-    console.error(error);
-    return c.json({ error: 'Unable to start timer' }, 500);
-  }
+  return c.json({ error: 'Timer starts at Cashier check-in; this endpoint is retired' }, 410)
 })
 
 app.post('/customer/orders/:id/cancel', async (c) => {
   const orderId = c.req.param('id')
   try {
+    const body = await c.req.json<{ qrCode?: string }>()
+    if (typeof body.qrCode !== 'string' || !body.qrCode.trim()) return c.json({ error: 'QR code is required' }, 400)
     const result = await pool.query(
       `UPDATE orders 
        SET status = 'cancelled', cancelled_at = now() 
-       WHERE id = $1 AND status = 'pending' 
+       WHERE id = $1 AND status = 'pending'
+         AND table_session_id = (
+           SELECT id FROM table_sessions
+           WHERE qr_code = $2 AND ended_at IS NULL AND expires_at > now()
+         )
        RETURNING id`,
-      [orderId]
+      [orderId, body.qrCode.trim()]
     )
     if (result.rows.length === 0) {
       return c.json({ error: 'Order cannot be cancelled' }, 400)
@@ -1338,19 +1418,15 @@ app.post('/customer/orders/:id/cancel', async (c) => {
 // === DEV TOOLS API ===
 app.post('/dev/time-shift', async (c) => {
   try {
-    const { minutes, tableSessionId: reqSessionId, qrCode } = await c.req.json<{ minutes: number, tableSessionId?: number, qrCode?: string }>()
-    let tableSessionId = reqSessionId;
-    if (qrCode) {
-      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [qrCode]);
-      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
-    }
-    tableSessionId = tableSessionId || 1;
+    const { minutes, qrCode } = await c.req.json<{ minutes: number, qrCode?: string }>()
+    const session = await findCustomerSession(qrCode, false)
+    if (!session || !Number.isFinite(minutes)) return c.json({ error: 'Valid QR code and minutes are required' }, 400)
     
     await pool.query(
       `UPDATE table_sessions 
        SET expires_at = expires_at + ($1 || ' minutes')::interval 
        WHERE id = $2`,
-      [minutes, tableSessionId]
+      [minutes, session.id]
     )
     return c.json({ success: true })
   } catch (error) {
@@ -1361,19 +1437,15 @@ app.post('/dev/time-shift', async (c) => {
 
 app.post('/dev/set-time', async (c) => {
   try {
-    const { minutesLeft, tableSessionId: reqSessionId, qrCode } = await c.req.json<{ minutesLeft: number, tableSessionId?: number, qrCode?: string }>()
-    let tableSessionId = reqSessionId;
-    if (qrCode) {
-      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [qrCode]);
-      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
-    }
-    tableSessionId = tableSessionId || 1;
+    const { minutesLeft, qrCode } = await c.req.json<{ minutesLeft: number, qrCode?: string }>()
+    const session = await findCustomerSession(qrCode, false)
+    if (!session || !Number.isFinite(minutesLeft)) return c.json({ error: 'Valid QR code and minutes are required' }, 400)
     
     await pool.query(
       `UPDATE table_sessions 
        SET expires_at = now() + ($1 || ' minutes')::interval 
        WHERE id = $2`,
-      [minutesLeft, tableSessionId]
+      [minutesLeft, session.id]
     )
     return c.json({ success: true })
   } catch (error) {
@@ -1384,19 +1456,15 @@ app.post('/dev/set-time', async (c) => {
 
 app.post('/dev/force-confirm', async (c) => {
   try {
-    const { tableSessionId: reqSessionId, qrCode } = await c.req.json<{ tableSessionId?: number, qrCode?: string }>()
-    let tableSessionId = reqSessionId;
-    if (qrCode) {
-      const ts = await pool.query('SELECT id FROM table_sessions WHERE qr_code = $1', [qrCode]);
-      if (ts.rows[0]) tableSessionId = ts.rows[0].id;
-    }
-    tableSessionId = tableSessionId || 1;
+    const { qrCode } = await c.req.json<{ qrCode?: string }>()
+    const session = await findCustomerSession(qrCode, false)
+    if (!session) return c.json({ error: 'QR session is invalid or closed' }, 404)
 
     // Make pending orders confirmable immediately by pushing their confirm_at to the past
     await pool.query(
       `UPDATE orders SET confirm_at = now() - interval '1 second' 
        WHERE status = 'pending' AND table_session_id = $1`,
-      [tableSessionId]
+      [session.id]
     )
     return c.json({ success: true })
   } catch (error) {
@@ -1412,10 +1480,20 @@ serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 3000) }, (info) => {
 // === BACKGROUND WORKER (MOCK PG_CRON) ===
 setInterval(async () => {
   try {
+    // Development fallback. Production should schedule this database function with pg_cron.
+    await pool.query('SELECT expire_table_sessions()')
+  } catch (e) {
+    console.error('Table session expiry error:', e)
+  }
+
+  try {
     const res = await pool.query(`SELECT id FROM orders WHERE status = 'pending' AND now() >= confirm_at`);
     for (const row of res.rows) {
-      await pool.query(`SELECT auto_confirm_order($1)`, [row.id]);
-      console.log(`Auto-confirmed order ${row.id}`);
+      const confirmation = await pool.query<{ confirmed: boolean }>(
+        `SELECT auto_confirm_order($1) AS confirmed`,
+        [row.id],
+      );
+      console.log(`${confirmation.rows[0]?.confirmed ? 'Auto-confirmed' : 'Auto-cancelled'} order ${row.id}`);
     }
   } catch (e) {
     console.error("Auto confirm error:", e);

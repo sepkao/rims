@@ -29,6 +29,19 @@ type BillData = {
   items: OrderItem[]
 }
 
+type CheckoutResult = {
+  success: true
+  receiptNumber: string
+  payment: {
+    paymentMethod: 'cash' | 'promptpay' | 'card'
+    subtotal: number
+    cashReceived: number | null
+    changeAmount: number
+    paymentReference: string | null
+    status: 'manually_confirmed'
+  }
+}
+
 export default function CheckOut() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -40,10 +53,13 @@ export default function CheckOut() {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [checkedOut, setCheckedOut] = useState(false)
+  const [checkoutResult, setCheckoutResult] = useState<CheckoutResult | null>(null)
   
   // Payment specific states
   const [cashReceived, setCashReceived] = useState<number | ''>('')
   const [qrPayload, setQrPayload] = useState<string>('')
+  const [paymentReference, setPaymentReference] = useState('')
+  const promptpayId = import.meta.env.VITE_PROMPTPAY_ID?.trim()
 
   useEffect(() => {
     if (!sessionId) {
@@ -55,23 +71,39 @@ export default function CheckOut() {
     apiFetch<BillData>(`/cashier/table-sessions/${sessionId}/bill`)
       .then((data) => {
         setBill(data)
-        // Generate PromptPay payload
-        const payload = generatePayload('0812345678', { amount: data.total })
-        setQrPayload(payload)
+        if (promptpayId) setQrPayload(generatePayload(promptpayId, { amount: data.total }))
       })
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดข้อมูลบิลไม่สำเร็จ'))
       .finally(() => setLoading(false))
-  }, [sessionId])
+  }, [sessionId, promptpayId])
 
   const handleCheckout = async () => {
     if (!sessionId || submitting) return
+    if (!bill) return
+    if (paymentMethod === 'promptpay' && !promptpayId) {
+      setError('ยังไม่ได้ตั้งค่า VITE_PROMPTPAY_ID')
+      return
+    }
+    if (paymentMethod !== 'cash' && !paymentReference.trim()) {
+      setError('กรอกเลขอ้างอิงหลังตรวจสอบการชำระเงินแล้ว')
+      return
+    }
+    const confirmation = paymentMethod === 'cash'
+      ? `ยืนยันรับเงินสด ฿${Number(cashReceived).toLocaleString()} และปิดโต๊ะ? ออเดอร์ที่ยังรออยู่จะถูกยกเลิก`
+      : `ยืนยันว่า${paymentMethod === 'promptpay' ? 'ตรวจสอบ PromptPay' : 'รูดบัตร'}สำเร็จ และปิดโต๊ะ? ออเดอร์ที่ยังรออยู่จะถูกยกเลิก`
+    if (!window.confirm(confirmation)) return
     setSubmitting(true)
     setError('')
     try {
-      await apiFetch(`/cashier/table-sessions/${sessionId}/checkout`, {
+      const result = await apiFetch<CheckoutResult>(`/cashier/table-sessions/${sessionId}/checkout`, {
         method: 'POST',
-        body: JSON.stringify({ paymentMethod }),
+        body: JSON.stringify({
+          paymentMethod,
+          cashReceived: paymentMethod === 'cash' ? cashReceived : undefined,
+          paymentReference: paymentMethod === 'cash' ? undefined : paymentReference.trim(),
+        }),
       })
+      setCheckoutResult(result)
       setCheckedOut(true)
     } catch (caught) {
       const msg = caught instanceof Error ? caught.message : 'ชำระเงินไม่สำเร็จ'
@@ -89,7 +121,7 @@ export default function CheckOut() {
     window.print()
   }
 
-  if (checkedOut && bill) {
+  if (checkedOut && bill && checkoutResult) {
     return (
       <div className="w-full max-w-[800px] bg-[#FDFBF7] pb-20 print:bg-white print:p-0">
         <header className="flex items-center gap-4 border-b border-[#EAE5DF] py-6 print:hidden">
@@ -108,6 +140,7 @@ export default function CheckOut() {
             <p className="mt-1 text-[#7B726B]">ใบเสร็จรับเงิน (Receipt)</p>
             <p className="mt-4 font-bold">โต๊ะ {bill.session.tableNumber}</p>
             <p className="text-sm text-[#7B726B]">วันที่: {new Date().toLocaleDateString('th-TH')}</p>
+            <p className="text-sm text-[#7B726B]">เลขที่ใบเสร็จ: {checkoutResult.receiptNumber}</p>
           </div>
 
           <div className="mt-6 border-t-2 border-dashed border-[#EAE5DF] pt-6">
@@ -127,6 +160,14 @@ export default function CheckOut() {
             <div className="mt-2 text-right text-sm text-[#7B726B]">
               ชำระโดย: {paymentMethod === 'cash' ? 'เงินสด' : paymentMethod === 'promptpay' ? 'พร้อมเพย์' : 'บัตรเครดิต'}
             </div>
+            {checkoutResult.payment.cashReceived !== null && (
+              <div className="mt-1 text-right text-sm text-[#7B726B]">
+                รับเงิน: ฿{checkoutResult.payment.cashReceived.toLocaleString()} / เงินทอน: ฿{checkoutResult.payment.changeAmount.toLocaleString()}
+              </div>
+            )}
+            {checkoutResult.payment.paymentReference && (
+              <div className="mt-1 text-right text-sm text-[#7B726B]">อ้างอิง: {checkoutResult.payment.paymentReference}</div>
+            )}
           </div>
 
           <div className="mt-10 text-center text-sm text-[#7B726B]">
@@ -302,10 +343,21 @@ export default function CheckOut() {
                     </svg>
                     สแกนเพื่อชำระเงิน
                   </p>
-                  <div className="p-3 bg-white rounded-xl shadow-sm border border-gray-100">
+                  {qrPayload ? <div className="p-3 bg-white rounded-xl shadow-sm border border-gray-100">
                     <QRCodeCanvas value={qrPayload} size={180} />
-                  </div>
+                  </div> : <p className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-bold text-red-700">ยังไม่ได้ตั้งค่า VITE_PROMPTPAY_ID</p>}
                   <p className="mt-4 text-lg font-bold text-[#302221]">฿{bill.total.toLocaleString()}</p>
+                  <label className="mt-4 w-full text-left text-xs font-bold text-[#7B726B]">
+                    เลขอ้างอิง/สลิปหลังตรวจสอบแล้ว
+                    <input
+                      value={paymentReference}
+                      onChange={(event) => setPaymentReference(event.target.value)}
+                      maxLength={120}
+                      className="mt-1 w-full rounded-lg border border-[#EAE5DF] px-3 py-2 text-sm font-medium text-[#302221]"
+                      placeholder="เช่น เวลาโอน หรือเลขท้ายรายการ"
+                    />
+                  </label>
+                  <p className="mt-2 text-xs text-[#7B726B]">ระบบสร้าง QR ให้ แต่แคชเชียร์ต้องตรวจสอบการโอนก่อนยืนยัน</p>
                 </div>
               )}
 
@@ -315,13 +367,23 @@ export default function CheckOut() {
                   <p className="font-bold text-[#302221]">เครื่องรูดบัตร (EDC)</p>
                   <p className="text-sm text-[#7B726B] mt-1">ยอดชำระ: ฿{bill.total.toLocaleString()}</p>
                   <p className="text-xs text-[#7B726B] mt-4 p-2 bg-white rounded border border-[#EAE5DF]">กรุณาดำเนินการบนเครื่อง EDC และกดยืนยันเมื่อสำเร็จ</p>
+                  <label className="mt-4 w-full text-left text-xs font-bold text-[#7B726B]">
+                    เลขอ้างอิง EDC
+                    <input
+                      value={paymentReference}
+                      onChange={(event) => setPaymentReference(event.target.value)}
+                      maxLength={120}
+                      className="mt-1 w-full rounded-lg border border-[#EAE5DF] px-3 py-2 text-sm font-medium text-[#302221]"
+                      placeholder="เลขอ้างอิงจากเครื่อง EDC"
+                    />
+                  </label>
                 </div>
               )}
             </div>
           )}
 
           <button 
-            disabled={!bill || submitting || (paymentMethod === 'cash' && (typeof cashReceived !== 'number' || cashReceived < bill.total))} 
+            disabled={!bill || submitting || (paymentMethod === 'cash' && (typeof cashReceived !== 'number' || cashReceived < bill.total)) || (paymentMethod === 'promptpay' && !promptpayId)}
             onClick={handleCheckout}
             className="mt-6 w-full rounded-lg bg-[#5A403E] py-4 text-sm font-bold text-white shadow-md transition-all hover:bg-[#4A3432] active:scale-95 disabled:opacity-50 disabled:shadow-none disabled:active:scale-100"
           >

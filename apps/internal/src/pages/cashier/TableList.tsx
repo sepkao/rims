@@ -46,6 +46,7 @@ export default function TableList() {
   const [, setTick] = useState(0)
 
   const fetchData = () => {
+    setError('')
     apiFetch<{ diningTables: DiningTable[] }>('/cashier/dining-tables')
       .then((data) => setTables(data.diningTables))
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดข้อมูลไม่สำเร็จ'))
@@ -103,6 +104,9 @@ export default function TableList() {
             <h2 className="text-xl font-bold text-[#302221]">โต๊ะทั้งหมด</h2>
             <p className="mt-1 text-sm text-[#7B726B]">จัดการ Check In และ Check Out</p>
           </div>
+          <button onClick={fetchData} className="rounded-lg border border-[#d6d0c4] px-4 py-2 text-sm font-bold text-[#302221] hover:bg-[#F4EFEA]">
+            รีเฟรช
+          </button>
         </div>
         
         {loading ? (
@@ -141,12 +145,20 @@ export default function TableList() {
                   </div>
                   
                   {table.status === 'occupied' && table.activeSessionId && (
-                    <button 
-                      onClick={() => navigate(`/cashier/payment?sessionId=${table.activeSessionId}`)}
-                      className="mt-4 w-full rounded-lg bg-[#5A403E] py-2 text-sm font-bold text-white hover:bg-[#4A3432]"
-                    >
-                      Check Out
-                    </button>
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => navigate(`/cashier/check-in?sessionId=${table.activeSessionId}`)}
+                        className="rounded-lg border border-[#d6d0c4] py-2 text-sm font-bold text-[#302221] hover:bg-[#F4EFEA]"
+                      >
+                        ดู QR
+                      </button>
+                      <button
+                        onClick={() => navigate(`/cashier/payment?sessionId=${table.activeSessionId}`)}
+                        className="rounded-lg bg-[#5A403E] py-2 text-sm font-bold text-white hover:bg-[#4A3432]"
+                      >
+                        Check Out
+                      </button>
+                    </div>
                   )}
                   {table.status === 'empty' && (
                     <button 

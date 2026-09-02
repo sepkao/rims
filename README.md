@@ -262,24 +262,15 @@ This is *what to build*, not just "it's empty". Grounded in `docs/rims_user_stor
 
 | File | What it's for |
 |---|---|
-| `TableList.tsx` | US-09. Overview of every table and its current status (open/closed/awaiting cleanup) — the jumping-off point to pick a table for check-in or check-out. |
-| `CheckIn.tsx` | US-09. Opens a table for a newly seated customer / issues a fresh QR session, expiring `qr_duration_minutes` (from `QrSettings.tsx`) minutes from now. |
-| `CheckOut.tsx` | US-09. Manually closes a table's session when the customer leaves — any still-pending orders on that session get cancelled. (Sessions that simply time out close themselves automatically server-side after expiry + a 60s buffer — this button is only for the "customer leaves early" case.) |
+| `TableList.tsx` | US-09. Polling table overview with guest/order counts, QR access, checkout, and pending-cleanup action. |
+| `CheckIn.tsx` | US-09. Opens an empty table atomically, snapshots buffet prices, and shows/downloads/prints a QR. Requires `VITE_CUSTOMER_APP_URL`. |
+| `CheckOut.tsx` | US-09. Records manually verified Cash/PromptPay/Card payment, cancels pending orders, closes the session, and creates a printable browser receipt. See [Cashier implementation status](docs/cashier_system.md). |
 
 ---
 
 ## 6. Frontend — customer app (`apps/customer`)
 
-This app has **not been started at all** — it's still the untouched default Vite+React template (`App.tsx` still has the Vite counter demo, `react.svg`/`vite.svg` boilerplate, etc.). There is no routing set up yet, no auth context, nothing project-specific except empty stub files under `src/pages/`:
-
-- `pages/Landing.tsx`
-- `pages/Menu.tsx`
-- `pages/OrderBuilder.tsx`
-- `pages/OrderHistory.tsx`
-- `pages/GracePeriodCountdown.tsx`
-- `components/QrExpiryBanner.tsx`
-
-If you're picking up this app, you're starting from scratch: you'll need to add a router (see how `apps/internal` does it with `react-router-dom`, already a dependency pattern you can copy), replace the placeholder `App.tsx`, and build each page. No login/session is needed here — this app is for anonymous customers who scan a QR code, not for staff.
+Customer app is implemented as anonymous QR flow: Landing validates QR, Menu reads active/available menu, OrderBuilder supports removable BOM items, Cart/History sends real orders, and Grace screen polls cancellation/confirmation. It has no login; QR session is issued by Cashier. See [Customer system](docs/customer_system.md).
 
 ### Page-by-page content spec (customer app)
 
@@ -321,7 +312,7 @@ Then open a PR targeting `mockupDEVKao` (not `main` — `main` only gets updated
 | Requirements / scope lock | ✅ Done |
 | Database schema + functions | ✅ Done in the reference file (16 tables, FIFO deduction, return, reports, notifications) — confirm with DB owner it's fully applied live, see warning in §2 |
 | Frontend scaffolding — internal app | ✅ Routing/sidebar/auth-guard/logout wired for **all 3 roles** (owner, staff, cashier); auth is real (login/logout call the backend). Page *content* is still mostly mock — see §5 |
-| Frontend — customer app | ⬜ Not started — default Vite template only |
+| Frontend — customer app | ✅ QR-gated menu/order/cancel/history/call-staff flow wired to API; run migration `0002_cashier_hardening.sql` before deployment |
 | Backend API | 🔄 In progress — auth (login/logout) done, full Menu+BOM CRUD done, Staff/cashier account CRUD partially done (missing `is_active` toggle + delete). Stock-lot intake/transfer, ingredient thresholds, table sessions, order flow, notifications, waste review, and reports are all not started — see §4 |
 | Frontend ⇄ backend wiring | 🔄 Partial — only login/logout call real endpoints. Menu Management and User Management pages have *ready* backends but still show mock data; everything else is blocked on its backend first |
 

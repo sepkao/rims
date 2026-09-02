@@ -1,7 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
 import { useCart, type MenuItem } from '../lib/CartContext';
+import { customerQuery, type CustomerSession } from '../lib/customer-session';
+import QrExpiryBanner from '../components/QrExpiryBanner';
+
+type AvailableMenuItem = MenuItem & { availableServings: number };
 
 const Icons = {
   ArrowLeft: () => (
@@ -30,21 +34,12 @@ const Icons = {
   )
 };
 
-const mockImages = [
-  "https://images.unsplash.com/photo-1600891964092-4316c288032e?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1577640905050-83665af216b9?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1599084993091-1cb5c0721cc6?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1591071477751-248358d7c4e5?q=80&w=400&auto=format&fit=crop"
-];
-
 export default function OrderBuilder() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { addItem } = useCart();
+  const { items: cartItems, addItem } = useCart();
   
-  const [item, setItem] = useState<MenuItem | null>(null);
+  const [item, setItem] = useState<AvailableMenuItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
@@ -52,7 +47,7 @@ export default function OrderBuilder() {
   const [showConfirm, setShowConfirm] = useState(false);
   
   const [removedIngredients, setRemovedIngredients] = useState<string[]>([]);
-  const [session, setSession] = useState<{ startedAt: string, expiresAt: string } | null>(null);
+  const [session, setSession] = useState<CustomerSession | null>(null);
   const [isExpired, setIsExpired] = useState(false);
 
   useEffect(() => {
@@ -64,25 +59,38 @@ export default function OrderBuilder() {
     return () => clearInterval(interval);
   }, [session]);
 
-  useEffect(() => {
-    apiFetch<{ menuItems: MenuItem[] }>('/menu-items')
-      .then((data) => {
+  const loadItem = useCallback(() => {
+    setLoading(true);
+    setError('');
+    let sessionQuery: string;
+    try {
+      sessionQuery = customerQuery();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'ไม่พบ QR session');
+      setLoading(false);
+      return;
+    }
+    Promise.all([
+      apiFetch<{ menuItems: AvailableMenuItem[] }>(`/customer/menu-items${sessionQuery}`),
+      apiFetch<{ session: CustomerSession }>(`/customer/session${sessionQuery}`),
+    ])
+      .then(([data, sessionData]) => {
         const found = data.menuItems.find(i => i.id === id);
         if (found) {
           setItem(found);
         } else {
           setError('ไม่พบเมนูนี้');
         }
+        setSession(sessionData.session);
+        setIsExpired(sessionData.session.status === 'expired' || new Date(sessionData.session.expiresAt).getTime() <= Date.now());
       })
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดข้อมูลไม่สำเร็จ'))
       .finally(() => setLoading(false));
-
-    fetch('http://localhost:3000/customer/session?table_session_id=1')
-      .then(res => res.json())
-      .then(data => {
-        if (data.session) setSession(data.session);
-      }).catch(console.error);
   }, [id]);
+
+  useEffect(() => {
+    loadItem();
+  }, [loadItem]);
 
   const handleToggleIngredient = (ingredientId: string) => {
     setRemovedIngredients(prev => 
@@ -91,7 +99,7 @@ export default function OrderBuilder() {
   };
 
   const handleConfirmOrder = () => {
-    if (item) {
+    if (item && qty <= remainingServings && !isExpired) {
       addItem({
         menuItem: item,
         quantity: qty,
@@ -109,19 +117,22 @@ export default function OrderBuilder() {
     return (
       <div className="min-h-screen bg-[#EAE5DF] flex flex-col justify-center items-center font-sans">
         <div className="text-red-500 font-bold mb-4">{error}</div>
-        <button onClick={() => navigate('/order')} className="bg-[#5A403E] text-white rounded-lg px-6 py-2 font-bold">กลับไปหน้าเมนู</button>
+        <div className="flex gap-3"><button onClick={loadItem} className="bg-[#5A403E] text-white rounded-lg px-6 py-2 font-bold">ลองใหม่</button><button onClick={() => navigate('/order')} className="rounded-lg border border-[#5A403E] px-6 py-2 font-bold text-[#5A403E]">กลับหน้าเมนู</button></div>
       </div>
     );
   }
-  
-  const itemIndex = item.id.charCodeAt(0) % mockImages.length;
-  const imgUrl = mockImages[itemIndex];
+
+  const existingQuantity = cartItems
+    .filter((cartItem) => cartItem.menuItem.id === item.id)
+    .reduce((total, cartItem) => total + cartItem.quantity, 0);
+  const remainingServings = Math.max(0, item.availableServings - existingQuantity);
 
   return (
     <div className="min-h-screen bg-[#EAE5DF] flex justify-center font-sans">
       <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative shadow-xl overflow-hidden">
         
         {/* --- Header แบบโปร่งใสทับรูป --- */}
+        <QrExpiryBanner expiresAt={session?.expiresAt} />
         <div className="absolute top-0 w-full p-4 z-20 flex justify-between items-center">
           <button onClick={() => navigate(-1)} className="p-2 bg-white/90 backdrop-blur-md text-[#302221] hover:bg-white rounded-full shadow-sm transition-colors">
             <Icons.ArrowLeft />
@@ -130,8 +141,8 @@ export default function OrderBuilder() {
 
         {/* --- รูปภาพอาหาร --- */}
         <div className="h-[40%] shrink-0 relative bg-[#F4EFEA] border-b border-[#EAE5DF]">
-          <img src={imgUrl} alt={item.name} className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+          <div className="grid h-full place-items-center bg-gradient-to-br from-[#E8DCD0] to-[#8F6257] px-6 text-center text-2xl font-bold text-white">{item.name}</div>
+          <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/40 to-transparent"></div>
           <div className="absolute bottom-5 left-5 right-5 text-white">
             <h1 className="text-2xl font-bold">{item.name}</h1>
           </div>
@@ -158,8 +169,9 @@ export default function OrderBuilder() {
                 </button>
                 <span className="font-bold text-[#302221] text-lg w-4 text-center">{qty}</span>
                 <button 
+                  disabled={qty >= remainingServings || isExpired}
                   onClick={() => setQty(qty + 1)}
-                  className="w-9 h-9 flex items-center justify-center bg-[#5A403E] rounded-lg text-white shadow-sm hover:bg-[#4A3432] transition-colors"
+                  className="w-9 h-9 flex items-center justify-center bg-[#5A403E] rounded-lg text-white shadow-sm hover:bg-[#4A3432] transition-colors disabled:bg-gray-400"
                 >
                   <Icons.Plus />
                 </button>
@@ -205,11 +217,11 @@ export default function OrderBuilder() {
         {/* --- ปุ่มยืนยันด้านล่าง --- */}
         <div className="absolute bottom-0 left-0 w-full bg-white border-t border-[#EAE5DF] p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-30">
           <button 
-            disabled={isExpired}
+            disabled={isExpired || remainingServings < 1}
             onClick={() => setShowConfirm(true)}
             className={`w-full py-3.5 text-white rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-md ${isExpired ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#5A403E] hover:bg-[#4A3432]'}`}
           >
-            {isExpired ? 'หมดเวลาสั่งอาหาร' : `เพิ่มลงตะกร้า • ${qty} ที่`}
+            {isExpired ? 'หมดเวลาสั่งอาหาร' : remainingServings < 1 ? 'เมนูครบในตะกร้าแล้ว' : `เพิ่มลงตะกร้า • ${qty} ที่`}
           </button>
         </div>
 

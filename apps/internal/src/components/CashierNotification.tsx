@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Bell, Check } from 'lucide-react';
 import { apiFetch } from '../lib/api';
@@ -15,7 +15,7 @@ export default function CashierNotification() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     if (role !== 'cashier') return;
     try {
       const data = await apiFetch<{ notifications: Notification[] }>(`/cashier/notifications?_t=${Date.now()}`);
@@ -23,13 +23,13 @@ export default function CashierNotification() {
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [role]);
 
   useEffect(() => {
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 3000);
     return () => clearInterval(interval);
-  }, [role]);
+  }, [fetchNotifications]);
 
   const markAsRead = async (id: number) => {
     try {

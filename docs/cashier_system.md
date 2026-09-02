@@ -1,56 +1,58 @@
-# RIMS Cashier System - สถานะปัจจุบัน (อัปเดตล่าสุด)
+# RIMS Cashier System — Current Implementation
 
-เอกสารสรุปความคืบหน้าของระบบ Cashier ทั้งหมดที่มีในปัจจุบัน เพื่อให้ทีมหรือนักพัฒนาคนอื่นสามารถอ่านทำความเข้าใจสิ่งที่มีอยู่แล้ว และสิ่งที่ต้องทำต่อได้ง่ายขึ้น
+This document describes the Cashier module as it is implemented. Product requirements remain in `rims_scope_lock_v2.md` and `rims_user_stories.md`; this file does not override them.
 
-## 🟢 สิ่งที่ทำไปแล้ว (ใช้งานได้จริง 100%)
+## Required deployment setup
 
-### 1. ระบบรักษาความปลอดภัยและสิทธิ์ (Login & Permissions)
-- ใช้งานด้วย Session Cookie แทน LocalStorage 
-- จำกัดสิทธิ์เข้าถึงเฉพาะ Role `cashier` เท่านั้น หากเป็น Owner หรือ Staff จะถูกบล็อกและเด้งกลับไปหน้าแรกทันที
-- ตรวจสอบ `is_active = true` (เฉพาะพนักงานที่ยังเปิดใช้งานอยู่เท่านั้น)
+1. Apply `supabase/migrations/0001_init.sql` and then `supabase/migrations/0002_cashier_hardening.sql`.
+2. Set `VITE_CUSTOMER_APP_URL` for the internal app. Copy `apps/internal/.env.example`; in production this must be the public HTTPS URL of the customer app, not `localhost`.
+3. Configure the PromptPay recipient number in `CheckOut.tsx` before release. The current number is a development placeholder.
+4. Run the table-expiry schedule in production. The database function is `expire_table_sessions()`; pg_cron is the preferred production scheduler. The Node worker only provides development fallback behavior.
 
-### 2. ระบบจัดการโต๊ะ (Table Management)
-- **สถานะโต๊ะแบบ Real-time:** หน้าแรกของ Cashier แสดงรายการโต๊ะทั้งหมด พร้อมบอกสถานะ (ว่าง / มีลูกค้า) และจำนวนออเดอร์ที่รอเสิร์ฟ
-- **การเปิดโต๊ะ (Check-In):** แคชเชียร์สามารถกดเปิดโต๊ะ ระบุจำนวนลูกค้า และระบบจะสร้าง QR Code พร้อม `qr_session` ให้ลูกค้าสแกนได้ทันที (URL รองรับการเชื่อมต่อกับเครื่องลูกค้าได้อย่างถูกต้อง)
+## Implemented flow
 
-### 3. ระบบชำระเงินและปิดโต๊ะ (Check-Out & Payment)
-รองรับการคิดเงินแบบครบวงจร (รวม Service Charge 10% และ VAT 7%)
-- **เงินสด (Cash):** พนักงานสามารถคีย์ยอดเงินรับ และระบบจะคำนวณ "เงินทอน" ให้อัตโนมัติ 
-- **พร้อมเพย์ (PromptPay):** มีระบบสร้าง QR Code พร้อมเพย์ตามยอดบิลจริงได้ทันที (ใช้ `promptpay-qr`)
-- **บัตรเครดิต (Credit Card):** มี UI แจ้งให้พนักงานไปรูดบัตรที่เครื่อง EDC และกดยืนยันการชำระเงินเมื่อสำเร็จ
-- **การเช็คเอาท์ (Check-Out):** เมื่อกดยืนยันการชำระเงิน ระบบจะเปลี่ยนสถานะโต๊ะกลับเป็น "ว่าง" พร้อมตัดจบเวลาบุฟเฟต์ทันที
+### Access control
 
-### 4. ระบบการแจ้งเตือนพนักงาน (Real-time Notifications)
-การแจ้งเตือนจากลูกค้าจะเด้งเข้าหน้าจอ Cashier แบบทันที (Real-time) โดยไม่ต้องกด Refresh หน้าเว็บ:
-- แจ้งเตือนเมื่อลูกค้ากดปุ่ม "เรียกพนักงาน" (Call Staff)
-- แจ้งเตือนอัตโนมัติเมื่อโต๊ะใกล้หมดเวลา:
-  - 🕒 **เตือนครั้งที่ 1:** เหลือเวลา 30 นาที
-  - ⚠️ **เตือนครั้งที่ 2:** เหลือเวลา 5 นาที (ใกล้หมดเวลา)
-  - 🛑 **เตือนครั้งที่ 3:** หมดเวลาทานบุฟเฟต์! (0 นาที)
+- Internal authentication uses signed session cookies.
+- Cashier routes require `role = cashier` and an active user account.
 
-### 5. เครื่องมือสำหรับนักพัฒนา (Dev Tools)
-เพิ่มแถบเครื่องมือ Dev Tools ที่ซ่อนอยู่ในฝั่งแอปพลิเคชันลูกค้า เพื่อใช้เทสระบบโดยเฉพาะ:
-- ปุ่มเลื่อนเวลา (Shift Time): `+10m`, `-10m`, `+5m`, `-5m`, `+1m`, `-1m`
-- ปุ่มตั้งเวลาแบบแม่นยำ (Set Exact Time):
-  - `Set 31m` -> สำหรับเตรียมเทสแจ้งเตือน 30 นาที
-  - `Set 6m` -> สำหรับเตรียมเทสแจ้งเตือน 5 นาที
-  - `Set 1m` -> สำหรับเตรียมเทสแจ้งเตือนหมดเวลา
-- ปุ่ม Force Auto-Confirm และ Reset Session ให้กลับเป็น "ยังไม่เริ่ม"
+### Table list
 
----
+- Lists all tables, active session, guest count, remaining time, pending and confirmed order counts.
+- Polls every 10 seconds and offers manual refresh.
+- Shows `empty`, `occupied`, `near_expiry`, `expired`, and `pending_cleanup` states.
+- A Cashier can open a current QR, check out an occupied table, or mark a cleaned table as available.
 
-## 🟡 สิ่งที่เหลืออยู่ / สามารถพัฒนาเพิ่มได้ในอนาคต (Pending/Future Work)
+### Check-in and QR
 
-1. **ระบบพิมพ์ใบเสร็จ (Print Receipt):**
-   - **ปัจจุบัน:** มี UI ให้พนักงานกดยืนยันการสั่งพิมพ์
-   - **สิ่งที่ต้องทำต่อ:** เชื่อมต่อ API เพื่อสั่งพิมพ์ออกเครื่องพิมพ์ใบเสร็จความร้อน (Thermal Printer) จริงๆ หรือทำฟังก์ชัน Generate ออกมาเป็นไฟล์ PDF 
+- Check-in validates non-negative whole-number headcounts and requires at least one guest.
+- The server locks the table row, requires it to be `empty`, and creates an active session atomically. The database also enforces one active session per table.
+- Buffet prices and QR duration are copied into the session at check-in.
+- QR tokens are cryptographically random. Regenerating one invalidates the previous token.
+- Cashier can view, download, and print the QR. The QR contains the configured customer-app URL and session token.
 
-2. **การตรวจจับการโอนเงิน PromptPay อัตโนมัติ (Payment Gateway Integration):**
-   - **ปัจจุบัน:** แคชเชียร์ต้องดูสลิปของลูกค้า แล้วกดยืนยันเอง
-   - **สิ่งที่ต้องทำต่อ:** ถ้าต้องการให้ระบบอัตโนมัติ 100% ต้องไปเชื่อมต่อกับ Bank API (เช่น KBank API, GBPrimePay) เพื่อเช็คสถานะการโอนแล้วยืนยันบิลออโต้
+### Checkout and payment recording
 
-3. **ระบบเปิด-ปิดกะพนักงาน (Shift Management):**
-   - หากในอนาคตต้องการเก็บสถิติเงินในลิ้นชัก (Drawer) ว่าเปิดกะมีเงินทอนเท่าไหร่ และปิดกะได้เงินเข้าเป๊ะไหม ควรเพิ่มหน้า "เปิดกะ / ปิดกะ"
+- Checkout locks an active session, records payment, cancels only pending orders, closes the session, and changes the table to `pending_cleanup` in one transaction.
+- Cash payment requires tendered amount and stores calculated change.
+- PromptPay and card are manually verified methods: Cashier must enter a reference after verification. No bank or EDC gateway is connected.
+- Each checkout creates a `cashier_payments` record and a receipt number such as `RIMS-00000001`.
+- The receipt is printable through the browser. It is not sent to a thermal printer and no PDF file is generated.
 
----
-*เอกสารนี้ถูกจัดทำขึ้นเพื่อใช้ส่งมอบงาน Cashier ในเฟสปัจจุบัน*
+### Notifications
+
+- Customer Call Staff events and 30-minute, 5-minute, and expiry notices appear in the Cashier notification panel.
+- The panel polls every 3 seconds. Read state is retained in `cashier_notifications`.
+
+## Explicit limits
+
+- PromptPay QR generation does not prove that money arrived. Cashier must verify payment manually.
+- Card completion is also manual; the system stores the EDC reference only.
+- No thermal-printer protocol, bank API, payment gateway, shift/drawer management, or PDF export exists.
+- Customer pages still have separate integration work. In particular, all customer requests must consistently use the QR token; do not treat the legacy mock `table_session_id=1` fallback as production behavior.
+
+## Verification
+
+- API build and payment-validation tests: `apps/api` TypeScript build plus `node --test dist/cashier-payment.test.js`.
+- Internal and customer TypeScript checks should pass before release.
+- Manual UAT: Cashier login → open empty table → scan printed QR from another device → place pending order → checkout with each payment method → confirm pending order cancellation and `pending_cleanup` → mark table clean → check in again.
