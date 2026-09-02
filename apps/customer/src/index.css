@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
 /* ซ่อน scrollbar สำหรับแถบหมวดหมู่แต่ยังเลื่อนได้ */
@@ -11,6 +12,6 @@
 
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; min-width: 100%; min-height: 100%; }
-body { background: #d1d5db; color: #302221; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+body { background: #d1d5db; color: #302221; font-family: 'Anuphan', ui-sans-serif, system-ui, sans-serif; }
 button, input { font: inherit; }
 button { cursor: pointer; }

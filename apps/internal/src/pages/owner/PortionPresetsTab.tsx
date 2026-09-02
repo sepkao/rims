@@ -59,8 +59,8 @@ export default function PortionPresetsTab({ ingredients, loading, setIngredients
     <>
       <section className="mb-7 grid gap-5 sm:grid-cols-3">
         <Stat label="วัตถุดิบทั้งหมด" value={ingredients.length} note="จาก ingredients API" color="bg-[#F1E2CF]" sign="✦" />
-        <Stat label="เนื้อสัตว์" value={meatCount} note="ใช้กับ Freezer → ถาด" color="bg-[#DBC8B8]" sign="🥩" />
-        <Stat label="ผัก" value={vegetableCount} note="แปลงเป็นถาดตอนรับเข้า" color="bg-[#E8D8CA]" sign="🥬" />
+        <Stat label="เนื้อสัตว์" value={meatCount} note="ใช้กับ Freezer → ถาด" color="bg-[#DBC8B8]" sign="✦" />
+        <Stat label="ผัก" value={vegetableCount} note="แปลงเป็นถาดตอนรับเข้า" color="bg-[#E8D8CA]" sign="✦" />
       </section>
 
       <section className="overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-white shadow-[7px_7px_0_#2D1B17]">
