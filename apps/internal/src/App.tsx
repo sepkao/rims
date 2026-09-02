@@ -1,15 +1,19 @@
 import Sidebar from './components/sidebar.tsx'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import CashierNotification from './components/CashierNotification'
 
 export default function App() {
-  return ( 
+  const location = useLocation()
+
+  return (
     <div className="app-layout">
       <Sidebar />
       <div className="app-content relative">
-        <Outlet />
+        <div key={location.pathname} className="page-animate h-full">
+          <Outlet />
+        </div>
         <CashierNotification />
-      </div>   
+      </div>
     </div>
   )
 }

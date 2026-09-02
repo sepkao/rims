@@ -183,7 +183,7 @@ export default function TransferStocksPage() {
 
   return (
     <div className="max-w-4xl">
-      <header className="relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#E8D8CA] px-7 py-7 shadow-[8px_8px_0_#2D1B17]">
+      <header className="anim-down d-1 relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#E8D8CA] px-7 py-7 shadow-[8px_8px_0_#2D1B17]">
         <div className="absolute -right-8 -top-12 h-40 w-40 rounded-full border-[22px] border-white/45" />
         <span className="relative inline-flex rotate-[2deg] rounded-full border-2 border-[#2D1B17] bg-[#DBC8B8] px-3 py-1 text-[10px] font-black shadow-[2px_2px_0_#2D1B17]">FIFO MULTI-LOT ↗</span>
         <h1 className="relative mt-4 text-4xl font-black tracking-[-.035em]">โอนย้ายวัตถุดิบ</h1>
@@ -193,9 +193,9 @@ export default function TransferStocksPage() {
       {(inventoryError || presetError || submitError) && <div className="mb-5 rounded-2xl border-2 border-red-700 bg-red-50 px-5 py-4 text-sm font-bold text-red-700">{inventoryError || presetError || submitError}</div>}
       {successMessage && <div className="mb-5 rounded-2xl border-2 border-green-800 bg-green-50 px-5 py-4 text-sm font-bold text-green-800">{successMessage}</div>}
 
-      <form onSubmit={handleSubmit} className="overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-white shadow-[7px_7px_0_#2D1B17]">
+      <form onSubmit={handleSubmit} className="anim-up d-2 overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-white shadow-[7px_7px_0_#2D1B17]">
         <div className="border-b-2 border-[#2D1B17] bg-[#DBC8B8] px-6 py-5">
-          <div className="flex flex-wrap items-center gap-3"><span className="rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-4 py-2 text-xs font-black text-white">❄ FREEZER</span><span className="text-2xl font-black">→</span><span className="rounded-xl border-2 border-[#2D1B17] bg-[#F1E2CF] px-4 py-2 text-xs font-black shadow-[3px_3px_0_#2D1B17]">◫ PREP FRIDGE</span></div>
+          <div className="flex flex-wrap items-center gap-3"><span className="rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-4 py-2 text-xs font-black text-white">FREEZER</span><span className="text-2xl font-black">→</span><span className="rounded-xl border-2 border-[#2D1B17] bg-[#F1E2CF] px-4 py-2 text-xs font-black shadow-[3px_3px_0_#2D1B17]">PREP FRIDGE</span></div>
           <p className="mt-3 text-xs font-bold text-[#72564D]">ระบบล็อกล็อตและหัก FIFO ใน transaction เดียว โดยไม่รวมประวัติของแต่ละล็อต</p>
         </div>
 

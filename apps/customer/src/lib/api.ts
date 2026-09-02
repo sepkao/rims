@@ -3,8 +3,11 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV
 type ApiErrorBody = { error?: string }
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  readonly status: number
+
+  constructor(message: string, status: number) {
     super(message)
+    this.status = status
   }
 }
 
