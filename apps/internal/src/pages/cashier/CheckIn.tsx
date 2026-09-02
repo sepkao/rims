@@ -16,12 +16,14 @@ type SessionInfo = {
   qrCode: string
   startedAt: string
   expiresAt: string
+  tableNumber?: string
 }
 
 export default function CheckIn() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const defaultTableId = searchParams.get('tableId') || ''
+  const existingSessionId = searchParams.get('sessionId')
 
   const [tables, setTables] = useState<DiningTable[]>([])
   const [tableId, setTableId] = useState(defaultTableId)
@@ -42,7 +44,12 @@ export default function CheckIn() {
       .then((data) => setTables(data.diningTables.filter((t) => t.status === 'empty')))
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดรายการโต๊ะไม่สำเร็จ'))
       .finally(() => setLoading(false))
-  }, [])
+    if (existingSessionId) {
+      apiFetch<{ tableSession: SessionInfo }>(`/cashier/table-sessions/${existingSessionId}`)
+        .then((data) => setSessionInfo(data.tableSession))
+        .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลด QR Code ไม่สำเร็จ'))
+    }
+  }, [existingSessionId])
 
   const totalGuests = [adultCount, childCount, seniorCount, disabledCount]
     .map((v) => parseInt(v, 10) || 0)
@@ -81,7 +88,10 @@ export default function CheckIn() {
           disabledCount: parseInt(disabledCount, 10) || 0,
         }),
       })
-      setSessionInfo(res.tableSession)
+      setSessionInfo({
+        ...res.tableSession,
+        tableNumber: tables.find((table) => table.id === tableId)?.tableNumber,
+      })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'เปิดโต๊ะไม่สำเร็จ')
     } finally {
@@ -116,12 +126,11 @@ export default function CheckIn() {
   }
 
   if (sessionInfo) {
-    const tableNum = tables.find(t => t.id === sessionInfo.diningTableId)?.tableNumber || 'Unknown'
+    const tableNum = sessionInfo.tableNumber || tables.find(t => t.id === sessionInfo.diningTableId)?.tableNumber || 'Unknown'
     const expiresAt = new Date(sessionInfo.expiresAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
     
-    // In production, the QR string would usually be a URL to the customer app.
-    // For this assignment, we use the raw qrCode string or a local link.
-    const qrContent = `http://localhost:5173/landing?session=${sessionInfo.qrCode}`
+    const customerAppUrl = import.meta.env.VITE_CUSTOMER_APP_URL?.replace(/\/$/, '')
+    const qrContent = customerAppUrl ? `${customerAppUrl}/landing?qr=${encodeURIComponent(sessionInfo.qrCode)}` : ''
 
     return (
       <div className="w-full max-w-[800px] bg-[#FDFBF7] pb-20 print:bg-white print:p-0">
@@ -140,11 +149,17 @@ export default function CheckIn() {
           <p className="mt-2 text-[#7B726B]">จำนวนลูกค้า: {totalGuests} ท่าน</p>
           <p className="mt-1 text-[#7B726B]">หมดเวลา: <span className="font-bold text-red-600">{expiresAt}</span> น.</p>
           
-          <div className="mt-8 rounded-2xl border-4 border-[#302221] p-4">
-            <QRCodeCanvas ref={qrRef} value={qrContent} size={250} level="H" />
-          </div>
+          {qrContent ? (
+            <div className="mt-8 rounded-2xl border-4 border-[#302221] p-4">
+              <QRCodeCanvas ref={qrRef} value={qrContent} size={250} level="H" />
+            </div>
+          ) : (
+            <div className="mt-8 rounded-xl border border-red-300 bg-red-50 p-4 text-center text-sm font-bold text-red-700">
+              ยังไม่ได้ตั้งค่า <code>VITE_CUSTOMER_APP_URL</code> จึงยังสร้าง QR ที่ใช้กับเครื่องลูกค้าไม่ได้
+            </div>
+          )}
           
-          <div className="mt-4 print:hidden">
+          {qrContent && <div className="mt-4 print:hidden">
             <a 
               href={qrContent} 
               target="_blank" 
@@ -153,13 +168,13 @@ export default function CheckIn() {
             >
               [สำหรับทดสอบ] คลิกที่นี่เพื่อเปิดหน้าลูกค้าในแท็บใหม่
             </a>
-          </div>
+          </div>}
           
           <div className="mt-10 flex w-full gap-4 print:hidden">
-            <button onClick={downloadQR} className="flex-1 rounded-lg border border-[#EAE5DF] py-3 text-sm font-bold text-[#302221] hover:bg-[#F4EFEA]">
+            <button disabled={!qrContent} onClick={downloadQR} className="flex-1 rounded-lg border border-[#EAE5DF] py-3 text-sm font-bold text-[#302221] hover:bg-[#F4EFEA] disabled:cursor-not-allowed disabled:opacity-50">
               ดาวน์โหลด QR
             </button>
-            <button onClick={printQR} className="flex-1 rounded-lg bg-[#5A403E] py-3 text-sm font-bold text-white hover:bg-[#4A3432]">
+            <button disabled={!qrContent} onClick={printQR} className="flex-1 rounded-lg bg-[#5A403E] py-3 text-sm font-bold text-white hover:bg-[#4A3432] disabled:cursor-not-allowed disabled:opacity-50">
               พิมพ์ QR Code
             </button>
           </div>

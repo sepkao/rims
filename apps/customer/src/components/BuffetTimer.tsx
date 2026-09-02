@@ -15,9 +15,6 @@ export default function BuffetTimer({ expiresAt }: { expiresAt?: string }) {
       if (diff <= 0) {
         setTimeLeft('00:00:00');
         setIsExpired(true);
-      } else if (diff > 24 * 60 * 60 * 1000) {
-        setTimeLeft('ยังไม่เริ่มจับเวลา');
-        setIsExpired(false);
       } else {
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));

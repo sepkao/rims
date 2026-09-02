@@ -3,6 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import { useCart } from '../lib/CartContext';
 import CallStaffButton from '../components/CallStaffButton';
 import BuffetTimer from '../components/BuffetTimer';
+import QrExpiryBanner from '../components/QrExpiryBanner';
+import { apiFetch } from '../lib/api';
+import { customerQuery, requireQrCode, type CustomerSession } from '../lib/customer-session';
+
+type OrderedItem = {
+  id: string;
+  orderId: string;
+  name: string;
+  qty: number;
+  status: 'pending' | 'cooking' | 'served' | 'cancelled' | 'unknown';
+  time: string;
+  confirmAt: string;
+};
 import DevTimeTools from '../components/DevTimeTools';
 
 const Icons = {
@@ -54,11 +67,12 @@ function EmptyCard({ message, detail, actionLabel, onAction, iconType }: { messa
 export default function OrderHistory() {
   const navigate = useNavigate();
   const { items: cartItems, updateQuantity, removeItem, clearCart } = useCart();
-  const [orderedItems, setOrderedItems] = useState<any[]>([]);
-  const [session, setSession] = useState<{ startedAt: string, expiresAt: string } | null>(null);
+  const [orderedItems, setOrderedItems] = useState<OrderedItem[]>([]);
+  const [session, setSession] = useState<CustomerSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isExpired, setIsExpired] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!session) return;
@@ -71,16 +85,13 @@ export default function OrderHistory() {
 
   const fetchOrders = async () => {
     try {
-      const token = sessionStorage.getItem('qr_session');
-      const url = token ? `http://localhost:3000/customer/orders?qr_code=${token}` : `http://localhost:3000/customer/orders?table_session_id=1`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        setOrderedItems(data.items || []);
-        if (data.session) setSession(data.session);
-      }
-    } catch (e) {
-      console.error(e);
+      const data = await apiFetch<{ items: OrderedItem[]; session: CustomerSession }>(`/customer/orders${customerQuery()}`);
+      setOrderedItems(data.items || []);
+      setSession(data.session);
+      setIsExpired(data.session.status === 'expired' || new Date(data.session.expiresAt).getTime() <= Date.now());
+      setError('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'โหลดประวัติออเดอร์ไม่สำเร็จ');
     } finally {
       setIsLoading(false);
     }
@@ -96,10 +107,8 @@ export default function OrderHistory() {
     if (cartItems.length === 0 || isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const token = sessionStorage.getItem('qr_session');
       const payload = {
-        tableSessionId: 1,
-        qrCode: token || undefined,
+        qrCode: requireQrCode(),
         items: cartItems.map(i => ({
           menuItemId: i.menuItem.id,
           quantity: i.quantity,
@@ -107,21 +116,16 @@ export default function OrderHistory() {
         }))
       };
       
-      const res = await fetch('http://localhost:3000/customer/orders', {
+      const result = await apiFetch<{ orderId: string }>('/customer/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       
-      if (res.ok) {
-        clearCart();
-        navigate('/order/success');
-      } else {
-        alert('เกิดข้อผิดพลาดในการสั่งอาหาร');
-      }
-    } catch (error) {
-      console.error(error);
-      alert('เกิดข้อผิดพลาดในการสั่งอาหาร');
+      clearCart();
+      navigate(`/order/success?orderId=${encodeURIComponent(result.orderId)}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'เกิดข้อผิดพลาดในการสั่งอาหาร');
     } finally {
       setIsSubmitting(false);
     }
@@ -129,15 +133,13 @@ export default function OrderHistory() {
 
   const handleCancelOrder = async (orderId: string) => {
     try {
-      const res = await fetch(`http://localhost:3000/customer/orders/${orderId}/cancel`, { method: 'POST' });
-      if (res.ok) {
-        fetchOrders();
-      } else {
-        alert('หมดเวลายกเลิก หรือ ออเดอร์นี้ถูกยกเลิกไปแล้ว');
-      }
-    } catch (e) {
-      console.error(e);
-      alert('เกิดข้อผิดพลาดในการยกเลิกออเดอร์');
+      await apiFetch(`/customer/orders/${orderId}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ qrCode: requireQrCode() }),
+      });
+      fetchOrders();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'ไม่สามารถยกเลิกออเดอร์ได้');
     }
   };
 
@@ -155,9 +157,11 @@ export default function OrderHistory() {
           </div>
           {session && <BuffetTimer expiresAt={session.expiresAt} />}
         </div>
+        <QrExpiryBanner expiresAt={session?.expiresAt} />
 
         {/* --- Main Content --- */}
         <div className="flex-1 overflow-y-auto p-4 pb-[100px]">
+          {error && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}<button onClick={fetchOrders} className="ml-2 underline">ลองใหม่</button></div>}
           
           {/* Section 1: รายการที่กำลังจะสั่ง */}
           <div className="mb-8">
@@ -169,6 +173,10 @@ export default function OrderHistory() {
             {cartItems.length > 0 ? (
               <div className="bg-white rounded-xl border border-[#EAE5DF] shadow-sm overflow-hidden">
                 {cartItems.map((item, idx) => {
+                  const otherQuantity = cartItems
+                    .filter((cartItem) => cartItem.menuItem.id === item.menuItem.id && cartItem.cartItemId !== item.cartItemId)
+                    .reduce((total, cartItem) => total + cartItem.quantity, 0);
+                  const isAtStockLimit = item.quantity + otherQuantity >= (item.menuItem.availableServings ?? Number.MAX_SAFE_INTEGER);
                   const removedNames = item.removedIngredients.map(id => {
                     const ing = item.menuItem.ingredients.find(i => i.id === id);
                     return ing ? ing.name : '';
@@ -191,8 +199,9 @@ export default function OrderHistory() {
                           >-</button>
                           <span className="font-bold text-[#302221] text-sm">{item.quantity}</span>
                           <button 
+                            disabled={isAtStockLimit}
                             onClick={() => updateQuantity(item.cartItemId, item.quantity + 1)}
-                            className="text-white font-bold bg-[#5A403E] w-6 h-6 flex items-center justify-center rounded-md shadow-sm"
+                            className="text-white font-bold bg-[#5A403E] w-6 h-6 flex items-center justify-center rounded-md shadow-sm disabled:bg-gray-400"
                           >+</button>
                         </div>
                         <button onClick={() => removeItem(item.cartItemId)} className="p-2 bg-[#FEF2F2] text-[#E53E3E] rounded-lg hover:bg-[#FEE2E2] transition-colors"><Icons.Trash /></button>
@@ -246,6 +255,8 @@ export default function OrderHistory() {
                       <div className="flex items-center gap-1.5 bg-[#FEF3C7] text-[#D97706] px-2.5 py-1 rounded-md text-[11px] font-bold h-fit">
                         <Icons.Cooking /> กำลังเตรียม
                       </div>
+                    ) : item.status === 'cancelled' ? (
+                      <div className="bg-red-50 px-2.5 py-1 text-[11px] font-bold text-red-700 rounded-md">ยกเลิก/ของหมด</div>
                     ) : (
                       <div className="flex items-center gap-1.5 bg-[#D1FAE5] text-[#059669] px-2.5 py-1 rounded-md text-[11px] font-bold h-fit">
                         <Icons.Check /> เสิร์ฟแล้ว
@@ -281,7 +292,7 @@ export default function OrderHistory() {
 
       </div>
       
-      <DevTimeTools onTriggerFetch={fetchOrders} />
+      {import.meta.env.DEV && <DevTimeTools onTriggerFetch={fetchOrders} />}
     </div>
   );
 }
