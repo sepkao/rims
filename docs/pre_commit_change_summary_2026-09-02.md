@@ -2,7 +2,7 @@
 
 เอกสารนี้สรุปความแตกต่างของ working tree เทียบกับ `HEAD` ก่อน commit หรือ push
 
-> **Current snapshot (ตรวจเมื่อ 2026-09-02 23:32:38 +07:00)**
+> **Current snapshot (ตรวจเมื่อ 2026-09-02 23:37:34 +07:00)**
 >
 > ส่วนนี้เป็นสถานะล่าสุดและให้ถือว่า supersede ข้อมูล snapshot เดิมด้านล่าง ซึ่งมาจากรอบ UI ก่อนหน้า
 
@@ -11,7 +11,7 @@
 - Branch: `codex/cashier-p0`
 - `HEAD`: `0cadef2` — `Merge branch 'nopnop' into main`
 - เทียบกับ `HEAD`: tracked files modified 24 ไฟล์ และ untracked files 9 ไฟล์ (ก่อนเพิ่มเอกสารนี้)
-- ยังไม่มีการ stage, commit หรือ push
+- ชุด Cashier/Staff ถูก commit และ push ไปที่ `origin/nopnop` แล้วใน commit `c41c78f`; snapshot นี้บันทึกไฟล์ Customer UI ที่ตามมาเพื่อรวมใน commit ต่อเนื่อง
 - working tree มีทั้งงานจากรอบ Cashier/Customer/Staff และการแก้ UI ที่มีอยู่ก่อนแล้ว จึงไม่ควรเหมารวมว่าเป็นการแก้จากผู้ทำงานคนเดียว
 
 ## สรุปการเปลี่ยนแปลงใน working tree ปัจจุบัน
@@ -64,9 +64,8 @@
 
 ## สิ่งที่ยังต้องทำก่อน commit/push
 
-1. ทบทวนว่าไฟล์ Customer UI และ `0004_orders_acknowledged_at.sql` เป็นงานที่ต้องรวมใน commit นี้หรือเป็นงานของเพื่อน
-2. ตรวจ `git diff`/`git status` อีกครั้งหลังแยก scope และ stage เฉพาะไฟล์ที่ต้องการ
-3. Restart API/Internal dev server ก่อนทดสอบ Kitchen Queue ใน browser
+1. ตรวจ `git diff`/`git status` อีกครั้งหลังรวมไฟล์ Customer UI ชุดล่าสุด
+2. Restart API/Internal dev server ก่อนทดสอบ Customer ordering และ Kitchen Queue ใน browser
 
 ## Historical snapshot จากรอบก่อนหน้า (ไม่ใช่สถานะปัจจุบัน)
 

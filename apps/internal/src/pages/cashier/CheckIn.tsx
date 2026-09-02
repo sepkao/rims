@@ -129,7 +129,8 @@ export default function CheckIn() {
     const tableNum = sessionInfo.tableNumber || tables.find(t => t.id === sessionInfo.diningTableId)?.tableNumber || 'Unknown'
     const expiresAt = new Date(sessionInfo.expiresAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
     
-    const customerAppUrl = import.meta.env.VITE_CUSTOMER_APP_URL?.replace(/\/$/, '')
+    const configuredCustomerAppUrl = import.meta.env.VITE_CUSTOMER_APP_URL?.replace(/\/$/, '')
+    const customerAppUrl = configuredCustomerAppUrl || (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:5173` : '')
     const qrContent = customerAppUrl ? `${customerAppUrl}/landing?qr=${encodeURIComponent(sessionInfo.qrCode)}` : ''
 
     return (
