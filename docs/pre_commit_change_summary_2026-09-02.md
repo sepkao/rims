@@ -2,7 +2,73 @@
 
 เอกสารนี้สรุปความแตกต่างของ working tree เทียบกับ `HEAD` ก่อน commit หรือ push
 
-## Git baseline
+> **Current snapshot (ตรวจเมื่อ 2026-09-02 23:32:38 +07:00)**
+>
+> ส่วนนี้เป็นสถานะล่าสุดและให้ถือว่า supersede ข้อมูล snapshot เดิมด้านล่าง ซึ่งมาจากรอบ UI ก่อนหน้า
+
+## สถานะ Git ล่าสุด
+
+- Branch: `codex/cashier-p0`
+- `HEAD`: `0cadef2` — `Merge branch 'nopnop' into main`
+- เทียบกับ `HEAD`: tracked files modified 24 ไฟล์ และ untracked files 9 ไฟล์ (ก่อนเพิ่มเอกสารนี้)
+- ยังไม่มีการ stage, commit หรือ push
+- working tree มีทั้งงานจากรอบ Cashier/Customer/Staff และการแก้ UI ที่มีอยู่ก่อนแล้ว จึงไม่ควรเหมารวมว่าเป็นการแก้จากผู้ทำงานคนเดียว
+
+## สรุปการเปลี่ยนแปลงใน working tree ปัจจุบัน
+
+### API และ runtime (`apps/api`)
+
+- `src/index.ts`: เพิ่ม CORS สำหรับ LAN ผ่าน `CORS_ALLOWED_ORIGINS`, เพิ่ม role guard ของ Staff, เพิ่ม `GET /staff/orders` และ `PUT /staff/orders/:id/serve` สำหรับ Kitchen Queue, และจำกัด development worker ไม่ให้ทำงานใน production
+- `src/db.ts`: โหลด `.env` จากตำแหน่งของ package และรองรับการรันจาก workspace
+- `package.json`: เพิ่ม scripts สำหรับตรวจ/รัน Cashier P0 และ HTTP smoke test
+- `.env.example`: เพิ่มตัวอย่าง `DATABASE_URL`, `SESSION_SECRET`, `CORS_ALLOWED_ORIGINS`
+- `scripts/cashier-p0.mjs`: ตรวจและ apply migration พร้อมตรวจ constraints, functions และ pg_cron jobs
+- `scripts/cashier-p0-smoke.mjs`: สร้างข้อมูลทดสอบชั่วคราว ตรวจ login/check-in/QR/order/Kitchen แล้วล้างข้อมูล
+
+### Database และ scheduler (`supabase/migrations`)
+
+- `0002_cashier_hardening.sql`: ทำ cashier tables/constraints ให้ idempotent และทำ `auto_confirm_order()` ให้ atomic
+- `0003_cashier_expiry_schedule.sql`: เปิด `pg_cron` พร้อม jobs หมดอายุ table session และ auto-confirm order ทุก 1 นาที
+- `0005_cashier_stock_deduction_signature.sql`: เพิ่ม/แก้ฟังก์ชัน FIFO deduction แบบ 4 arguments ให้ตรงกับ `auto_confirm_order()` และรองรับ legacy `stock_movements` ที่ยังไม่มี `order_item_id`
+- `0004_orders_acknowledged_at.sql`: เพิ่ม `orders.acknowledged_at` และ index สำหรับการ acknowledge ใน Kitchen (ไฟล์ untracked ที่พบใน working tree)
+
+แก้ migration numbering แล้ว: เก็บ `0004_orders_acknowledged_at.sql` ของเพื่อนเป็นเลข `0004` และใช้ `0005_cashier_stock_deduction_signature.sql` สำหรับ FIFO signature เพื่อไม่ให้ migration filename ซ้ำกัน
+
+### Customer app (`apps/customer`)
+
+- `src/lib/CartContext.tsx` + `src/lib/cart-item-id.ts`: แก้การเพิ่มสินค้าในตะกร้าบน HTTP/LAN โดยมี UUID fallback เมื่อ `crypto.randomUUID()` ใช้ไม่ได้
+- `src/lib/api.ts`, `.env.example`, `vite.config.ts`: ปรับ API URL และการรันบน LAN
+- `src/App.tsx`, `src/pages/Landing.tsx`, `src/pages/Expired.tsx`: เพิ่ม route/หน้าสำหรับ QR หมดอายุและสถานะ session
+- `src/pages/Menu.tsx`, `OrderBuilder.tsx`, `OrderHistory.tsx`, `GracePeriodCountdown.tsx`: เชื่อม flow เมนู/เพิ่มจำนวน/ตะกร้า/ยืนยัน/ยกเลิก/ติดตามสถานะ และปรับ UI
+- `src/components/BuffetTimer.tsx`, `CallStaffButton.tsx`, `QrExpiryBanner.tsx`, `index.css`, `index.html`: ปรับ timer, เรียกพนักงาน, banner QR และ visual styling
+
+### Internal app (`apps/internal`)
+
+- `src/pages/staff/OrdersToServe.tsx`: จาก placeholder เป็น Kitchen Queue จริง ดึงคิวทุก 3 วินาที ค้นหา/รีเฟรช และกด “เสิร์ฟแล้ว” ได้
+- `src/pages/cashier/CheckIn.tsx`, `.env.example`, `vite.config.ts`: รองรับ URL customer app และ LAN configuration
+
+### Documentation ที่แก้
+
+- `docs/cashier_system.md`: เพิ่มขั้นตอน Cashier P0, scheduler และ smoke test
+- `docs/customer_system.md`: ระบุ auto-confirm worker/pg_cron และสถานะ customer flow
+- ไฟล์นี้: บันทึก snapshot พร้อมวันเวลาและรายการไฟล์ก่อน commit
+
+## ผลตรวจสอบล่าสุด
+
+- `npm run cashier:p0:check`: ผ่าน — core schema, cashier tables, constraints, FIFO signature และ cron jobs เป็น `true`
+- `npm test --workspace api -- --runInBand`: ผ่าน 15/15
+- `npm run build --workspace customer`: ผ่าน
+- `npm run build --workspace internal`: ผ่าน
+- Live DB: ออเดอร์ #6/#7 เป็น `confirmed`, `served_at` ยังว่าง และมี deduction movement แล้ว
+- `git diff --check`: ยังไม่ผ่าน เนื่องจาก trailing whitespace ใน `apps/api/src/db.ts` และไฟล์ Customer UI หลายไฟล์ (ส่วนใหญ่เป็นบรรทัดที่เพิ่มใน working tree)
+
+## สิ่งที่ยังต้องทำก่อน commit/push
+
+1. ทบทวนว่าไฟล์ Customer UI และ `0004_orders_acknowledged_at.sql` เป็นงานที่ต้องรวมใน commit นี้หรือเป็นงานของเพื่อน
+2. ตรวจ `git diff`/`git status` อีกครั้งหลังแยก scope และ stage เฉพาะไฟล์ที่ต้องการ
+3. Restart API/Internal dev server ก่อนทดสอบ Kitchen Queue ใน browser
+
+## Historical snapshot จากรอบก่อนหน้า (ไม่ใช่สถานะปัจจุบัน)
 
 - Branch: `nopnop`
 - Upstream: `origin/nopnop`

@@ -4,10 +4,12 @@ This document describes the Cashier module as it is implemented. Product require
 
 ## Required deployment setup
 
-1. Apply `supabase/migrations/0001_init.sql` and then `supabase/migrations/0002_cashier_hardening.sql`.
+1. From `apps/api`, run `npm run cashier:p0`. It detects whether the core schema is absent, then applies `0001_init.sql` when needed, `0002_cashier_hardening.sql`, `0003_cashier_expiry_schedule.sql`, and `0005_cashier_stock_deduction_signature.sql`. Run `npm run cashier:p0:check` for a read-only readiness check.
 2. Set `VITE_CUSTOMER_APP_URL` for the internal app. Copy `apps/internal/.env.example`; in production this must be the public HTTPS URL of the customer app, not `localhost`.
-3. Configure the PromptPay recipient number in `CheckOut.tsx` before release. The current number is a development placeholder.
-4. Run the table-expiry schedule in production. The database function is `expire_table_sessions()`; pg_cron is the preferred production scheduler. The Node worker only provides development fallback behavior.
+3. Set `VITE_PROMPTPAY_ID` in the internal app environment before release. Do not commit the real recipient number.
+4. Migration `0003_cashier_expiry_schedule.sql` enables pg_cron and schedules `expire_table_sessions()` every minute. The Node worker is a development fallback only and is disabled when `NODE_ENV=production`.
+
+For phone testing on the same LAN, both `VITE_CUSTOMER_APP_URL` and `VITE_API_URL` must use the development PC's LAN IP, and the Vite/API servers must be reachable from that device. `localhost` on a phone points to the phone itself.
 
 ## Implemented flow
 
@@ -55,4 +57,5 @@ This document describes the Cashier module as it is implemented. Product require
 
 - API build and payment-validation tests: `apps/api` TypeScript build plus `node --test dist/cashier-payment.test.js`.
 - Internal and customer TypeScript checks should pass before release.
+- With the API running, `npm run cashier:p0:smoke --workspace api` creates isolated temporary cashier/table/session/order records, verifies the QR ordering flow over HTTP, then removes those records.
 - Manual UAT: Cashier login → open empty table → scan printed QR from another device → place pending order → checkout with each payment method → confirm pending order cancellation and `pending_cleanup` → mark table clean → check in again.
