@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { getQrCode } from './customer-session';
+import { createCartItemId } from './cart-item-id';
 
 export type MenuItem = {
   id: string;
@@ -64,7 +65,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       }
 
       // Add new instance
-      return [...prev, { ...item, quantity: allowedQuantity, cartItemId: crypto.randomUUID() }];
+      return [...prev, { ...item, quantity: allowedQuantity, cartItemId: createCartItemId() }];
     });
   };
 

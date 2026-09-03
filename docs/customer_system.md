@@ -43,7 +43,7 @@ Customer เป็นเว็บ anonymous สำหรับลูกค้า
 2. Server lock session, ตรวจ active menu, จำนวน 1–20, ingredient ที่ลูกค้าถอด, และ stock สดในตู้พักละลายภายใน transaction.
 3. สร้าง order `pending` และ `confirm_at = now() + 60 seconds`; ยังไม่หัก stock.
 4. ลูกค้ายกเลิกด้วย `POST /customer/orders/:id/cancel` ก่อนเวลาได้เฉพาะ order ของ QR เดียวกัน.
-5. worker ทุก 5 วินาทีเรียก `auto_confirm_order()` สำหรับ pending ที่ครบเวลา. ถ้าสต็อกหายไปก่อน confirm, function ยกเลิกทั้งออเดอร์ ไม่ตัดบางรายการ.
+5. development worker ทุก 5 วินาที หรือ production pg_cron ทุก 1 นาที เรียก `auto_confirm_order()` สำหรับ pending ที่ครบเวลา. ถ้าสต็อกหายไปก่อน confirm, function ยกเลิกทั้งออเดอร์ ไม่ตัดบางรายการ.
 6. ถ้ายืนยันสำเร็จ status เป็น `confirmed`; Customer แสดงเป็น `cooking`.
 
 `0002_cashier_hardening.sql` override `auto_confirm_order()` ให้ FIFO deduction อยู่ใน PL/pgSQL subtransaction. หาก ingredient ใดไม่พอ การตัดทั้งหมดในรอบนั้น rollback ก่อนบันทึก `cancelled`.

@@ -4,6 +4,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "cashier:p0": "node scripts/cashier-p0.mjs",
+    "cashier:p0:check": "node scripts/cashier-p0.mjs --check",
+    "cashier:p0:smoke": "node scripts/cashier-p0-smoke.mjs --allow-temporary-data",
     "test": "tsc && node --test dist/inventory-transfer.test.js dist/inventory-intake.test.js dist/cashier-payment.test.js",
     "start": "node dist/index.js"
   },

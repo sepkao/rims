@@ -10,6 +10,32 @@ CREATE TABLE IF NOT EXISTS cashier_notifications (
     is_read          BOOLEAN NOT NULL DEFAULT false
 );
 
+-- Older development databases may already have this table with nullable
+-- columns and no session foreign key. Harden that shape before enforcing the
+-- production contract; invalid legacy rows intentionally stop the migration
+-- for manual repair. The migration remains safe to run more than once.
+ALTER TABLE cashier_notifications
+    ALTER COLUMN table_number SET NOT NULL,
+    ALTER COLUMN message SET NOT NULL,
+    ALTER COLUMN created_at SET DEFAULT now(),
+    ALTER COLUMN created_at SET NOT NULL,
+    ALTER COLUMN is_read SET DEFAULT false,
+    ALTER COLUMN is_read SET NOT NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'cashier_notifications_table_session_id_fkey'
+          AND conrelid = 'cashier_notifications'::regclass
+    ) THEN
+        ALTER TABLE cashier_notifications
+            ADD CONSTRAINT cashier_notifications_table_session_id_fkey
+            FOREIGN KEY (table_session_id) REFERENCES table_sessions(id) ON DELETE CASCADE;
+    END IF;
+END;
+$$;
+
 CREATE INDEX IF NOT EXISTS idx_cashier_notifications_unread
     ON cashier_notifications (created_at DESC) WHERE is_read = false;
 
@@ -32,11 +58,29 @@ CREATE TABLE IF NOT EXISTS cashier_payments (
     )
 );
 
-ALTER TABLE table_sessions
-    ADD CONSTRAINT table_sessions_valid_duration CHECK (expires_at > started_at),
-    ADD CONSTRAINT table_sessions_has_guest CHECK (
-      adult_count + child_count + senior_count + disabled_count > 0
-    );
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'table_sessions_valid_duration'
+          AND conrelid = 'table_sessions'::regclass
+    ) THEN
+        ALTER TABLE table_sessions
+            ADD CONSTRAINT table_sessions_valid_duration CHECK (expires_at > started_at);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'table_sessions_has_guest'
+          AND conrelid = 'table_sessions'::regclass
+    ) THEN
+        ALTER TABLE table_sessions
+            ADD CONSTRAINT table_sessions_has_guest CHECK (
+                adult_count + child_count + senior_count + disabled_count > 0
+            );
+    END IF;
+END;
+$$;
 
 -- Keep confirmation atomic. A nested PL/pgSQL exception block is a
 -- subtransaction: failed FIFO deductions roll back before cancellation is saved.

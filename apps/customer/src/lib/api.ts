@@ -1,10 +1,24 @@
-export const API_BASE_URL = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:3000' : '')
+function getApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_API_URL
+  if (import.meta.env.PROD && envUrl) {
+    return envUrl
+  }
+  if (typeof window !== 'undefined' && window.location.hostname) {
+    return `${window.location.protocol}//${window.location.hostname}:3000`
+  }
+  return envUrl ?? (import.meta.env.DEV ? 'http://localhost:3000' : '')
+}
+
+export const API_BASE_URL = getApiBaseUrl()
 
 type ApiErrorBody = { error?: string }
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  readonly status: number
+
+  constructor(message: string, status: number) {
     super(message)
+    this.status = status
   }
 }
 

@@ -28,11 +28,51 @@ const allowedOrigins = new Set([
   'http://127.0.0.1:5174',
   'http://127.0.0.1:5175',
   'http://127.0.0.1:5176',
+  ...(process.env.CORS_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 ])
 
+function isOriginAllowed(origin: string): boolean {
+  if (!origin) return true
+  if (allowedOrigins.has(origin)) return true
+
+  const dynamicAllowed = (process.env.CORS_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  if (dynamicAllowed.includes(origin)) return true
+
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      const { hostname } = new URL(origin)
+      if (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '[::1]' ||
+        hostname.startsWith('192.168.') ||
+        hostname.startsWith('10.') ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+      ) {
+        return true
+      }
+    } catch {
+      return false
+    }
+  }
+
+  return false
+}
+
 app.use('*', cors({
-  origin: (origin) => allowedOrigins.has(origin) ? origin : 'http://localhost:5173',
+  origin: (origin) => {
+    if (!origin) return origin
+    return isOriginAllowed(origin) ? origin : null
+  },
   credentials: true,
+  allowMethods: ['GET', 'HEAD', 'PUT', 'POST', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }))
 
 function errorMessage(error: unknown) {
@@ -187,9 +227,137 @@ app.post('/auth/logout', async (c) => {
 app.use('/owner/*', (c, next) => requireRoles(c, next, ['owner']))
 app.use('/inventory/*', (c, next) => requireRoles(c, next, ['owner', 'staff']))
 app.use('/cashier/*', (c, next) => requireRoles(c, next, ['cashier']))
+app.use('/staff/*', (c, next) => requireRoles(c, next, ['staff']))
 app.use('/dev/*', async (c, next) => {
   if (process.env.NODE_ENV === 'production') return c.json({ error: 'Development tools are disabled' }, 404)
   await next()
+})
+
+app.get('/staff/orders', async (c) => {
+  try {
+    const result = await pool.query(`
+      SELECT o.id::text,
+             dt.table_number AS "tableNumber",
+             o.created_at AS "createdAt",
+             o.confirmed_at AS "confirmedAt",
+             o.acknowledged_at AS "acknowledgedAt",
+             json_agg(
+               json_build_object(
+                 'id', oi.id::text,
+                 'name', mi.name,
+                 'quantity', oi.quantity,
+                 'removedIngredients', COALESCE(customizations.names, '[]'::json)
+               ) ORDER BY oi.id
+             ) AS items
+      FROM orders o
+      JOIN table_sessions ts ON ts.id = o.table_session_id
+      JOIN dining_tables dt ON dt.id = ts.dining_table_id
+      JOIN order_items oi ON oi.order_id = o.id
+      JOIN menu_items mi ON mi.id = oi.menu_item_id
+      LEFT JOIN LATERAL (
+        SELECT json_agg(i.name ORDER BY i.name) AS names
+        FROM order_item_customizations oic
+        JOIN ingredients i ON i.id = oic.ingredient_id
+        WHERE oic.order_item_id = oi.id
+      ) customizations ON true
+      WHERE o.status = 'confirmed' AND o.served_at IS NULL
+      GROUP BY o.id, dt.table_number
+      ORDER BY o.confirmed_at ASC, o.id ASC
+    `)
+    return c.json({ orders: result.rows })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Unable to load kitchen orders' }, 500)
+  }
+})
+
+app.put('/staff/orders/:id/acknowledge', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    const result = await pool.query(
+      `UPDATE orders
+       SET acknowledged_at = now()
+       WHERE id = $1 AND status = 'confirmed' AND served_at IS NULL
+       RETURNING id::text, acknowledged_at AS "acknowledgedAt"`,
+      [c.req.param('id')],
+    )
+    if (!result.rows[0]) return c.json({ error: 'Active kitchen order not found' }, 404)
+    await pool.query(
+      `INSERT INTO system_logs (actor_id, action, details)
+       VALUES ($1, 'staff.order_acknowledged', jsonb_build_object('orderId', $2::bigint))`,
+      [actor.id, c.req.param('id')],
+    )
+    return c.json({ order: result.rows[0] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Unable to acknowledge order' }, 500)
+  }
+})
+
+app.put('/staff/orders/:id/unacknowledge', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    const result = await pool.query(
+      `UPDATE orders
+       SET acknowledged_at = NULL
+       WHERE id = $1 AND status = 'confirmed' AND served_at IS NULL
+       RETURNING id::text, acknowledged_at AS "acknowledgedAt"`,
+      [c.req.param('id')],
+    )
+    if (!result.rows[0]) return c.json({ error: 'Active kitchen order not found' }, 404)
+    return c.json({ order: result.rows[0] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Unable to revert order acknowledgement' }, 500)
+  }
+})
+
+app.put('/staff/orders/acknowledge-all', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    const result = await pool.query(
+      `UPDATE orders
+       SET acknowledged_at = now()
+       WHERE status = 'confirmed' AND served_at IS NULL AND acknowledged_at IS NULL
+       RETURNING id::text`,
+    )
+    await pool.query(
+      `INSERT INTO system_logs (actor_id, action, details)
+       VALUES ($1, 'staff.orders_acknowledged_all', jsonb_build_object('count', $2))`,
+      [actor.id, result.rowCount],
+    )
+    return c.json({ updatedCount: result.rowCount })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Unable to acknowledge all orders' }, 500)
+  }
+})
+
+app.put('/staff/orders/:id/serve', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    const result = await pool.query(
+      `UPDATE orders
+       SET served_at = now()
+       WHERE id = $1 AND status = 'confirmed' AND served_at IS NULL
+       RETURNING id::text, served_at AS "servedAt"`,
+      [c.req.param('id')],
+    )
+    if (!result.rows[0]) return c.json({ error: 'Active kitchen order not found' }, 404)
+    await pool.query(
+      `INSERT INTO system_logs (actor_id, action, details)
+       VALUES ($1, 'staff.order_served', jsonb_build_object('orderId', $2::bigint))`,
+      [actor.id, c.req.param('id')],
+    )
+    return c.json({ order: result.rows[0] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Unable to mark order as served' }, 500)
+  }
 })
 
 app.get('/cashier/dining-tables', async (c) => {
@@ -716,6 +884,52 @@ app.get('/customer/menu-items', async (c) => {
   }
 })
 
+app.get('/customer/menu-items/:id', async (c) => {
+  try {
+    const session = await findCustomerSession(c.req.query('qr_code'))
+    if (!session) return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
+    const result = await pool.query(
+      `SELECT mi.id::text, mi.name, mi.description,
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'id', i.id::text,
+                    'name', i.name,
+                    'quantityRequiredPlates', mii.quantity_required_plates,
+                    'removable', mii.removable
+                  ) ORDER BY i.name
+                ) FILTER (WHERE mii.id IS NOT NULL),
+                '[]'::json
+              ) AS ingredients,
+              CASE WHEN COUNT(mii.id) = 0 THEN 0 ELSE COALESCE(MIN(
+                FLOOR(COALESCE(stock.available_plates, 0) / NULLIF(mii.quantity_required_plates, 0))
+              ), 0) END::int AS "availableServings"
+       FROM menu_items mi
+       LEFT JOIN menu_item_ingredients mii ON mii.menu_item_id = mi.id
+       LEFT JOIN ingredients i ON i.id = mii.ingredient_id
+       LEFT JOIN LATERAL (
+         SELECT SUM(sl.quantity_remaining) AS available_plates
+         FROM stock_lots sl
+         JOIN storage_locations loc ON loc.id = sl.storage_location_id
+         WHERE sl.ingredient_id = mii.ingredient_id
+           AND loc.name = 'ตู้พักละลาย'
+           AND sl.is_not_fresh = false
+           AND sl.expiry_date > now()
+       ) stock ON true
+       WHERE mi.id = $1 AND mi.is_active = true
+       GROUP BY mi.id`,
+      [c.req.param('id')],
+    )
+    if (!result.rows[0]) {
+      return c.json({ error: 'Menu item not found' }, 404)
+    }
+    return c.json({ menuItem: result.rows[0] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Unable to load menu item' }, 500)
+  }
+})
+
 app.post('/owner/menu-items', async (c) => {
   try {
     const body = await c.req.json<{ name?: string; description?: string }>()
@@ -1127,8 +1341,8 @@ async function findCustomerSession(qrCode: unknown, requireUnexpired = true): Pr
 app.post('/customer/call-staff', async (c) => {
   try {
     const body = await c.req.json<{ qrCode?: string }>()
-    const session = await findCustomerSession(body.qrCode)
-    if (!session) return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
+    const session = await findCustomerSession(body.qrCode, false)
+    if (!session) return c.json({ error: 'QR session is invalid or closed' }, 410)
     const recentCall = await pool.query<{ recent: boolean }>(
       `SELECT EXISTS(
          SELECT 1 FROM cashier_notifications
@@ -1209,7 +1423,7 @@ app.post('/cashier/notifications/read-all', async (c) => {
 
 app.get('/customer/orders', async (c) => {
   try {
-    const session = await findCustomerSession(c.req.query('qr_code'))
+    const session = await findCustomerSession(c.req.query('qr_code'), false)
     if (!session) return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
     const result = await pool.query(
       `SELECT
@@ -1219,6 +1433,7 @@ app.get('/customer/orders', async (c) => {
           oi.quantity AS "qty",
           CASE
               WHEN o.served_at IS NOT NULL THEN 'served'
+              WHEN o.acknowledged_at IS NOT NULL THEN 'serving'
               WHEN o.status = 'confirmed' THEN 'cooking'
               WHEN o.status = 'pending' THEN 'pending'
               WHEN o.status = 'cancelled' THEN 'cancelled'
@@ -1477,8 +1692,9 @@ serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 3000) }, (info) => {
   console.log(`Server is running on http://localhost:${info.port}`)
 })
 
-// === BACKGROUND WORKER (MOCK PG_CRON) ===
-setInterval(async () => {
+// === DEVELOPMENT BACKGROUND WORKER (PG_CRON FALLBACK) ===
+// Production uses supabase/migrations/0003_cashier_expiry_schedule.sql.
+async function runDevelopmentWorker() {
   try {
     // Development fallback. Production should schedule this database function with pg_cron.
     await pool.query('SELECT expire_table_sessions()')
@@ -1545,4 +1761,10 @@ setInterval(async () => {
   } catch (e) {
     console.error("Table expiration notification error:", e);
   }
-}, 5000);
+}
+
+if (process.env.NODE_ENV !== 'production') {
+  const developmentWorker = setInterval(runDevelopmentWorker, 5000)
+  // Do not keep one-off scripts/tests alive solely because of the fallback worker.
+  developmentWorker.unref()
+}

@@ -1,16 +1,136 @@
+@import url('https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
+
+@theme {
+  --font-sans: 'Anuphan', ui-sans-serif, system-ui, sans-serif;
+  --font-family-sans: 'Anuphan', ui-sans-serif, system-ui, sans-serif;
+}
 
 /* ซ่อน scrollbar สำหรับแถบหมวดหมู่แต่ยังเลื่อนได้ */
 .scrollbar-hide::-webkit-scrollbar {
-    display: none;
+  display: none;
 }
 .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-* { box-sizing: border-box; }
-html, body, #root { margin: 0; min-width: 100%; min-height: 100%; }
-body { background: #d1d5db; color: #302221; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-button, input { font: inherit; }
+* { 
+  box-sizing: border-box; 
+  font-family: 'Anuphan', ui-sans-serif, system-ui, sans-serif;
+}
+html, body, #root { 
+  margin: 0; 
+  min-width: 100%; 
+  min-height: 100%; 
+  font-family: 'Anuphan', ui-sans-serif, system-ui, sans-serif !important;
+}
+body { 
+  background: #F2ECE4; 
+  color: #2D1B17; 
+  font-family: 'Anuphan', ui-sans-serif, system-ui, sans-serif !important; 
+}
+button, input, select, textarea { 
+  font-family: inherit; 
+  font: inherit; 
+}
 button { cursor: pointer; }
+
+/* ─── Shabu / Staff Neo-Brutalist Theme Utilities ──────────────────── */
+.shabu-card {
+  border: 2px solid #2D1B17;
+  background: #ffffff;
+  box-shadow: 4px 4px 0 #2D1B17;
+  border-radius: 18px;
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+.shabu-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 #2D1B17;
+}
+.shabu-card:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 #2D1B17;
+}
+
+.shabu-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px solid #2D1B17;
+  background: #2D1B17;
+  color: #ffffff;
+  font-weight: 800;
+  box-shadow: 3px 3px 0 #B97861;
+  border-radius: 14px;
+  transition: transform 0.12s ease-out, box-shadow 0.12s ease-out, background-color 0.15s ease;
+}
+.shabu-btn-primary:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 #B97861;
+  background: #3E241E;
+}
+.shabu-btn-primary:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #B97861;
+}
+
+.shabu-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px solid #2D1B17;
+  background: #FFF8EF;
+  color: #2D1B17;
+  font-weight: 800;
+  box-shadow: 3px 3px 0 #2D1B17;
+  border-radius: 14px;
+  transition: transform 0.12s ease-out, box-shadow 0.12s ease-out, background-color 0.15s ease;
+}
+.shabu-btn-secondary:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  background: #ffffff;
+  box-shadow: 4px 4px 0 #2D1B17;
+}
+.shabu-btn-secondary:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #2D1B17;
+}
+
+.shabu-input {
+  border: 2px solid #2D1B17;
+  background: #FFFDF9;
+  color: #2D1B17;
+  border-radius: 14px;
+  box-shadow: 2px 2px 0 #D9B99A;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.shabu-input:focus {
+  outline: none;
+  box-shadow: 3px 3px 0 #B97861;
+  border-color: #2D1B17;
+}
+
+/* ─── Animations (Shared with Staff OS) ────────────────────────────── */
+@keyframes sd-down { from { opacity:0; transform:translateY(-20px); } to { opacity:1; transform:translateY(0); } }
+@keyframes sd-up   { from { opacity:0; transform:translateY(24px);  } to { opacity:1; transform:translateY(0); } }
+@keyframes sd-right{ from { opacity:0; transform:translateX(-16px); } to { opacity:1; transform:translateX(0); } }
+@keyframes sd-fade { from { opacity:0; } to { opacity:1; } }
+@keyframes countUp { from { opacity:0; transform:scale(.7); } to { opacity:1; transform:scale(1); } }
+@keyframes pulseSubtle { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .85; transform: scale(0.97); } }
+@keyframes steamFloat { 0% { transform: translateY(0) scaleX(1); opacity: 0.7; } 50% { transform: translateY(-4px) scaleX(1.1); opacity: 1; } 100% { transform: translateY(0) scaleX(1); opacity: 0.7; } }
+
+.anim-down  { animation: sd-down 0.45s cubic-bezier(.22,1,.36,1) both; }
+.anim-up    { animation: sd-up   0.5s cubic-bezier(.22,1,.36,1) both; }
+.anim-right { animation: sd-right 0.35s cubic-bezier(.22,1,.36,1) both; }
+.anim-fade  { animation: sd-fade 0.35s ease both; }
+.count-anim { animation: countUp 0.4s cubic-bezier(.22,1,.36,1) both; }
+.steam-anim { animation: steamFloat 2.5s ease-in-out infinite; }
+
+.d-1 { animation-delay: 0ms; }
+.d-2 { animation-delay: 70ms; }
+.d-3 { animation-delay: 140ms; }
+.d-4 { animation-delay: 210ms; }
+.d-5 { animation-delay: 280ms; }

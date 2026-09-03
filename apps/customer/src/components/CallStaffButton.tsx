@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { apiFetch } from '../lib/api';
 import { requireQrCode } from '../lib/customer-session';
+import { Bell, CheckCircle2, Loader2 } from 'lucide-react';
 
 export default function CallStaffButton() {
   const [showModal, setShowModal] = useState(false);
@@ -9,8 +10,7 @@ export default function CallStaffButton() {
   const [error, setError] = useState('');
 
   const handleCall = async () => {
-    if (status === 'calling') return;
-    if (coolingDown) return;
+    if (status === 'calling' || coolingDown) return;
     setStatus('calling');
     setError('');
     try {
@@ -21,6 +21,7 @@ export default function CallStaffButton() {
       setStatus('success');
       setCoolingDown(true);
       window.setTimeout(() => setCoolingDown(false), 30_000);
+      window.setTimeout(() => setShowModal(false), 2000);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาดในการเรียกพนักงาน');
       setStatus('idle');
@@ -30,54 +31,63 @@ export default function CallStaffButton() {
   return (
     <>
       <button 
+        type="button"
         onClick={() => { setShowModal(true); setStatus('idle'); setError(''); }}
         disabled={coolingDown}
         aria-label="เรียกพนักงาน"
-        aria-disabled={coolingDown}
-        className="absolute bottom-24 right-5 w-14 h-14 bg-[#5A403E] text-white rounded-full shadow-[0_4px_15px_rgba(90,64,62,0.3)] flex items-center justify-center z-40 hover:scale-105 active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-50"
+        className="absolute bottom-24 right-4 w-12 h-12 bg-[#B97861] text-white rounded-2xl border-2 border-[#2D1B17] shadow-[3px_3px_0_#2D1B17] flex items-center justify-center z-40 hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#2D1B17] active:translate-y-0.5 active:shadow-[1px_1px_0_#2D1B17] transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+        title="เรียกพนักงานมาที่โต๊ะ"
       >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+        <Bell size={20} strokeWidth={2.5} className="group-hover:rotate-12 transition-transform" />
       </button>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm transition-opacity">
-          <div className="bg-white rounded-2xl w-full max-w-[320px] p-6 shadow-xl transform transition-all scale-100 opacity-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs transition-opacity animate-fade-in">
+          <div className="bg-[#FDFBF7] rounded-3xl border-2 border-[#2D1B17] shadow-[8px_8px_0_#2D1B17] w-full max-w-[320px] p-6 text-center transform scale-100 animate-scale-in">
             {status === 'idle' && (
-              <div className="text-center">
-                <div className="w-16 h-16 bg-[#F4EFEA] rounded-full flex items-center justify-center mx-auto mb-4 text-[#5A403E]">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+              <div>
+                <div className="w-14 h-14 bg-[#FFF8EF] border-2 border-[#2D1B17] rounded-2xl shadow-[3px_3px_0_#2D1B17] flex items-center justify-center mx-auto mb-4 text-[#B97861]">
+                  <Bell size={26} strokeWidth={2.5} />
                 </div>
-                <h3 className="text-lg font-bold text-[#302221] mb-2">ต้องการเรียกพนักงาน?</h3>
-                <p className="text-sm text-[#7B726B] mb-6">พนักงานจะรีบมาให้บริการที่โต๊ะของคุณ</p>
-                {error && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
-                <div className="flex gap-3">
-                  <button onClick={() => setShowModal(false)} className="flex-1 py-3 bg-[#F4EFEA] text-[#5A403E] font-bold rounded-xl hover:bg-[#EAE5DF] transition-colors">
+                <h3 className="text-lg font-black text-[#2D1B17] mb-1">ต้องการเรียกพนักงาน?</h3>
+                <p className="text-xs font-semibold text-[#7B726B] mb-5 leading-relaxed">
+                  พนักงานจะได้รับสัญญาณแจ้งเตือนและรีบมาให้บริการที่โต๊ะของคุณ
+                </p>
+                {error && <p role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs font-bold text-red-700">{error}</p>}
+                
+                <div className="flex gap-2.5">
+                  <button 
+                    type="button"
+                    onClick={() => setShowModal(false)} 
+                    className="flex-1 py-2.5 rounded-xl border-2 border-[#2D1B17] bg-white text-[#2D1B17] font-bold text-xs shadow-[2px_2px_0_#2D1B17] hover:bg-gray-50 active:translate-y-0.5"
+                  >
                     ยกเลิก
                   </button>
-                  <button onClick={handleCall} className="flex-1 py-3 bg-[#5A403E] text-white font-bold rounded-xl hover:bg-[#4A3432] transition-colors shadow-sm">
-                    ยืนยัน
+                  <button 
+                    type="button"
+                    onClick={handleCall} 
+                    className="flex-1 py-2.5 rounded-xl border-2 border-[#2D1B17] bg-[#B97861] text-white font-black text-xs shadow-[2px_2px_0_#2D1B17] hover:bg-[#A66751] active:translate-y-0.5"
+                  >
+                    ยืนยันเรียก
                   </button>
                 </div>
               </div>
             )}
 
             {status === 'calling' && (
-              <div className="text-center py-8">
-                <div className="w-12 h-12 border-4 border-[#EAE5DF] border-t-[#5A403E] rounded-full animate-spin mx-auto mb-4"></div>
-                <p className="font-bold text-[#302221]">กำลังเรียกพนักงาน...</p>
+              <div className="py-6">
+                <Loader2 size={36} className="animate-spin text-[#B97861] mx-auto mb-3" />
+                <p className="font-black text-[#2D1B17] text-sm">กำลังส่งสัญญาณเรียกพนักงาน…</p>
               </div>
             )}
 
             {status === 'success' && (
-              <div className="text-center">
-                <div className="w-16 h-16 bg-[#D1FAE5] rounded-full flex items-center justify-center mx-auto mb-4 text-[#10B981] animate-bounce">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <div className="py-4">
+                <div className="w-14 h-14 bg-emerald-100 border-2 border-emerald-700 rounded-2xl flex items-center justify-center mx-auto mb-3 text-emerald-700 shadow-[3px_3px_0_#047857]">
+                  <CheckCircle2 size={28} strokeWidth={2.5} />
                 </div>
-                <h3 className="text-lg font-bold text-[#302221] mb-2">เรียกพนักงานสำเร็จ</h3>
-                <p className="text-sm text-[#7B726B] mb-6">พนักงานกำลังเดินไปที่โต๊ะของคุณ กรุณารอสักครู่นะครับ</p>
-                <button onClick={() => setShowModal(false)} className="w-full py-3 bg-[#5A403E] text-white font-bold rounded-xl hover:bg-[#4A3432] transition-colors shadow-sm">
-                  กลับสู่หน้าหลัก
-                </button>
+                <h3 className="text-base font-black text-[#2D1B17] mb-1">แจ้งพนักงานแล้ว!</h3>
+                <p className="text-xs text-[#7B726B] font-semibold">พนักงานกำลังเดินทางมาที่โต๊ะของคุณ</p>
               </div>
             )}
           </div>
