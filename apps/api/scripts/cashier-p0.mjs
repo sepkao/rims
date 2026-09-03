@@ -44,6 +44,8 @@ async function status() {
       to_regclass('public.cashier_payments') IS NOT NULL AS cashier_payments,
       to_regprocedure('public.expire_table_sessions()') IS NOT NULL AS expiry_function,
       to_regprocedure('public.deduct_stock_fifo(bigint,integer,bigint,bigint)') IS NOT NULL AS fifo_signature,
+      pg_get_functiondef('public.deduct_stock_fifo(bigint,integer,bigint,bigint)'::regprocedure)
+        ILIKE '%expiry_date > now()%' AS fifo_expiry_guard,
       EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'table_sessions_valid_duration') AS duration_constraint,
       EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'table_sessions_has_guest') AS guest_constraint,
       EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') AS pg_cron
@@ -51,6 +53,7 @@ async function status() {
   const state = result.rows[0]
   let expiryJob = false
   let autoConfirmJob = false
+  let freshnessJob = false
   if (state.pg_cron) {
     const jobs = await pool.query(`
       SELECT
@@ -65,12 +68,19 @@ async function status() {
           WHERE jobname = 'rims-auto-confirm-orders'
             AND active = true
             AND command ILIKE '%auto_confirm_order%'
-        ) AS auto_confirm_job
+        ) AS auto_confirm_job,
+        EXISTS(
+          SELECT 1 FROM cron.job
+          WHERE jobname = 'rims-mark-not-fresh-lots'
+            AND active = true
+            AND command ILIKE '%mark_not_fresh_lots%'
+        ) AS freshness_job
     `)
     expiryJob = jobs.rows[0].expiry_job
     autoConfirmJob = jobs.rows[0].auto_confirm_job
+    freshnessJob = jobs.rows[0].freshness_job
   }
-  return { ...state, expiry_job: expiryJob, auto_confirm_job: autoConfirmJob }
+  return { ...state, expiry_job: expiryJob, auto_confirm_job: autoConfirmJob, freshness_job: freshnessJob }
 }
 
 try {
@@ -86,6 +96,7 @@ try {
     await applyMigration('0002_cashier_hardening.sql')
     await applyMigration('0003_cashier_expiry_schedule.sql')
     await applyMigration('0005_cashier_stock_deduction_signature.sql')
+    await applyMigration('0006_fifo_expiry_guard.sql')
   }
 
   const state = await status()
