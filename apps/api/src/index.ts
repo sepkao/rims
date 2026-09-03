@@ -1,6 +1,8 @@
 import { serve } from '@hono/node-server'
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { extname, join, resolve } from 'node:path'
 import { Hono, type Context, type Next } from 'hono'
 import { cors } from 'hono/cors'
 import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie'
@@ -19,6 +21,7 @@ type SessionUser = {
 }
 
 const app = new Hono()
+const menuImageRoot = resolve(process.cwd(), 'uploads', 'menu')
 const allowedOrigins = new Set([
   'http://localhost:5173',
   'http://localhost:5174',
@@ -817,20 +820,37 @@ app.get('/menu-items', async (c) => {
       `SELECT mi.id::text,
               mi.name,
               mi.description,
+              mi.category,
+              CASE WHEN mi.image_path IS NULL THEN NULL ELSE '/menu-images/' || mi.image_path END AS "imagePath",
+              mi.is_active AS "isActive",
               COALESCE(
                 json_agg(
                   json_build_object(
                     'id', i.id::text,
                     'name', i.name,
                     'quantityRequiredPlates', mii.quantity_required_plates,
-                    'removable', mii.removable
+                    'removable', mii.removable,
+                    'availablePlates', COALESCE(stock.available_plates, 0)
                   ) ORDER BY i.name
                 ) FILTER (WHERE mii.id IS NOT NULL),
                 '[]'::json
-              ) AS ingredients
+              ) AS ingredients,
+              CASE WHEN COUNT(mii.id) = 0 THEN 0 ELSE COALESCE(MIN(
+                FLOOR(COALESCE(stock.available_plates, 0) / NULLIF(mii.quantity_required_plates, 0))
+              ), 0) END::int AS "availableServings"
        FROM menu_items mi
        LEFT JOIN menu_item_ingredients mii ON mii.menu_item_id = mi.id
        LEFT JOIN ingredients i ON i.id = mii.ingredient_id
+       LEFT JOIN LATERAL (
+         SELECT SUM(sl.quantity_remaining)::float8 AS available_plates
+         FROM stock_lots sl
+         JOIN storage_locations loc ON loc.id = sl.storage_location_id
+         WHERE sl.ingredient_id = mii.ingredient_id
+           AND loc.name = 'ตู้พักละลาย'
+           AND sl.is_not_fresh = false
+           AND sl.expiry_date > now()
+       ) stock ON true
+       WHERE mi.is_deleted = false
        GROUP BY mi.id
        ORDER BY mi.name`,
     )
@@ -841,12 +861,58 @@ app.get('/menu-items', async (c) => {
   }
 })
 
+app.get('/owner/menu-categories', async (c) => {
+  const result = await pool.query('SELECT id::text, name FROM menu_categories ORDER BY sort_order, name')
+  return c.json({ categories: result.rows })
+})
+
+app.post('/owner/menu-categories', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    const name = (await c.req.json<{ name?: string }>()).name?.trim().replace(/\s+/g, ' ')
+    if (!name || name.length > 80) return c.json({ error: 'Category name is required and must not exceed 80 characters' }, 400)
+    if ((await pool.query('SELECT id FROM menu_categories WHERE lower(name) = lower($1)', [name])).rows[0]) return c.json({ error: 'Category name already exists' }, 409)
+    const result = await pool.query('INSERT INTO menu_categories (name) VALUES ($1) RETURNING id::text, name', [name])
+    await pool.query(`INSERT INTO system_logs (actor_id, action, details) VALUES ($1, 'menu.category_created', $2::jsonb)`, [actor?.id, JSON.stringify({ categoryId: result.rows[0].id, name })])
+    return c.json({ category: result.rows[0] }, 201)
+  } catch (error) { console.error(error); return c.json({ error: errorMessage(error) }, 400) }
+})
+
+app.put('/owner/menu-categories/:id', async (c) => {
+  const client = await pool.connect(); let started = false
+  try {
+    const actor = await getSessionUser(c)
+    const name = (await c.req.json<{ name?: string }>()).name?.trim().replace(/\s+/g, ' ')
+    if (!name || name.length > 80) return c.json({ error: 'Category name is required and must not exceed 80 characters' }, 400)
+    await client.query('BEGIN'); started = true
+    const current = await client.query<{ name: string }>('SELECT name FROM menu_categories WHERE id = $1 FOR UPDATE', [c.req.param('id')])
+    if (!current.rows[0]) { await client.query('ROLLBACK'); started = false; return c.json({ error: 'Category not found' }, 404) }
+    if ((await client.query('SELECT id FROM menu_categories WHERE lower(name) = lower($1) AND id <> $2', [name, c.req.param('id')])).rows[0]) { await client.query('ROLLBACK'); started = false; return c.json({ error: 'Category name already exists' }, 409) }
+    await client.query('UPDATE menu_items SET category = $1 WHERE category = $2', [name, current.rows[0].name])
+    const result = await client.query('UPDATE menu_categories SET name = $1 WHERE id = $2 RETURNING id::text, name', [name, c.req.param('id')])
+    await client.query(`INSERT INTO system_logs (actor_id, action, details) VALUES ($1, 'menu.category_renamed', $2::jsonb)`, [actor?.id, JSON.stringify({ categoryId: c.req.param('id'), previousName: current.rows[0].name, name })])
+    await client.query('COMMIT'); started = false
+    return c.json({ category: result.rows[0] })
+  } catch (error) { if (started) await client.query('ROLLBACK'); console.error(error); return c.json({ error: errorMessage(error) }, 400) } finally { client.release() }
+})
+
+app.delete('/owner/menu-categories/:id', async (c) => {
+  try {
+    const category = await pool.query<{ name: string }>('SELECT name FROM menu_categories WHERE id = $1', [c.req.param('id')])
+    if (!category.rows[0]) return c.json({ error: 'Category not found' }, 404)
+    if ((await pool.query('SELECT id FROM menu_items WHERE category = $1 AND is_deleted = false LIMIT 1', [category.rows[0].name])).rows[0]) return c.json({ error: 'ย้ายหรือลบเมนูในหมวดนี้ก่อนลบหมวดหมู่' }, 409)
+    await pool.query('DELETE FROM menu_categories WHERE id = $1', [c.req.param('id')])
+    return c.json({ message: 'Category deleted' })
+  } catch (error) { console.error(error); return c.json({ error: errorMessage(error) }, 400) }
+})
+
 app.get('/customer/menu-items', async (c) => {
   try {
     const session = await findCustomerSession(c.req.query('qr_code'))
     if (!session) return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
     const result = await pool.query(
-      `SELECT mi.id::text, mi.name, mi.description,
+      `SELECT mi.id::text, mi.name, mi.description, mi.category,
+              CASE WHEN mi.image_path IS NULL THEN NULL ELSE '/menu-images/' || mi.image_path END AS "imagePath",
               COALESCE(
                 json_agg(
                   json_build_object(
@@ -873,7 +939,7 @@ app.get('/customer/menu-items', async (c) => {
            AND sl.is_not_fresh = false
            AND sl.expiry_date > now()
        ) stock ON true
-       WHERE mi.is_active = true
+       WHERE mi.is_active = true AND mi.is_deleted = false
        GROUP BY mi.id
        ORDER BY mi.name`,
     )
@@ -889,7 +955,8 @@ app.get('/customer/menu-items/:id', async (c) => {
     const session = await findCustomerSession(c.req.query('qr_code'))
     if (!session) return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
     const result = await pool.query(
-      `SELECT mi.id::text, mi.name, mi.description,
+      `SELECT mi.id::text, mi.name, mi.description, mi.category,
+              CASE WHEN mi.image_path IS NULL THEN NULL ELSE '/menu-images/' || mi.image_path END AS "imagePath",
               COALESCE(
                 json_agg(
                   json_build_object(
@@ -916,7 +983,7 @@ app.get('/customer/menu-items/:id', async (c) => {
            AND sl.is_not_fresh = false
            AND sl.expiry_date > now()
        ) stock ON true
-       WHERE mi.id = $1 AND mi.is_active = true
+       WHERE mi.id = $1 AND mi.is_active = true AND mi.is_deleted = false
        GROUP BY mi.id`,
       [c.req.param('id')],
     )
@@ -931,39 +998,98 @@ app.get('/customer/menu-items/:id', async (c) => {
 })
 
 app.post('/owner/menu-items', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
   try {
-    const body = await c.req.json<{ name?: string; description?: string }>()
+    const body = await c.req.json<{
+      name?: string
+      description?: string
+      category?: string
+      ingredients?: Array<{ ingredientId?: string; quantityRequiredPlates?: number; removable?: boolean }>
+    }>()
     const name = body.name?.trim()
+    const category = body.category?.trim()
     if (!name) {
       return c.json({ error: 'Name is required' }, 400)
     }
+    if (!category || category.length > 80) return c.json({ error: 'A valid category is required' }, 400)
+    if (!(await pool.query('SELECT id FROM menu_categories WHERE name = $1', [category])).rows[0]) return c.json({ error: 'Menu category is not registered' }, 400)
+    const ingredients = body.ingredients ?? []
+    if (ingredients.length === 0) return c.json({ error: 'At least one Prep ingredient is required' }, 400)
+    const ingredientIds = new Set<string>()
+    const lines = ingredients.map((line, index) => {
+      const ingredientId = line.ingredientId?.trim()
+      const quantity = Number(line.quantityRequiredPlates)
+      if (!ingredientId || !/^\d+$/.test(ingredientId) || !Number.isSafeInteger(quantity) || quantity <= 0) {
+        throw new Error(`Ingredient line ${index + 1} is invalid`)
+      }
+      if (ingredientIds.has(ingredientId)) throw new Error('The same ingredient cannot be selected more than once')
+      ingredientIds.add(ingredientId)
+      return { ingredientId, quantity, removable: Boolean(line.removable) }
+    })
 
-    const result = await pool.query(
-      `INSERT INTO menu_items (name, description)
-       VALUES ($1, $2)
-       RETURNING id::text, name, description, is_active AS "isActive"`,
-      [name, body.description?.trim() || null],
+    await client.query('BEGIN')
+    transactionStarted = true
+    const existing = await client.query<{ id: string }>(
+      'SELECT id::text FROM ingredients WHERE id = ANY($1::bigint[])',
+      [[...ingredientIds]],
     )
-    return c.json({ menuItem: result.rows[0] }, 201)
+    if (existing.rows.length !== lines.length) throw new Error('One or more ingredients do not exist')
+
+    const result = await client.query(
+      `INSERT INTO menu_items (name, description, category)
+       VALUES ($1, $2, $3)
+       RETURNING id::text, name, description, category, is_active AS "isActive"`,
+      [name, body.description?.trim() || null, category],
+    )
+    const menuItem = result.rows[0]
+    for (const line of lines) {
+      await client.query(
+        `INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, quantity_required_plates, removable)
+         VALUES ($1, $2, $3, $4)`,
+        [menuItem.id, line.ingredientId, line.quantity, line.removable],
+      )
+    }
+    await client.query('COMMIT')
+    transactionStarted = false
+    return c.json({ menuItem }, 201)
   } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
     console.error(error)
     return c.json({ error: errorMessage(error) }, 400)
+  } finally {
+    client.release()
+  }
+})
+
+app.get('/menu-images/:filename', async (c) => {
+  const filename = c.req.param('filename')
+  if (!/^[a-f0-9-]+\.(jpg|jpeg|png|webp)$/i.test(filename)) return c.json({ error: 'Image not found' }, 404)
+  try {
+    const image = await readFile(join(menuImageRoot, filename))
+    const extension = extname(filename).toLowerCase()
+    const contentType = extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg'
+    return new Response(image, { headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=31536000, immutable' } })
+  } catch {
+    return c.json({ error: 'Image not found' }, 404)
   }
 })
 
 app.put('/owner/menu-items/:id', async (c) => {
   try {
     const id = c.req.param('id')
-    const body = await c.req.json<{ name?: string; description?: string; isActive?: boolean }>()
+    const body = await c.req.json<{ name?: string; description?: string; category?: string; isActive?: boolean }>()
+    if (body.category && !(await pool.query('SELECT id FROM menu_categories WHERE name = $1', [body.category.trim()])).rows[0]) return c.json({ error: 'Menu category is not registered' }, 400)
 
     const result = await pool.query(
       `UPDATE menu_items
        SET name = COALESCE($1, name),
            description = COALESCE($2, description),
-           is_active = COALESCE($3, is_active)
-       WHERE id = $4
-       RETURNING id::text, name, description, is_active AS "isActive"`,
-      [body.name?.trim() || null, body.description?.trim() || null, body.isActive ?? null, id],
+           category = COALESCE($3, category),
+           is_active = COALESCE($4, is_active)
+       WHERE id = $5 AND is_deleted = false
+       RETURNING id::text, name, description, category, is_active AS "isActive"`,
+      [body.name?.trim() || null, body.description?.trim() || null, body.category?.trim() || null, body.isActive ?? null, id],
     )
     if (!result.rows[0]) return c.json({ error: 'Menu item not found' }, 404)
     return c.json({ menuItem: result.rows[0] })
@@ -973,28 +1099,50 @@ app.put('/owner/menu-items/:id', async (c) => {
   }
 })
 
-app.delete('/owner/menu-items/:id', async (c) => {
-  const client = await pool.connect()
+app.put('/owner/menu-items/:id/image', async (c) => {
   try {
-    const id = c.req.param('id')
-    const orderCheck = await client.query('SELECT id FROM order_items WHERE menu_item_id = $1 LIMIT 1', [id])
-    if (orderCheck.rows.length > 0) {
-      return c.json({ error: 'Cannot delete a menu item that has already been ordered' }, 409)
+    const body = await c.req.parseBody()
+    const image = body.image
+    if (!(image instanceof File)) return c.json({ error: 'An image file is required' }, 400)
+    const extensionByType: Record<string, string> = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' }
+    const extension = extensionByType[image.type]
+    if (!extension) return c.json({ error: 'Only JPG, PNG, and WebP images are supported' }, 400)
+    if (image.size > 5 * 1024 * 1024) return c.json({ error: 'Image must be 5 MB or smaller' }, 400)
+
+    const filename = `${randomBytes(16).toString('hex')}${extension}`
+    await mkdir(menuImageRoot, { recursive: true })
+    await writeFile(join(menuImageRoot, filename), Buffer.from(await image.arrayBuffer()))
+    const previous = await pool.query<{ imagePath: string | null }>('SELECT image_path AS "imagePath" FROM menu_items WHERE id = $1 AND is_deleted = false', [c.req.param('id')])
+    const result = await pool.query(
+      `UPDATE menu_items SET image_path = $1, image_alt = COALESCE(NULLIF($2, ''), name)
+       WHERE id = $3 AND is_deleted = false RETURNING id::text, '/menu-images/' || image_path AS "imagePath", image_alt AS "imageAlt"`,
+      [filename, body.altText ?? '', c.req.param('id')],
+    )
+    if (!result.rows[0]) {
+      await unlink(join(menuImageRoot, filename)).catch(() => undefined)
+      return c.json({ error: 'Menu item not found' }, 404)
     }
-
-    await client.query('BEGIN')
-    await client.query('DELETE FROM menu_item_ingredients WHERE menu_item_id = $1', [id])
-    const deleted = await client.query('DELETE FROM menu_items WHERE id = $1 RETURNING id', [id])
-    await client.query('COMMIT')
-
-    if (!deleted.rows[0]) return c.json({ error: 'Menu item not found' }, 404)
-    return c.json({ message: 'Menu item deleted successfully' })
+    if (previous.rows[0]?.imagePath) await unlink(join(menuImageRoot, previous.rows[0].imagePath)).catch(() => undefined)
+    return c.json({ image: result.rows[0] })
   } catch (error) {
-    await client.query('ROLLBACK')
     console.error(error)
     return c.json({ error: errorMessage(error) }, 400)
-  } finally {
-    client.release()
+  }
+})
+
+app.delete('/owner/menu-items/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const deleted = await pool.query(
+      `UPDATE menu_items SET is_deleted = true, is_active = false
+       WHERE id = $1 AND is_deleted = false RETURNING id`,
+      [id],
+    )
+    if (!deleted.rows[0]) return c.json({ error: 'Menu item not found' }, 404)
+    return c.json({ message: 'Menu item archived successfully' })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
   }
 })
 
@@ -1040,11 +1188,55 @@ app.delete('/owner/menu-items/:id/ingredients/:ingredientId', async (c) => {
 
 app.get('/inventory/ingredients', async (c) => {
   const result = await pool.query(
-    `SELECT id::text, name, category, default_portion_size_kg::float8 AS "defaultPortionSizeKg"
-     FROM ingredients
-     ORDER BY name`,
+    `SELECT id::text, name, category,
+            default_portion_size_kg::float8 AS "defaultPortionSizeKg",
+            thaw_prep_threshold_plates AS "thawPrepThresholdPlates",
+            COALESCE(prep.available_plates, 0)::float8 AS "prepAvailablePlates"
+     FROM ingredients i
+     LEFT JOIN LATERAL (
+       SELECT SUM(sl.quantity_remaining) AS available_plates
+       FROM stock_lots sl
+       JOIN storage_locations loc ON loc.id = sl.storage_location_id
+       WHERE sl.ingredient_id = i.id
+         AND loc.name = 'ตู้พักละลาย'
+         AND sl.is_not_fresh = false
+         AND sl.expiry_date > now()
+     ) prep ON true
+     ORDER BY i.name`,
   )
   return c.json({ ingredients: result.rows })
+})
+
+app.post('/inventory/ingredients', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json<{ name?: string; category?: string }>()
+    const name = body.name?.trim().replace(/\s+/g, ' ')
+    const category = body.category
+    const portionSize = category === 'vegetable' ? 0.05 : 0.1
+    if (!name || name.length > 120) return c.json({ error: 'Ingredient name is required and must not exceed 120 characters' }, 400)
+    if (category !== 'meat' && category !== 'vegetable') return c.json({ error: 'Category must be meat or vegetable' }, 400)
+
+    const duplicate = await pool.query('SELECT id FROM ingredients WHERE lower(name) = lower($1)', [name])
+    if (duplicate.rows[0]) return c.json({ error: 'Ingredient name already exists' }, 409)
+    const result = await pool.query(
+      `INSERT INTO ingredients (name, category, default_portion_size_kg)
+       VALUES ($1, $2, $3)
+       RETURNING id::text, name, category, default_portion_size_kg::float8 AS "defaultPortionSizeKg",
+                 thaw_prep_threshold_plates AS "thawPrepThresholdPlates", 0::float8 AS "prepAvailablePlates"`,
+      [name, category, portionSize],
+    )
+    await pool.query(
+      `INSERT INTO system_logs (actor_id, action, details)
+       VALUES ($1, 'inventory.ingredient_created', $2::jsonb)`,
+      [actor.id, JSON.stringify({ ingredientId: result.rows[0].id, name, category, defaultPortionSizeKg: portionSize })],
+    )
+    return c.json({ ingredient: result.rows[0] }, 201)
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
 })
 
 app.put('/inventory/ingredients/:id/portion-preset', async (c) => {
@@ -1105,6 +1297,112 @@ app.get('/inventory/lots', async (c) => {
      ORDER BY sl.expiry_date, sl.created_at`,
   )
   return c.json({ lots: result.rows })
+})
+
+app.post('/inventory/lots/:id/dispose', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    if (actor.role !== 'owner') {
+      return c.json({ error: 'Only owners can dispose expired stock' }, 403)
+    }
+
+    const body = await c.req.json<{ reason?: string }>()
+    const reason = body.reason?.trim()
+    if (!reason) return c.json({ error: 'Disposal reason is required' }, 400)
+    if (reason.length > 500) return c.json({ error: 'Disposal reason must not exceed 500 characters' }, 400)
+
+    await client.query('BEGIN')
+    transactionStarted = true
+    const lotResult = await client.query<{
+      id: string
+      quantity: number
+      unitCost: number
+      item: string
+      unit: string
+    }>(
+      `SELECT sl.id::text,
+              sl.quantity_remaining::float8 AS quantity,
+              sl.unit_cost::float8 AS "unitCost",
+              i.name AS item,
+              loc.unit_type AS unit
+       FROM stock_lots sl
+       JOIN ingredients i ON i.id = sl.ingredient_id
+       JOIN storage_locations loc ON loc.id = sl.storage_location_id
+       WHERE sl.id = $1
+       FOR UPDATE OF sl`,
+      [c.req.param('id')],
+    )
+    const lot = lotResult.rows[0]
+    if (!lot) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Stock lot not found' }, 404)
+    }
+    if (Number(lot.quantity) <= 0) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Stock lot has no remaining quantity' }, 409)
+    }
+
+    const expiredResult = await client.query<{ expired: boolean }>(
+      `SELECT is_not_fresh OR expiry_date < now() AS expired FROM stock_lots WHERE id = $1`,
+      [lot.id],
+    )
+    if (!expiredResult.rows[0]?.expired) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Only expired or not-fresh stock can be disposed' }, 409)
+    }
+
+    const quantity = Number(lot.quantity)
+    const wasteCost = quantity * Number(lot.unitCost)
+    await client.query(
+      `UPDATE stock_lots SET quantity_remaining = 0, is_not_fresh = true WHERE id = $1`,
+      [lot.id],
+    )
+    await client.query(
+      `INSERT INTO stock_movements (stock_lot_id, movement_type, quantity, actor_id)
+       VALUES ($1, 'adjustment', $2, $3)`,
+      [lot.id, -quantity, actor.id],
+    )
+    const existingWaste = await client.query(
+      `UPDATE waste_records
+       SET quantity = $2, unit_cost_snapshot = $3, waste_cost = $4,
+           ai_reason = $5, status = 'confirmed', reviewed_by = $6
+       WHERE id = (
+         SELECT id FROM waste_records
+         WHERE stock_lot_id = $1 AND status = 'pending_review'
+         ORDER BY created_at DESC LIMIT 1
+       )
+       RETURNING id`,
+      [lot.id, quantity, lot.unitCost, wasteCost, reason, actor.id],
+    )
+    if (!existingWaste.rows[0]) {
+      await client.query(
+        `INSERT INTO waste_records (
+           stock_lot_id, quantity, unit_cost_snapshot, waste_cost, ai_reason, status, reviewed_by
+         ) VALUES ($1, $2, $3, $4, $5, 'confirmed', $6)`,
+        [lot.id, quantity, lot.unitCost, wasteCost, reason, actor.id],
+      )
+    }
+    await client.query(
+      `INSERT INTO system_logs (actor_id, action, details)
+       VALUES ($1, 'inventory.expired_lot_disposed', $2::jsonb)`,
+      [actor.id, JSON.stringify({ lotId: lot.id, item: lot.item, quantity, unit: lot.unit, reason, wasteCost })],
+    )
+    await client.query('COMMIT')
+    transactionStarted = false
+    return c.json({ message: 'Expired stock disposed', quantity, unit: lot.unit, wasteCost })
+  } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  } finally {
+    client.release()
+  }
 })
 
 app.post('/inventory/lots', async (c) => {
@@ -1563,6 +1861,14 @@ app.post('/customer/orders', async (c) => {
         [orderId, item.menuItemId, item.quantity]
       )
       const orderItemId = oiRes.rows[0].id
+
+      await client.query(
+        `INSERT INTO order_item_bom (order_item_id, ingredient_id, quantity_required_plates, removable)
+         SELECT $1, ingredient_id, quantity_required_plates, removable
+         FROM menu_item_ingredients
+         WHERE menu_item_id = $2`,
+        [orderItemId, item.menuItemId],
+      )
 
       if (item.removedIngredients.length > 0) {
         for (const ingredientId of item.removedIngredients) {

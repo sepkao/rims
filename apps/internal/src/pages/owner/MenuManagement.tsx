@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import type { IngredientPreset } from '../../types/ingredient'
 import MenuItemsTab from './MenuItemsTab'
@@ -10,12 +10,19 @@ export default function MenuManagement() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    apiFetch<{ ingredients: IngredientPreset[] }>('/inventory/ingredients')
+  const loadIngredients = useCallback((showLoading = false) => {
+    if (showLoading) setLoading(true)
+    return apiFetch<{ ingredients: IngredientPreset[] }>('/inventory/ingredients')
       .then((data) => setIngredients(data.ingredients))
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'Unable to load ingredients'))
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    void loadIngredients(true)
+    const polling = window.setInterval(() => void loadIngredients(), 10_000)
+    return () => window.clearInterval(polling)
+  }, [loadIngredients])
 
   return (
     <div className="w-full max-w-[1240px]">

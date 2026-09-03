@@ -18,7 +18,7 @@ const navItems: Record<Role, Array<{ to: string; label: string; icon: typeof Lay
     { to: '/staff/prep-fridge', label: 'Prep fridge', icon: Refrigerator },
     { to: '/staff/receive-lot', label: 'Receive lot', icon: PackagePlus },
     { to: '/staff/transfer-to-thaw-prep', label: 'Transfer to prep', icon: ShoppingBasket },
-    { to: '/staff/orders', label: 'Kitchen queue', icon: UtensilsCrossed },
+    { to: '/staff/orders', label: 'Kitchen queue', icon: Refrigerator },
     { to: '/staff/serving-queue', label: 'Serving queue', icon: Table2 },
   ],
   cashier: [
