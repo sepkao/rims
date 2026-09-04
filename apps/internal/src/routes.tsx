@@ -11,6 +11,9 @@ import InventoryLogsPage from './pages/owner/StockMovementHistory'
 import MenuManagementPage from './pages/owner/MenuManagement'
 import SystemLogsPage from './pages/owner/SystemLogs'
 import BuffetPricesPage from './pages/owner/QrSettings'
+import WasteReviewPage from './pages/owner/WasteReview'
+import OwnerFreezerStockPage from './pages/owner/FreezerStock'
+import OwnerPrepFridgeStockPage from './pages/owner/PrepFridgeStock'
 import UserManagementPage from './pages/owner/UserManagement'
 import AddLotPage from './pages/staff/ReceiveLot'
 import KitchenStockPage from './pages/staff/KitchenStock'
@@ -51,7 +54,10 @@ export function AppRoutes() {
           <Route path="/owner/menu" element={<RequireRole role="owner"><MenuManagementPage /></RequireRole>} />
           <Route path="/owner/users" element={<RequireRole role="owner"><UserManagementPage /></RequireRole>} />
           <Route path="/owner/history" element={<RequireRole role="owner"><InventoryLogsPage /></RequireRole>} />
+          <Route path="/owner/freezer-stock" element={<RequireRole role="owner"><OwnerFreezerStockPage /></RequireRole>} />
+          <Route path="/owner/prep-fridge-stock" element={<RequireRole role="owner"><OwnerPrepFridgeStockPage /></RequireRole>} />
           <Route path="/owner/expired" element={<RequireRole role="owner"><ExpiredGoodsPage /></RequireRole>} />
+          <Route path="/owner/waste-review" element={<RequireRole role="owner"><WasteReviewPage /></RequireRole>} />
           <Route path="/owner/system-logs" element={<RequireRole role="owner"><SystemLogsPage /></RequireRole>} />
           <Route path="/owner/settings" element={<RequireRole role="owner"><BuffetPricesPage /></RequireRole>} />
 

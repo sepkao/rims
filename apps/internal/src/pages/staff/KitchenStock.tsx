@@ -15,7 +15,7 @@ const statusClass: Record<InventoryBatch['status'], string> = {
   Expired: 'bg-[#B97861] text-white',
 }
 
-export default function KitchenStockPage({ area }: { area: 'Freezer Stock' | 'Prep Fridge' }) {
+export default function KitchenStockPage({ area, canTransfer = true }: { area: 'Freezer Stock' | 'Prep Fridge'; canTransfer?: boolean }) {
   const navigate = useNavigate()
   const { batches, loading, error } = useInventory()
   const [query, setQuery] = useState('')
@@ -87,12 +87,18 @@ export default function KitchenStockPage({ area }: { area: 'Freezer Stock' | 'Pr
         </section>
       </div>
 
-      {selectedBatch && <InventoryDetailsDialog batch={selectedBatch} onClose={() => setSelectedBatch(null)} onTransfer={() => { setSelectedBatch(null); navigate('/staff/transfer-to-thaw-prep') }} />}
+      {selectedBatch && (
+        <InventoryDetailsDialog
+          batch={selectedBatch}
+          onClose={() => setSelectedBatch(null)}
+          onTransfer={canTransfer ? () => { setSelectedBatch(null); navigate('/staff/transfer-to-thaw-prep') } : undefined}
+        />
+      )}
     </>
   )
 }
 
-function InventoryDetailsDialog({ batch, onClose, onTransfer }: { batch: InventoryBatch; onClose: () => void; onTransfer: () => void }) {
+function InventoryDetailsDialog({ batch, onClose, onTransfer }: { batch: InventoryBatch; onClose: () => void; onTransfer?: () => void }) {
   const unitValue = batch.unitValue > 0
     ? new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', maximumFractionDigits: 2 }).format(batch.unitValue)
     : '—'
@@ -117,7 +123,7 @@ function InventoryDetailsDialog({ batch, onClose, onTransfer }: { batch: Invento
         <div className="mx-6 rounded-2xl border-2 border-[#2D1B17] bg-[#F1E2CF] px-4 py-3 text-xs font-bold leading-5 text-[#60483F]">ตรวจสอบล็อตนี้ก่อนหยิบใช้ หากต้องเตรียมวัตถุดิบต่อ ให้ไปที่หน้าการโอนย้ายเพื่อดำเนินการ</div>
         <footer className="mt-6 flex flex-col-reverse gap-3 border-t-2 border-[#2D1B17] bg-[#E7C7B8] px-6 py-5 sm:flex-row sm:justify-end">
           <button type="button" onClick={onClose} className="rounded-xl border-2 border-[#2D1B17] bg-white px-5 py-2.5 text-sm font-black">ปิด</button>
-          <button type="button" onClick={onTransfer} className="rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-5 py-2.5 text-sm font-black text-white shadow-[4px_4px_0_#B97861] transition hover:-translate-y-0.5">ไปหน้าโอนย้าย →</button>
+          {onTransfer && <button type="button" onClick={onTransfer} className="rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-5 py-2.5 text-sm font-black text-white shadow-[4px_4px_0_#B97861] transition hover:-translate-y-0.5">ไปหน้าโอนย้าย →</button>}
         </footer>
       </section>
     </div>

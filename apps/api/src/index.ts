@@ -323,6 +323,135 @@ app.put('/owner/users/:id', async (c) => {
   }
 })
 
+app.get('/owner/waste-records/summary', async (c) => {
+  try {
+    // เดือนที่มีข้อมูลจริง (waste_records ที่ confirmed แล้วเท่านั้น) เอาไว้ทำ dropdown เลือกเดือนฝั่ง frontend
+    const monthsResult = await pool.query<{ month: string }>(
+      `SELECT DISTINCT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month
+       FROM waste_records
+       WHERE status = 'confirmed'
+       ORDER BY month DESC`,
+    )
+    const availableMonths = monthsResult.rows.map((row) => row.month)
+
+    const requestedMonth = c.req.query('month')
+    const isValidMonth = requestedMonth && /^\d{4}-\d{2}$/.test(requestedMonth)
+    // ถ้าไม่ระบุเดือน (หรือระบุมาไม่ถูกฟอร์แมต) ใช้เดือนล่าสุดที่มีข้อมูลจริงเป็นค่าเริ่มต้น ไม่ใช่เดือนปัจจุบันเสมอไป
+    // เพราะเดือนปัจจุบันอาจยังไม่มี waste_records ที่ confirmed เลยสักแถว
+    const month = isValidMonth ? requestedMonth : (availableMonths[0] ?? new Date().toISOString().slice(0, 7))
+
+    const summaryResult = await pool.query<{ lossValue: string; itemsForDisposal: string }>(
+      `SELECT COALESCE(SUM(waste_cost), 0) AS "lossValue", COUNT(*) AS "itemsForDisposal"
+       FROM waste_records
+       WHERE status = 'confirmed' AND to_char(date_trunc('month', created_at), 'YYYY-MM') = $1`,
+      [month],
+    )
+
+    return c.json({
+      month,
+      availableMonths,
+      lossValue: Number(summaryResult.rows[0].lossValue),
+      itemsForDisposal: Number(summaryResult.rows[0].itemsForDisposal),
+    })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 500)
+  }
+})
+
+// รันกฎ rule-based ตรวจของเสีย (flag_waste_candidates() ใน DB — ใกล้หมดอายุ 2 วัน + ไม่มีการเคลื่อนไหว 3 วัน)
+// แล้วเติมแถวใหม่เข้า waste_records (status='pending_review') ให้ Owner มาตรวจต่อ — ไม่มี AI จริง เป็น SQL ล้วนๆ ตามที่ล็อกไว้ (รอบ 10)
+app.post('/owner/waste-records/scan', async (c) => {
+  try {
+    const before = await pool.query<{ count: string }>(`SELECT COUNT(*) FROM waste_records WHERE status = 'pending_review'`)
+    await pool.query('SELECT flag_waste_candidates()')
+    const after = await pool.query<{ count: string }>(`SELECT COUNT(*) FROM waste_records WHERE status = 'pending_review'`)
+    return c.json({ newlyFlagged: Number(after.rows[0].count) - Number(before.rows[0].count) })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 500)
+  }
+})
+
+app.get('/owner/waste-records', async (c) => {
+  try {
+    const status = c.req.query('status') || 'pending_review'
+    const result = await pool.query(
+      `SELECT wr.id::text,
+              wr.quantity::float8,
+              wr.unit_cost_snapshot::float8 AS "unitCostSnapshot",
+              wr.waste_cost::float8 AS "wasteCost",
+              wr.ai_reason AS "aiReason",
+              wr.status,
+              wr.created_at AS "createdAt",
+              i.name AS "ingredientName",
+              loc.name AS "storageName",
+              loc.unit_type AS unit,
+              sl.expiry_date AS "expiryDate"
+       FROM waste_records wr
+       JOIN stock_lots sl ON sl.id = wr.stock_lot_id
+       JOIN ingredients i ON i.id = sl.ingredient_id
+       JOIN storage_locations loc ON loc.id = sl.storage_location_id
+       WHERE wr.status = $1
+       ORDER BY wr.created_at ASC`,
+      [status],
+    )
+    return c.json({ wasteRecords: result.rows })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 500)
+  }
+})
+
+app.put('/owner/waste-records/:id', async (c) => {
+  const client = await pool.connect()
+  try {
+    const id = c.req.param('id')
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+
+    const body = await c.req.json<{ status?: 'confirmed' | 'rejected' }>()
+    if (body.status !== 'confirmed' && body.status !== 'rejected') {
+      return c.json({ error: 'status must be confirmed or rejected' }, 400)
+    }
+
+    await client.query('BEGIN')
+    // WHERE status='pending_review' กันไม่ให้ตรวจซ้ำแถวที่ถูกตัดสินไปแล้ว (กด confirm/reject ซ้ำ)
+    const updated = await client.query<{ stockLotId: string; quantity: string }>(
+      `UPDATE waste_records
+       SET status = $1, reviewed_by = $2
+       WHERE id = $3 AND status = 'pending_review'
+       RETURNING stock_lot_id AS "stockLotId", quantity`,
+      [body.status, actor.id, id],
+    )
+    if (!updated.rows[0]) {
+      await client.query('ROLLBACK')
+      return c.json({ error: 'Waste record not found or already reviewed' }, 409)
+    }
+
+    if (body.status === 'confirmed') {
+      const { stockLotId, quantity } = updated.rows[0]
+      // ยืนยันว่าเป็นของเสียแล้ว = ทิ้งทั้งล็อต ตัด quantity_remaining เหลือ 0 ทันที
+      await client.query(`UPDATE stock_lots SET quantity_remaining = 0 WHERE id = $1`, [stockLotId])
+      // movement_type ใช้ 'adjustment' (ไม่ใช่ 'deduction') เพราะ 'deduction' ผูกกับการตัดสต็อกจากออเดอร์ลูกค้าเท่านั้น
+      // (ใช้คำนวณ COGS ใน get_weekly_cost_profit_report()) — ของเสียไม่ใช่ยอดขาย ต้องแยกกันไม่ให้ปนกัน
+      await client.query(
+        `INSERT INTO stock_movements (stock_lot_id, movement_type, quantity, actor_id) VALUES ($1, 'adjustment', $2, $3)`,
+        [stockLotId, -Number(quantity), actor.id],
+      )
+    }
+
+    await client.query('COMMIT')
+    return c.json({ message: `Waste record ${body.status}` })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  } finally {
+    client.release()
+  }
+})
+
 app.get('/owner/system-logs', async (c) => {
   const requestedLimit = Number(c.req.query('limit') ?? 100)
   const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 500) : 100
@@ -933,143 +1062,6 @@ app.post('/customer/start-timer', async (c) => {
   } catch (error) {
     console.error(error);
     return c.json({ error: 'Unable to start timer' }, 500);
-  }
-})
-
-app.get('/inventory/ingredients', async (c) => {
-  const result = await pool.query(
-    `SELECT id::text, name, category, default_portion_size_kg::float8 AS "defaultPortionSizeKg"
-     FROM ingredients
-     ORDER BY name`,
-  )
-  return c.json({ ingredients: result.rows })
-})
-
-app.get('/inventory/lots', async (c) => {
-  const result = await pool.query(
-    `SELECT sl.id::text,
-            i.name AS item,
-            CASE i.category WHEN 'meat' THEN 'Meat' ELSE 'Vegetable' END AS category,
-            'LOT-' || sl.id AS batch,
-            sl.quantity_remaining::float8 AS quantity,
-            loc.unit_type AS unit,
-            lh.received_at AS "receivedAt",
-            sl.expiry_date AS "expiryDate",
-            sl.unit_cost::float8 AS "unitCost",
-            (sl.quantity_remaining * sl.unit_cost)::float8 AS "unitValue",
-            loc.name AS location,
-            CASE
-              WHEN sl.is_not_fresh OR sl.expiry_date < now() THEN 'Expired'
-              WHEN sl.expiry_date <= now() + interval '3 days' THEN 'Expiring Soon'
-              ELSE 'Fresh'
-            END AS status
-     FROM stock_lots sl
-     JOIN ingredients i ON i.id = sl.ingredient_id
-     JOIN storage_locations loc ON loc.id = sl.storage_location_id
-     JOIN lot_headers lh ON lh.id = sl.lot_header_id
-     ORDER BY sl.expiry_date, sl.created_at`,
-  )
-  return c.json({ lots: result.rows })
-})
-
-app.post('/inventory/lots', async (c) => {
-  const client = await pool.connect()
-  try {
-    const actor = await getSessionUser(c)
-    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
-
-    const body = await c.req.json<{
-      item?: string
-      category?: 'Meat' | 'Vegetable'
-      quantity?: number
-      unit?: string
-      receivedAt?: string
-      expiryDate?: string
-      unitCost?: number
-    }>()
-    const item = body.item?.trim()
-    const quantity = Number(body.quantity)
-    const unitCost = Number(body.unitCost)
-    if (!item || !body.category || !body.expiryDate || !Number.isFinite(quantity) || quantity <= 0) {
-      return c.json({ error: 'Item, category, positive quantity and expiry date are required' }, 400)
-    }
-    if (!Number.isFinite(unitCost) || unitCost < 0) {
-      return c.json({ error: 'Unit cost must be zero or greater' }, 400)
-    }
-
-    const category = body.category === 'Meat' ? 'meat' : 'vegetable'
-    const defaultPortionSizeKg = category === 'meat' ? 0.1 : 0.05
-    const normalizedUnit = body.unit?.trim().toLowerCase()
-    if (category === 'meat' && normalizedUnit !== 'kg') {
-      return c.json({ error: 'Meat must be received in kg' }, 400)
-    }
-    if (category === 'vegetable' && normalizedUnit !== 'kg' && normalizedUnit !== 'plate' && normalizedUnit !== 'plates') {
-      return c.json({ error: 'Vegetables must be received in kg or plates' }, 400)
-    }
-
-    const storageName = category === 'meat' ? 'Freezer' : 'ตู้พักละลาย'
-    const storedQuantity = category === 'vegetable' && normalizedUnit === 'kg'
-      ? Math.floor(quantity / defaultPortionSizeKg)
-      : quantity
-    if (storedQuantity <= 0) return c.json({ error: 'Quantity is too small to create one plate' }, 400)
-
-    await client.query('BEGIN')
-    const existingIngredient = await client.query(
-      `SELECT id, category FROM ingredients WHERE lower(name) = lower($1) LIMIT 1`,
-      [item],
-    )
-    let ingredientId: string
-    if (existingIngredient.rows[0]) {
-      if (existingIngredient.rows[0].category !== category) {
-        throw new Error('Ingredient already exists with a different category')
-      }
-      ingredientId = String(existingIngredient.rows[0].id)
-    } else {
-      const insertedIngredient = await client.query(
-        `INSERT INTO ingredients (name, category, default_portion_size_kg)
-         VALUES ($1, $2, $3)
-         RETURNING id`,
-        [item, category, defaultPortionSizeKg],
-      )
-      ingredientId = String(insertedIngredient.rows[0].id)
-    }
-
-    const storageResult = await client.query(`SELECT id FROM storage_locations WHERE name = $1`, [storageName])
-    if (!storageResult.rows[0]) throw new Error(`Storage location ${storageName} is missing`)
-
-    const headerResult = await client.query(
-      `INSERT INTO lot_headers (received_at, received_by)
-       VALUES (COALESCE($1::timestamptz, now()), $2)
-       RETURNING id`,
-      [body.receivedAt || null, actor.id],
-    )
-    const lotResult = await client.query(
-      `INSERT INTO stock_lots (
-         lot_header_id, ingredient_id, storage_location_id,
-         quantity_original, quantity_remaining, unit_cost, expiry_date
-       )
-       VALUES ($1, $2, $3, $4, $4, $5, $6)
-       RETURNING id`,
-      [headerResult.rows[0].id, ingredientId, storageResult.rows[0].id, storedQuantity, unitCost, body.expiryDate],
-    )
-    await client.query(
-      `INSERT INTO stock_movements (stock_lot_id, movement_type, quantity, actor_id)
-       VALUES ($1, 'intake', $2, $3)`,
-      [lotResult.rows[0].id, storedQuantity, actor.id],
-    )
-    await client.query(
-      `INSERT INTO system_logs (actor_id, action, details)
-       VALUES ($1, 'inventory.lot_received', $2::jsonb)`,
-      [actor.id, JSON.stringify({ lotId: String(lotResult.rows[0].id), item, quantity: storedQuantity, storageName })],
-    )
-    await client.query('COMMIT')
-    return c.json({ id: String(lotResult.rows[0].id) }, 201)
-  } catch (error) {
-    await client.query('ROLLBACK')
-    console.error(error)
-    return c.json({ error: errorMessage(error) }, 400)
-  } finally {
-    client.release()
   }
 })
 
