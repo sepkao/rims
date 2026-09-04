@@ -2,10 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import type { IngredientPreset } from '../../types/ingredient'
 import MenuItemsTab from './MenuItemsTab'
-import PortionPresetsTab from './PortionPresetsTab'
 
 export default function MenuManagement() {
-  const [tab, setTab] = useState<'items' | 'presets'>('items')
   const [ingredients, setIngredients] = useState<IngredientPreset[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -31,26 +29,12 @@ export default function MenuManagement() {
         <div className="relative max-w-3xl">
           <span className="inline-flex rotate-[-2deg] rounded-full border-2 border-[#2D1B17] bg-[#FFF8EF] px-3 py-1 text-[10px] font-black uppercase tracking-[.16em] shadow-[2px_2px_0_#2D1B17]">Owner settings ✦</span>
           <h1 className="mt-5 text-4xl font-black tracking-[-.035em] sm:text-5xl">จัดการเมนู</h1>
-          <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-[#563128]">สร้าง/แก้ไขเมนูอาหาร กำหนดวัตถุดิบที่ใช้ (BOM) และตั้งค่า preset ปริมาณต่อถาดของวัตถุดิบแต่ละชนิด</p>
+          <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-[#563128]">สร้าง/แก้ไขเมนูอาหาร และกำหนดวัตถุดิบที่ใช้ (BOM) ส่วนข้อมูลวัตถุดิบทั้งหมดจัดการได้จากหน้า Ingredient settings</p>
         </div>
       </header>
 
-      <div className="mb-6 inline-flex rounded-2xl border-2 border-[#2D1B17] bg-white p-1 shadow-[4px_4px_0_#2D1B17]">
-        <button type="button" onClick={() => setTab('items')} className={`rounded-xl px-5 py-2.5 text-sm font-black transition ${tab === 'items' ? 'bg-[#2D1B17] text-white' : 'text-[#2D1B17]'}`}>
-          เมนูอาหาร + BOM
-        </button>
-        <button type="button" onClick={() => setTab('presets')} className={`rounded-xl px-5 py-2.5 text-sm font-black transition ${tab === 'presets' ? 'bg-[#2D1B17] text-white' : 'text-[#2D1B17]'}`}>
-          Preset ปริมาณต่อถาด
-        </button>
-      </div>
-
       {error && <div className="mb-5 rounded-2xl border-2 border-red-700 bg-red-50 px-5 py-4 text-sm font-bold text-red-700">{error}</div>}
-
-      {tab === 'items' ? (
-        <MenuItemsTab ingredients={ingredients} onError={setError} />
-      ) : (
-        <PortionPresetsTab ingredients={ingredients} loading={loading} setIngredients={setIngredients} onError={setError} />
-      )}
+      {loading && ingredients.length === 0 ? <div className="rounded-2xl border-2 border-[#2D1B17] bg-white px-6 py-10 text-center text-sm font-bold">กำลังโหลดวัตถุดิบ…</div> : <MenuItemsTab ingredients={ingredients} onError={setError} />}
     </div>
   )
 }

@@ -1160,7 +1160,7 @@ app.post('/owner/menu-items', async (c) => {
     await client.query('BEGIN')
     transactionStarted = true
     const existing = await client.query<{ id: string }>(
-      'SELECT id::text FROM ingredients WHERE id = ANY($1::bigint[])',
+      'SELECT id::text FROM ingredients WHERE id = ANY($1::bigint[]) AND is_active = true',
       [[...ingredientIds]],
     )
     if (existing.rows.length !== lines.length) throw new Error('One or more ingredients do not exist')
@@ -1315,11 +1315,120 @@ app.delete('/owner/menu-items/:id/ingredients/:ingredientId', async (c) => {
   }
 })
 
+app.get('/owner/ingredients', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    if (actor.role !== 'owner') return c.json({ error: 'Only owners can manage ingredients' }, 403)
+
+    const result = await pool.query(
+      `SELECT i.id::text, i.name, i.category,
+              i.default_portion_size_kg::float8 AS "defaultPortionSizeKg",
+              i.thaw_prep_threshold_plates AS "thawPrepThresholdPlates",
+              i.is_active AS "isActive",
+              COALESCE(prep.available_plates, 0)::float8 AS "prepAvailablePlates"
+       FROM ingredients i
+       LEFT JOIN LATERAL (
+         SELECT SUM(sl.quantity_remaining) AS available_plates
+         FROM stock_lots sl
+         JOIN storage_locations loc ON loc.id = sl.storage_location_id
+         WHERE sl.ingredient_id = i.id
+           AND loc.name = 'ตู้พักละลาย'
+           AND sl.is_not_fresh = false
+           AND sl.expiry_date > now()
+       ) prep ON true
+       ORDER BY i.is_active DESC, i.name`,
+    )
+    return c.json({ ingredients: result.rows })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
+app.put('/owner/ingredients/:id', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    if (actor.role !== 'owner') return c.json({ error: 'Only owners can manage ingredients' }, 403)
+
+    const body = await c.req.json<{
+      name?: string
+      defaultPortionSizeKg?: number
+      thawPrepThresholdPlates?: number
+      isActive?: boolean
+    }>()
+    const name = body.name?.trim().replace(/\s+/g, ' ')
+    const portionSize = Number(body.defaultPortionSizeKg)
+    const threshold = Number(body.thawPrepThresholdPlates)
+    if (!name || name.length > 120) return c.json({ error: 'Ingredient name is required and must not exceed 120 characters' }, 400)
+    if (!Number.isFinite(portionSize) || portionSize < 0.001 || portionSize > 9.999) return c.json({ error: 'Portion size must be between 0.001 and 9.999 kg' }, 400)
+    if (!Number.isSafeInteger(threshold) || threshold < 0 || threshold > 100000) return c.json({ error: 'Prep threshold must be a whole number between 0 and 100,000 plates' }, 400)
+    if (typeof body.isActive !== 'boolean') return c.json({ error: 'Active status is required' }, 400)
+
+    const current = await pool.query<{ name: string; isActive: boolean }>(
+      `SELECT name, is_active AS "isActive" FROM ingredients WHERE id = $1`,
+      [c.req.param('id')],
+    )
+    if (!current.rows[0]) return c.json({ error: 'Ingredient not found' }, 404)
+
+    const duplicate = await pool.query(
+      `SELECT id FROM ingredients WHERE lower(name) = lower($1) AND id <> $2`,
+      [name, c.req.param('id')],
+    )
+    if (duplicate.rows[0]) return c.json({ error: 'Ingredient name already exists' }, 409)
+
+    if (!body.isActive && current.rows[0].isActive) {
+      const activeMenu = await pool.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count
+         FROM menu_item_ingredients mii
+         JOIN menu_items mi ON mi.id = mii.menu_item_id
+         WHERE mii.ingredient_id = $1 AND mi.is_active = true`,
+        [c.req.param('id')],
+      )
+      if (Number(activeMenu.rows[0]?.count ?? 0) > 0) {
+        return c.json({ error: 'Cannot archive an ingredient used by an active menu. Remove it from the menu BOM or disable that menu first.' }, 409)
+      }
+    }
+
+    const result = await pool.query(
+      `UPDATE ingredients
+       SET name = $1,
+           default_portion_size_kg = $2,
+           thaw_prep_threshold_plates = $3,
+           is_active = $4
+       WHERE id = $5
+       RETURNING id::text, name, category,
+                 default_portion_size_kg::float8 AS "defaultPortionSizeKg",
+                 thaw_prep_threshold_plates AS "thawPrepThresholdPlates",
+                 is_active AS "isActive"`,
+      [name, portionSize, threshold, body.isActive, c.req.param('id')],
+    )
+    await pool.query(
+      `INSERT INTO system_logs (actor_id, action, details)
+       VALUES ($1, 'ingredient.settings_updated', $2::jsonb)`,
+      [actor.id, JSON.stringify({
+        ingredientId: c.req.param('id'),
+        previousName: current.rows[0].name,
+        name,
+        defaultPortionSizeKg: portionSize,
+        thawPrepThresholdPlates: threshold,
+        isActive: body.isActive,
+      })],
+    )
+    return c.json({ ingredient: result.rows[0] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
 app.get('/inventory/ingredients', async (c) => {
   const result = await pool.query(
     `SELECT id::text, name, category,
             default_portion_size_kg::float8 AS "defaultPortionSizeKg",
             thaw_prep_threshold_plates AS "thawPrepThresholdPlates",
+            is_active AS "isActive",
             COALESCE(prep.available_plates, 0)::float8 AS "prepAvailablePlates"
      FROM ingredients i
      LEFT JOIN LATERAL (
@@ -1331,6 +1440,7 @@ app.get('/inventory/ingredients', async (c) => {
          AND sl.is_not_fresh = false
          AND sl.expiry_date > now()
      ) prep ON true
+     WHERE i.is_active = true
      ORDER BY i.name`,
   )
   return c.json({ ingredients: result.rows })
@@ -1353,7 +1463,8 @@ app.post('/inventory/ingredients', async (c) => {
       `INSERT INTO ingredients (name, category, default_portion_size_kg)
        VALUES ($1, $2, $3)
        RETURNING id::text, name, category, default_portion_size_kg::float8 AS "defaultPortionSizeKg",
-                 thaw_prep_threshold_plates AS "thawPrepThresholdPlates", 0::float8 AS "prepAvailablePlates"`,
+                 thaw_prep_threshold_plates AS "thawPrepThresholdPlates", is_active AS "isActive",
+                 0::float8 AS "prepAvailablePlates"`,
       [name, category, portionSize],
     )
     await pool.query(
@@ -1394,6 +1505,94 @@ app.put('/inventory/ingredients/:id/portion-preset', async (c) => {
       [actor.id, JSON.stringify({ ingredientId: c.req.param('id'), defaultPortionSizeKg: value })],
     )
     return c.json({ ingredient: result.rows[0] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
+app.put('/inventory/ingredients/:id/prep-threshold', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    if (actor.role !== 'owner') return c.json({ error: 'Only owners can update Prep thresholds' }, 403)
+
+    const value = Number((await c.req.json<{ thawPrepThresholdPlates?: number }>()).thawPrepThresholdPlates)
+    if (!Number.isSafeInteger(value) || value < 0 || value > 100000) {
+      return c.json({ error: 'Prep threshold must be a whole number between 0 and 100,000 plates' }, 400)
+    }
+
+    const result = await pool.query(
+      `UPDATE ingredients
+       SET thaw_prep_threshold_plates = $1
+       WHERE id = $2
+       RETURNING id::text, name, category,
+                 default_portion_size_kg::float8 AS "defaultPortionSizeKg",
+                 thaw_prep_threshold_plates AS "thawPrepThresholdPlates"`,
+      [value, c.req.param('id')],
+    )
+    if (!result.rows[0]) return c.json({ error: 'Ingredient not found' }, 404)
+
+    await pool.query(
+      `INSERT INTO system_logs (actor_id, action, details)
+       VALUES ($1, 'ingredient.prep_threshold_updated', $2::jsonb)`,
+      [actor.id, JSON.stringify({ ingredientId: c.req.param('id'), thawPrepThresholdPlates: value })],
+    )
+    return c.json({ ingredient: result.rows[0] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
+app.get('/staff/prep-alerts', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    if (actor.role !== 'staff') return c.json({ error: 'Only staff can view Prep alerts' }, 403)
+
+    const result = await pool.query(
+      `SELECT i.id::text AS "ingredientId",
+              i.name AS "ingredientName",
+              i.thaw_prep_threshold_plates AS "thresholdPlates",
+              COALESCE(prep.available_plates, 0)::float8 AS "availablePlates",
+              GREATEST(i.thaw_prep_threshold_plates - COALESCE(prep.available_plates, 0), 0)::float8 AS "shortagePlates",
+              i.default_portion_size_kg::float8 AS "portionSizeKg",
+              (GREATEST(i.thaw_prep_threshold_plates - COALESCE(prep.available_plates, 0), 0)
+                * i.default_portion_size_kg)::float8 AS "recommendedTransferKg",
+              COALESCE(freezer.available_kg, 0)::float8 AS "freezerAvailableKg"
+       FROM ingredients i
+       LEFT JOIN LATERAL (
+         SELECT SUM(sl.quantity_remaining) AS available_plates
+         FROM stock_lots sl
+         JOIN storage_locations loc ON loc.id = sl.storage_location_id
+         WHERE sl.ingredient_id = i.id
+           AND loc.name = 'ตู้พักละลาย'
+           AND sl.is_not_fresh = false
+           AND sl.expiry_date > now()
+       ) prep ON true
+       LEFT JOIN LATERAL (
+         SELECT SUM(sl.quantity_remaining) AS available_kg
+         FROM stock_lots sl
+         JOIN storage_locations loc ON loc.id = sl.storage_location_id
+         WHERE sl.ingredient_id = i.id
+           AND loc.name = 'Freezer'
+           AND sl.is_not_fresh = false
+           AND sl.expiry_date > now()
+       ) freezer ON true
+       WHERE i.category = 'meat'
+         AND i.is_active = true
+         AND i.thaw_prep_threshold_plates IS NOT NULL
+         AND COALESCE(prep.available_plates, 0) < i.thaw_prep_threshold_plates
+       ORDER BY COALESCE(prep.available_plates, 0) ASC, i.name ASC`,
+    )
+
+    return c.json({
+      alerts: result.rows.map((row) => ({
+        ...row,
+        severity: Number(row.availablePlates) === 0 ? 'critical' : 'low',
+      })),
+    })
   } catch (error) {
     console.error(error)
     return c.json({ error: errorMessage(error) }, 400)

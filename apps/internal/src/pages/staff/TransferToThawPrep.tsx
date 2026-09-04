@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useInventory } from '../../contexts/InventoryContext'
 import { apiFetch } from '../../lib/api'
+import { useSearchParams } from 'react-router-dom'
 import type { IngredientPreset } from '../../types/ingredient'
 import type { InventoryBatch } from '../../types/inventory'
 
@@ -26,11 +27,12 @@ function quantityMilliKg(batch: InventoryBatch) {
 }
 
 export default function TransferStocksPage() {
+  const [searchParams] = useSearchParams()
   const { batches, loading: inventoryLoading, error: inventoryError, refresh } = useInventory()
   const [ingredients, setIngredients] = useState<IngredientPreset[]>([])
   const [presetLoading, setPresetLoading] = useState(true)
   const [presetError, setPresetError] = useState('')
-  const [selectedIngredientId, setSelectedIngredientId] = useState('')
+  const [selectedIngredientId, setSelectedIngredientId] = useState(() => searchParams.get('ingredient') ?? '')
   const [quantity, setQuantity] = useState('')
   const [trayQuantity, setTrayQuantity] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -60,6 +62,7 @@ export default function TransferStocksPage() {
     }
 
     return [...grouped.values()]
+      .filter((ingredient) => ingredients.some((preset) => preset.id === ingredient.id && preset.isActive !== false))
       .map((ingredient) => ({
         ...ingredient,
         lots: ingredient.lots.sort((a, b) => (
@@ -69,7 +72,7 @@ export default function TransferStocksPage() {
         )),
       }))
       .sort((a, b) => a.name.localeCompare(b.name, 'th'))
-  }, [batches])
+  }, [batches, ingredients])
 
   const selectedIngredient = freezerIngredients.find((ingredient) => ingredient.id === selectedIngredientId)
   const selectedPreset = ingredients.find((ingredient) => ingredient.id === selectedIngredientId)

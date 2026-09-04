@@ -1,6 +1,6 @@
 function getApiBaseUrl(): string {
   const envUrl = import.meta.env.VITE_API_URL
-  if (import.meta.env.PROD && envUrl) {
+  if (envUrl) {
     return envUrl
   }
   if (typeof window !== 'undefined' && window.location.hostname) {
