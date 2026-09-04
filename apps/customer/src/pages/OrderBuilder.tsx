@@ -1,50 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
 import { useCart, type MenuItem } from '../lib/CartContext';
+import { customerQuery, type CustomerSession } from '../lib/customer-session';
+import QrExpiryBanner from '../components/QrExpiryBanner';
+import { AlertCircle, ArrowLeft, Check, Minus, Plus, UtensilsCrossed } from 'lucide-react';
 
-const Icons = {
-  ArrowLeft: () => (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="19" y1="12" x2="5" y2="12"></line>
-      <polyline points="12 19 5 12 12 5"></polyline>
-    </svg>
-  ),
-  Minus: () => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="5" y1="12" x2="19" y2="12"></line>
-    </svg>
-  ),
-  Plus: () => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="5" x2="12" y2="19"></line>
-      <line x1="5" y1="12" x2="19" y2="12"></line>
-    </svg>
-  ),
-  Alert: () => (
-    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10"></circle>
-      <line x1="12" y1="8" x2="12" y2="12"></line>
-      <line x1="12" y1="16" x2="12.01" y2="16"></line>
-    </svg>
-  )
-};
-
-const mockImages = [
-  "https://images.unsplash.com/photo-1600891964092-4316c288032e?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1577640905050-83665af216b9?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1599084993091-1cb5c0721cc6?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1591071477751-248358d7c4e5?q=80&w=400&auto=format&fit=crop"
-];
+type AvailableMenuItem = MenuItem & { availableServings: number };
 
 export default function OrderBuilder() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { addItem } = useCart();
+  const { items: cartItems, addItem } = useCart();
   
-  const [item, setItem] = useState<MenuItem | null>(null);
+  const [item, setItem] = useState<AvailableMenuItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
@@ -52,7 +21,7 @@ export default function OrderBuilder() {
   const [showConfirm, setShowConfirm] = useState(false);
   
   const [removedIngredients, setRemovedIngredients] = useState<string[]>([]);
-  const [session, setSession] = useState<{ startedAt: string, expiresAt: string } | null>(null);
+  const [session, setSession] = useState<CustomerSession | null>(null);
   const [isExpired, setIsExpired] = useState(false);
 
   useEffect(() => {
@@ -64,182 +33,254 @@ export default function OrderBuilder() {
     return () => clearInterval(interval);
   }, [session]);
 
-  useEffect(() => {
-    apiFetch<{ menuItems: MenuItem[] }>('/menu-items')
-      .then((data) => {
-        const found = data.menuItems.find(i => i.id === id);
-        if (found) {
-          setItem(found);
-        } else {
-          setError('ไม่พบเมนูนี้');
-        }
+  const loadItem = useCallback(() => {
+    setLoading(true);
+    setError('');
+    let query: string;
+    try {
+      query = customerQuery();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'ไม่พบ QR session');
+      setLoading(false);
+      return;
+    }
+    Promise.all([
+      apiFetch<{ menuItem: AvailableMenuItem }>(`/customer/menu-items/${id}${query}`),
+      apiFetch<{ session: CustomerSession }>(`/customer/session${query}`),
+    ])
+      .then(([itemData, sessionData]) => {
+        setItem(itemData.menuItem);
+        setSession(sessionData.session);
+        setIsExpired(sessionData.session.status === 'expired' || new Date(sessionData.session.expiresAt).getTime() <= Date.now());
       })
-      .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดข้อมูลไม่สำเร็จ'))
+      .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดเมนูไม่สำเร็จ'))
       .finally(() => setLoading(false));
-
-    fetch('http://localhost:3000/customer/session?table_session_id=1')
-      .then(res => res.json())
-      .then(data => {
-        if (data.session) setSession(data.session);
-      }).catch(console.error);
   }, [id]);
+
+  useEffect(() => {
+    loadItem();
+  }, [loadItem]);
 
   const handleToggleIngredient = (ingredientId: string) => {
     setRemovedIngredients(prev => 
-      prev.includes(ingredientId) ? prev.filter(i => i !== ingredientId) : [...prev, ingredientId]
+      prev.includes(ingredientId) 
+        ? prev.filter(i => i !== ingredientId)
+        : [...prev, ingredientId]
     );
   };
 
   const handleConfirmOrder = () => {
-    if (item) {
-      addItem({
-        menuItem: item,
-        quantity: qty,
-        removedIngredients
-      });
-      navigate('/order');
-    }
+    if (!item) return;
+    addItem({
+      menuItem: item,
+      quantity: qty,
+      removedIngredients: removedIngredients
+    });
+    navigate('/order');
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-[#EAE5DF] flex justify-center items-center font-sans font-bold text-[#7B726B]">กำลังโหลด...</div>;
+    return (
+      <div className="min-h-screen bg-[#F2ECE4] flex justify-center">
+        <div className="w-full max-w-[430px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center shadow-2xl border-x-2 border-[#2D1B17]">
+          <div className="w-12 h-12 border-4 border-[#EAE5DF] border-t-[#B97861] rounded-full animate-spin mb-4"></div>
+          <p className="text-xs font-black text-[#2D1B17]">กำลังโหลดรายละเอียดเมนู…</p>
+        </div>
+      </div>
+    );
   }
 
   if (error || !item) {
     return (
-      <div className="min-h-screen bg-[#EAE5DF] flex flex-col justify-center items-center font-sans">
-        <div className="text-red-500 font-bold mb-4">{error}</div>
-        <button onClick={() => navigate('/order')} className="bg-[#5A403E] text-white rounded-lg px-6 py-2 font-bold">กลับไปหน้าเมนู</button>
+      <div className="min-h-screen bg-[#F2ECE4] flex justify-center">
+        <div className="w-full max-w-[430px] bg-[#FDFBF7] h-screen flex flex-col justify-center items-center p-6 text-center shadow-2xl border-x-2 border-[#2D1B17]">
+          <div className="bg-red-100 border-2 border-red-600 p-4 rounded-2xl mb-4 text-red-700 shadow-[3px_3px_0_#DC2626]">
+            <AlertCircle size={32} />
+          </div>
+          <h2 className="text-lg font-black text-[#2D1B17] mb-2">ไม่พบเมนูอาหาร</h2>
+          <p className="text-xs text-[#7B726B] font-semibold mb-6">{error || 'เมนูนี้อาจหมดหรือไม่มีในระบบ'}</p>
+          <div className="flex gap-2.5">
+            <button onClick={loadItem} className="shabu-btn-primary px-5 py-2.5 text-xs">ลองใหม่</button>
+            <button onClick={() => navigate('/order')} className="shabu-btn-secondary px-5 py-2.5 text-xs">กลับหน้าเมนู</button>
+          </div>
+        </div>
       </div>
     );
   }
-  
-  const itemIndex = item.id.charCodeAt(0) % mockImages.length;
-  const imgUrl = mockImages[itemIndex];
+
+  const existingQuantity = cartItems
+    .filter((cartItem) => cartItem.menuItem.id === item.id)
+    .reduce((total, cartItem) => total + cartItem.quantity, 0);
+  const remainingServings = Math.max(0, item.availableServings - existingQuantity);
 
   return (
-    <div className="min-h-screen bg-[#EAE5DF] flex justify-center font-sans">
-      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative shadow-xl overflow-hidden">
+    <div className="min-h-screen bg-[#F2ECE4] flex justify-center">
+      <div className="w-full max-w-[430px] bg-[#FDFBF7] h-screen flex flex-col relative shadow-2xl border-x-2 border-[#2D1B17] overflow-hidden">
         
-        {/* --- Header แบบโปร่งใสทับรูป --- */}
-        <div className="absolute top-0 w-full p-4 z-20 flex justify-between items-center">
-          <button onClick={() => navigate(-1)} className="p-2 bg-white/90 backdrop-blur-md text-[#302221] hover:bg-white rounded-full shadow-sm transition-colors">
-            <Icons.ArrowLeft />
+        {/* Floating Back Button */}
+        <div className="absolute top-3.5 left-3.5 z-30">
+          <button 
+            type="button"
+            onClick={() => navigate(-1)} 
+            className="w-10 h-10 bg-white/95 backdrop-blur-md text-[#2D1B17] hover:bg-white rounded-xl border-2 border-[#2D1B17] shadow-[2px_2px_0_#2D1B17] flex items-center justify-center active:translate-y-0.5 transition-all"
+            title="ย้อนกลับ"
+          >
+            <ArrowLeft size={18} strokeWidth={2.5} />
           </button>
         </div>
 
-        {/* --- รูปภาพอาหาร --- */}
-        <div className="h-[40%] shrink-0 relative bg-[#F4EFEA] border-b border-[#EAE5DF]">
-          <img src={imgUrl} alt={item.name} className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
-          <div className="absolute bottom-5 left-5 right-5 text-white">
-            <h1 className="text-2xl font-bold">{item.name}</h1>
+        <QrExpiryBanner expiresAt={session?.expiresAt} />
+
+        {/* Dish Hero Graphic */}
+        <div className="anim-down d-1 h-[36%] shrink-0 relative bg-gradient-to-br from-[#B97861] via-[#C4845F] to-[#D9A882] border-b-2 border-[#2D1B17] flex flex-col justify-end p-5 overflow-hidden">
+          {/* Decorative Shabu Pot Icon */}
+          <div className="pointer-events-none absolute -right-6 -top-6 h-40 w-40 rounded-full border-[20px] border-white/10" />
+          <div className="pointer-events-none absolute right-4 bottom-4 opacity-15">
+            <UtensilsCrossed size={110} strokeWidth={1.5} className="text-white" />
+          </div>
+
+          <div className="relative z-10 text-white">
+            <span className="rotate-[-2deg] inline-block rounded-md border border-[#2D1B17] bg-[#FFF8EF] px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-[#2D1B17] shadow-xs mb-2">
+              ✦ สั่งแบบปรับแต่ง
+            </span>
+            <h1 className="text-2xl font-black tracking-tight drop-shadow-xs text-white leading-tight">
+              {item.name}
+            </h1>
+            <p className="text-xs font-semibold text-white/90 mt-1">
+              พร้อมเสิร์ฟ {remainingServings} ที่
+            </p>
           </div>
         </div>
 
-        {/* --- เนื้อหาปรับแต่ง --- */}
-        <div className="flex-1 overflow-y-auto pb-[100px] bg-[#FDFBF7]">
-          <div className="p-5">
-            {item.description && (
-              <p className="text-sm text-[#7B726B] leading-relaxed mb-6">
-                {item.description}
-              </p>
-            )}
+        {/* Customization Details */}
+        <div className="anim-up d-2 flex-1 overflow-y-auto p-4 pb-[105px] bg-[#FDFBF7]">
+          {item.description && (
+            <p className="text-xs text-[#7B726B] font-semibold leading-relaxed mb-4 bg-white p-3 rounded-xl border border-[#EAE5DF]">
+              {item.description}
+            </p>
+          )}
 
-            {/* ส่วนเลือกจำนวน */}
-            <div className="flex items-center justify-between py-5 border-y border-[#EAE5DF] mb-6">
-              <span className="font-bold text-[#302221]">จำนวน (ที่)</span>
-              <div className="flex items-center bg-[#F4EFEA] rounded-xl px-2 py-1.5 gap-4 shadow-sm border border-[#EAE5DF]/50">
-                <button 
-                  onClick={() => setQty(Math.max(1, qty - 1))}
-                  className="w-9 h-9 flex items-center justify-center bg-white rounded-lg border border-[#EAE5DF] text-[#302221] shadow-sm hover:bg-gray-50 transition-colors"
-                >
-                  <Icons.Minus />
-                </button>
-                <span className="font-bold text-[#302221] text-lg w-4 text-center">{qty}</span>
-                <button 
-                  onClick={() => setQty(qty + 1)}
-                  className="w-9 h-9 flex items-center justify-center bg-[#5A403E] rounded-lg text-white shadow-sm hover:bg-[#4A3432] transition-colors"
-                >
-                  <Icons.Plus />
-                </button>
-              </div>
+          {/* Stepper Card */}
+          <div className="shabu-card p-4 mb-4 flex items-center justify-between">
+            <div>
+              <p className="font-black text-xs text-[#2D1B17] uppercase tracking-wider">จำนวนที่สั่ง</p>
+              <p className="text-[11px] text-[#7B726B] font-semibold">เลือกจำนวนจาน</p>
             </div>
 
-            {/* ส่วนปรับแต่งส่วนผสม */}
-            {item.ingredients.length > 0 && (
-              <div>
-                <h3 className="font-bold text-[#302221] mb-1">ปรับแต่งส่วนผสม</h3>
-                <p className="text-xs text-[#7B726B] mb-4">สามารถเลือกไม่ใส่ส่วนผสมบางอย่างได้</p>
-                
-                <div className="space-y-3">
-                  {item.ingredients.map(ing => (
-                    <div key={ing.id} className="flex items-center justify-between p-3.5 bg-white rounded-xl border border-[#EAE5DF] shadow-sm">
-                      <span className={`text-sm font-medium ${!ing.removable ? 'text-[#302221]' : removedIngredients.includes(ing.id) ? 'text-[#999] line-through' : 'text-[#302221]'}`}>
-                        {ing.name}
-                      </span>
-                      
-                      {!ing.removable ? (
-                        <span className="text-[10px] text-[#E53E3E] bg-[#FEF2F2] px-2 py-1 rounded font-bold">ถอดไม่ได้</span>
-                      ) : (
-                        <button 
-                          onClick={() => handleToggleIngredient(ing.id)}
-                          className={`text-xs font-bold px-4 py-2 rounded-lg transition-colors border ${
-                            removedIngredients.includes(ing.id) 
-                              ? 'bg-[#FEF2F2] text-[#E53E3E] border-[#FEE2E2]' 
-                              : 'bg-white text-[#302221] border-[#EAE5DF] hover:bg-gray-50'
-                          }`}
-                        >
-                          {removedIngredients.includes(ing.id) ? 'ไม่ใส่' : 'ใส่ปกติ'}
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
+            <div className="flex items-center rounded-xl border-2 border-[#2D1B17] bg-[#FFF8EF] p-1 shadow-[2px_2px_0_#2D1B17]">
+              <button 
+                type="button"
+                onClick={() => setQty(Math.max(1, qty - 1))}
+                className="w-8 h-8 bg-white border border-[#2D1B17] rounded-lg flex items-center justify-center text-[#2D1B17] font-black shadow-xs active:translate-y-0.5"
+              >
+                <Minus size={14} strokeWidth={3} />
+              </button>
+              <span className="font-black text-[#2D1B17] text-base px-3.5 count-anim">{qty}</span>
+              <button 
+                type="button"
+                disabled={qty >= remainingServings || isExpired}
+                onClick={() => setQty(qty + 1)}
+                className="w-8 h-8 rounded-lg bg-[#B97861] border border-[#2D1B17] flex items-center justify-center text-white font-black shadow-xs active:translate-y-0.5 disabled:opacity-50"
+              >
+                <Plus size={14} strokeWidth={3} />
+              </button>
+            </div>
           </div>
+
+          {/* Ingredients Customization */}
+          {item.ingredients.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex justify-between items-center mb-1">
+                <h3 className="font-black text-xs text-[#2D1B17] uppercase tracking-wider">
+                  ปรับแต่งส่วนผสม (ไม่ใส่บางอย่าง)
+                </h3>
+                <span className="text-[10px] text-[#7B726B] font-bold">แตะเพื่อเลือก</span>
+              </div>
+              
+              <div className="space-y-2">
+                {item.ingredients.map(ing => (
+                  <div 
+                    key={ing.id} 
+                    className="p-3 bg-white rounded-xl border-2 border-[#2D1B17] shadow-[2px_2px_0_#2D1B17] flex items-center justify-between transition-all"
+                  >
+                    <span className={`text-xs font-bold ${
+                      !ing.removable 
+                        ? 'text-[#2D1B17]' 
+                        : removedIngredients.includes(ing.id) 
+                        ? 'text-[#999] line-through' 
+                        : 'text-[#2D1B17]'
+                    }`}>
+                      {ing.name}
+                    </span>
+                    
+                    {!ing.removable ? (
+                      <span className="text-[10px] text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded font-black">
+                        สูตรมาตรฐาน
+                      </span>
+                    ) : (
+                      <button 
+                        type="button"
+                        onClick={() => handleToggleIngredient(ing.id)}
+                        className={`text-xs font-black px-3 py-1.5 rounded-lg border-2 transition-all active:translate-y-0.5 ${
+                          removedIngredients.includes(ing.id) 
+                            ? 'bg-red-50 text-red-700 border-red-600 shadow-[2px_2px_0_#DC2626]' 
+                            : 'bg-[#FFF8EF] text-[#2D1B17] border-[#2D1B17] shadow-[2px_2px_0_#2D1B17]'
+                        }`}
+                      >
+                        {removedIngredients.includes(ing.id) ? '✕ ไม่ใส่' : '✓ ใส่ปกติ'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* --- ปุ่มยืนยันด้านล่าง --- */}
-        <div className="absolute bottom-0 left-0 w-full bg-white border-t border-[#EAE5DF] p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-30">
+        {/* Sticky Bottom Add Button */}
+        <div className="absolute bottom-0 left-0 w-full bg-[#FFF8EF] border-t-2 border-[#2D1B17] p-3 shadow-[0_-6px_20px_rgba(45,27,23,0.12)] z-30">
           <button 
-            disabled={isExpired}
+            type="button"
+            disabled={isExpired || remainingServings < 1}
             onClick={() => setShowConfirm(true)}
-            className={`w-full py-3.5 text-white rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-md ${isExpired ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#5A403E] hover:bg-[#4A3432]'}`}
+            className={`shabu-btn-primary w-full py-3 text-sm shadow-[3px_3px_0_#B97861] ${
+              isExpired || remainingServings < 1 ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
           >
-            {isExpired ? 'หมดเวลาสั่งอาหาร' : `เพิ่มลงตะกร้า • ${qty} ที่`}
+            {isExpired 
+              ? 'หมดเวลาสั่งอาหาร' 
+              : remainingServings < 1 
+              ? 'อาหารหมดในรอบนี้' 
+              : `+ เพิ่มลงตะกร้า • ${qty} จาน`}
           </button>
         </div>
 
-        {/* --- Modal ยืนยันคำสั่งซื้อ --- */}
+        {/* Confirm Modal */}
         {showConfirm && (
-          <div className="absolute inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl animate-in fade-in slide-in-from-bottom-8">
-              <div className="flex justify-center mb-4">
-                <div className="bg-[#FEF3C7] p-3 rounded-full text-[#D97706]">
-                  <Icons.Alert />
-                </div>
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fade-in">
+            <div className="bg-[#FDFBF7] rounded-3xl border-2 border-[#2D1B17] shadow-[8px_8px_0_#2D1B17] w-full max-w-sm p-6 text-center animate-scale-in">
+              <div className="w-12 h-12 bg-amber-100 border-2 border-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-3 text-amber-800 shadow-[2px_2px_0_#D97706]">
+                <Check size={24} strokeWidth={3} />
               </div>
-              <h2 className="text-xl font-bold text-center text-[#302221] mb-2">ยืนยันการสั่งอาหาร?</h2>
-              <p className="text-sm text-center text-[#7B726B] mb-6 leading-relaxed">
-                คุณต้องการสั่ง <span className="font-bold text-[#5A403E]">{item.name} ({qty} ที่)</span> ใช่หรือไม่?<br/>
-                <span className="text-[11px] text-[#10B981] mt-1 block">*หลังจากกดตกลง รายการจะถูกเพิ่มลงในตะกร้าของคุณ</span>
+              <h2 className="text-base font-black text-[#2D1B17] mb-1">ยืนยันใส่ตะกร้า?</h2>
+              <p className="text-xs text-[#7B726B] font-semibold mb-5 leading-relaxed">
+                ต้องการเพิ่ม <strong className="text-[#2D1B17] font-black">{item.name}</strong> จำนวน {qty} จาน ลงในตะกร้าของคุณใช่หรือไม่?
               </p>
               
-              <div className="flex gap-3">
+              <div className="flex gap-2.5">
                 <button 
+                  type="button"
                   onClick={() => setShowConfirm(false)}
-                  className="flex-1 py-3 bg-white border border-[#EAE5DF] text-[#302221] rounded-lg font-bold hover:bg-gray-50 transition-colors"
+                  className="flex-1 py-2.5 rounded-xl border-2 border-[#2D1B17] bg-white text-[#2D1B17] font-bold text-xs shadow-[2px_2px_0_#2D1B17] active:translate-y-0.5"
                 >
                   ยกเลิก
                 </button>
                 <button 
+                  type="button"
                   onClick={handleConfirmOrder}
-                  className="flex-1 py-3 bg-[#5A403E] hover:bg-[#4A3432] text-white rounded-lg font-bold transition-colors shadow-sm"
+                  className="shabu-btn-primary flex-1 py-2.5 text-xs shadow-[2px_2px_0_#B97861]"
                 >
-                  ตกลง
+                  ตกลงเพิ่ม
                 </button>
               </div>
             </div>

@@ -1,48 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch } from '../lib/api';
+import { API_BASE_URL, apiFetch } from '../lib/api';
 import CallStaffButton from '../components/CallStaffButton';
 import DevTimeTools from '../components/DevTimeTools';
 import BuffetTimer from '../components/BuffetTimer';
+import QrExpiryBanner from '../components/QrExpiryBanner';
+import { customerQuery, type CustomerSession } from '../lib/customer-session';
+import { useCart } from '../lib/CartContext';
+import { Clock, Minus, Plus, Search, ShoppingBag, UtensilsCrossed } from 'lucide-react';
 
 type MenuItem = {
   id: string;
   name: string;
   description: string | null;
+  category: string;
+  imagePath: string | null;
   ingredients: Array<{ id: string; name: string; removable: boolean }>;
+  availableServings: number;
 };
-
-import { useCart } from '../lib/CartContext';
-
-// --- Icons สำหรับฝั่งลูกค้า ---
-const Icons = {
-  Clock: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>,
-  Search: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>,
-  Fire: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="#E53E3E" stroke="#E53E3E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>,
-  ShoppingBag: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>,
-  Minus: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>,
-  Plus: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-};
-
-const categories = ["ทั้งหมด", "เนื้อวัว", "หมู", "ซีฟู้ด", "ลูกชิ้น/ผัก", "ของทานเล่น"];
-
-const guessCategory = (name: string) => {
-  if (name.includes("เนื้อ") || name.includes("วากิว") || name.includes("ริบอาย")) return "เนื้อวัว";
-  if (name.includes("หมู") || name.includes("เบคอน")) return "หมู";
-  if (name.includes("กุ้ง") || name.includes("ปลาหมึก") || name.includes("แซลมอน")) return "ซีฟู้ด";
-  if (name.includes("ผัก") || name.includes("เห็ด") || name.includes("ลูกชิ้น")) return "ลูกชิ้น/ผัก";
-  if (name.includes("เฟรนช์ฟรายส์") || name.includes("ทอด")) return "ของทานเล่น";
-  return "อื่นๆ";
-};
-
-const mockImages = [
-  "https://images.unsplash.com/photo-1600891964092-4316c288032e?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1577640905050-83665af216b9?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1599084993091-1cb5c0721cc6?q=80&w=400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1591071477751-248358d7c4e5?q=80&w=400&auto=format&fit=crop"
-];
 
 export default function Menu() {
   const navigate = useNavigate();
@@ -52,12 +27,7 @@ export default function Menu() {
   const [activeCategory, setActiveCategory] = useState("ทั้งหมด");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [session, setSession] = useState<{
-    startedAt: string;
-    expiresAt: string;
-    tableNumber: string;
-    capacity: number;
-  } | null>(null);
+  const [session, setSession] = useState<CustomerSession | null>(null);
   const [isExpired, setIsExpired] = useState(false);
 
   useEffect(() => {
@@ -69,34 +39,47 @@ export default function Menu() {
     return () => clearInterval(interval);
   }, [session]);
 
-  const fetchItems = () => {
-    setLoading(true);
-    apiFetch<{ menuItems: MenuItem[] }>('/menu-items')
-      .then((data) => setItems(data.menuItems))
+  const fetchItems = useCallback((showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError('');
+    let sessionQuery: string;
+    try {
+      sessionQuery = customerQuery();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'ไม่พบ QR session');
+      setLoading(false);
+      return;
+    }
+    Promise.all([
+      apiFetch<{ menuItems: MenuItem[] }>(`/customer/menu-items${sessionQuery}`),
+      apiFetch<{ session: CustomerSession }>(`/customer/session${sessionQuery}`),
+    ])
+      .then(([menuData, sessionData]) => {
+        setItems(menuData.menuItems);
+        setSession(sessionData.session);
+        setIsExpired(sessionData.session.status === 'expired' || new Date(sessionData.session.expiresAt).getTime() <= Date.now());
+      })
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดเมนูไม่สำเร็จ'))
       .finally(() => setLoading(false));
-
-    fetch('http://localhost:3000/customer/session?table_session_id=1')
-      .then(r => r.json())
-      .then(data => {
-        if (data.session) setSession(data.session);
-      }).catch(console.error);
-  };
+  }, []);
 
   useEffect(() => {
     fetchItems();
-  }, []);
+    const polling = window.setInterval(() => fetchItems(false), 5_000);
+    return () => window.clearInterval(polling);
+  }, [fetchItems]);
 
   const visible = useMemo(() => items.filter((item) => {
     const matchesSearch = `${item.name} ${item.description ?? ''} ${item.ingredients.map(i => i.name).join(' ')}`.toLowerCase().includes(query.toLowerCase());
-    const matchesCategory = activeCategory === "ทั้งหมด" || guessCategory(item.name) === activeCategory;
+    const matchesCategory = activeCategory === "ทั้งหมด" || item.category === activeCategory;
     return matchesSearch && matchesCategory;
   }), [items, query, activeCategory]);
+  const categories = useMemo(() => ['ทั้งหมด', ...Array.from(new Set(items.map((item) => item.category).filter(Boolean)))], [items]);
 
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   const handleAdd = (item: MenuItem) => {
-    if (isExpired) return;
+    if (isExpired || item.availableServings < 1) return;
     if (item.ingredients.length > 0) {
       navigate(`/build/${item.id}`);
     } else {
@@ -105,7 +88,7 @@ export default function Menu() {
   };
 
   const handleQuickAdd = (item: MenuItem) => {
-    if (isExpired) return;
+    if (isExpired || item.availableServings <= getItemQuantity(item.id)) return;
     addItem({ menuItem: item, quantity: 1, removedIngredients: [] });
   };
 
@@ -126,47 +109,79 @@ export default function Menu() {
   };
 
   return (
-    <div className="min-h-screen bg-[#EAE5DF] flex justify-center font-sans">
-      <div className="w-full max-w-[400px] bg-[#FDFBF7] h-screen flex flex-col relative shadow-xl overflow-hidden">
+    <div className="min-h-screen bg-[#F2ECE4] flex justify-center">
+      <div className="w-full max-w-[430px] bg-[#FDFBF7] h-screen flex flex-col relative shadow-2xl border-x-2 border-[#2D1B17] overflow-hidden">
         
-        {/* --- Header --- */}
-        <div className="bg-white px-5 py-4 border-b border-[#EAE5DF] shrink-0 sticky top-0 z-20 shadow-sm">
-          <div className="flex justify-between items-center mb-3">
-            <div>
-              <h1 className="text-xl font-bold text-[#5A403E]">Shabu</h1>
-              <p className="text-[11px] font-medium text-[#7B726B]">All-you-can-eat buffet</p>
+        {/* ── Brand Header (Staff-Aligned) ─────────────────────────── */}
+        <header className="anim-down d-1 bg-white px-4 py-3.5 border-b-2 border-[#2D1B17] shrink-0 sticky top-0 z-20 shadow-sm">
+          <div className="flex justify-between items-center mb-2.5">
+            <div className="flex items-center gap-2.5">
+              <div className="grid h-8 w-8 place-items-center rounded-xl border-2 border-[#2D1B17] bg-[#B97861] text-white shadow-[2px_2px_0_#2D1B17]">
+                <UtensilsCrossed size={16} strokeWidth={2.5} />
+              </div>
+              <div>
+                <h1 className="text-sm font-black tracking-wider text-[#2D1B17] uppercase leading-none">SHABU RIMS</h1>
+                <p className="text-[10px] font-bold text-[#B97861] uppercase tracking-widest mt-0.5">Premium Buffet</p>
+              </div>
             </div>
+
             {session && <BuffetTimer expiresAt={session.expiresAt} />}
           </div>
           
-          <div className="flex justify-between items-end">
-            <span className="text-lg font-bold text-[#302221]">โต๊ะ {session?.tableNumber?.replace('MOCK-', '') || '00'} <span className="text-sm font-normal text-[#7B726B] ml-1">({session?.capacity || 4} ท่าน)</span></span>
-            <span className="text-xs text-[#10B981] font-bold bg-[#D1FAE5] px-2 py-1 rounded-md">กำลังทาน</span>
-          </div>
-        </div>
+          <div className="flex justify-between items-center pt-1 border-t border-[#F4EFEA]">
+            <span className="rotate-[-1.5deg] inline-flex items-center gap-1.5 rounded-full border-2 border-[#2D1B17] bg-[#FFF8EF] px-3 py-1 text-xs font-black text-[#2D1B17] shadow-[2px_2px_0_#2D1B17]">
+              <span>โต๊ะ</span>
+              <strong className="text-sm">{session?.tableNumber || '--'}</strong>
+            </span>
 
-        {/* --- Search & Category Tabs --- */}
-        <div className="bg-white px-5 pt-3 pb-2 shrink-0 z-10 border-b border-[#EAE5DF]">
-          <div className="relative mb-3">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2"><Icons.Search /></div>
+            <div className="flex items-center gap-2">
+              <button 
+                type="button"
+                onClick={() => navigate('/order/history')}
+                className="flex items-center gap-1.5 text-xs font-extrabold bg-[#FFF8EF] hover:bg-white text-[#2D1B17] border-2 border-[#2D1B17] px-3 py-1 rounded-xl shadow-[2px_2px_0_#2D1B17] active:translate-y-0.5 transition-all"
+                title="ดูประวัติและติดตามสถานะออเดอร์"
+              >
+                <Clock size={12} strokeWidth={2.5} className="text-[#B97861]" />
+                <span>สถานะออเดอร์</span>
+              </button>
+
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-black text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-lg">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-600" />
+                </span>
+                กำลังทาน
+              </span>
+            </div>
+          </div>
+        </header>
+
+        <QrExpiryBanner expiresAt={session?.expiresAt} />
+
+        {/* ── Search & Filter ──────────────────────────────────────── */}
+        <div className="anim-down d-2 bg-white px-4 pt-3 pb-2.5 shrink-0 z-10 border-b-2 border-[#2D1B17]">
+          <div className="relative mb-2.5">
+            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7B726B]" />
             <input 
               type="text" 
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="ค้นหาเมนูหรือวัตถุดิบ..." 
-              className="w-full pl-10 pr-4 py-2.5 bg-[#F4EFEA] border-none rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#5A403E]/20 transition-all"
+              placeholder="ค้นหาเนื้อ ผัก หรือเมนู..." 
+              className="shabu-input w-full pl-9 pr-4 py-2 text-xs font-semibold placeholder:text-[#7B726B]/70 outline-none"
             />
           </div>
 
-          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
             {categories.map(cat => (
               <button 
                 key={cat}
+                type="button"
                 onClick={() => setActiveCategory(cat)}
-                className={`whitespace-nowrap px-4 py-1.5 text-xs font-bold rounded-full transition-all border
-                  ${activeCategory === cat 
-                    ? 'bg-[#5A403E] text-white border-[#5A403E] shadow-sm' 
-                    : 'bg-white text-[#7B726B] border-[#EAE5DF] hover:bg-gray-50'}`}
+                className={`whitespace-nowrap px-4 py-1 text-xs font-black rounded-full border-2 transition-all ${
+                  activeCategory === cat 
+                    ? 'bg-[#2D1B17] text-white border-[#2D1B17] shadow-[2px_2px_0_#B97861]' 
+                    : 'bg-[#FFF8EF] text-[#2D1B17] border-[#2D1B17] hover:bg-white'
+                }`}
               >
                 {cat}
               </button>
@@ -174,77 +189,156 @@ export default function Menu() {
           </div>
         </div>
 
-        {/* --- Menu Grid --- */}
-        <div className="flex-1 overflow-y-auto p-4 pb-[100px]">
-          {loading && <div className="py-10 text-center text-sm font-bold text-[#7B726B]">กำลังโหลดเมนู…</div>}
-          {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700 mb-4">{error}</div>}
+        {/* ── Menu Grid (Tactile Cards) ─────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto p-3.5 pb-[105px]">
+          {loading && (
+            <div className="py-16 text-center text-xs font-black text-[#7B726B] animate-pulse">
+              กำลังจัดเตรียมเมนูอาหาร…
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded-2xl border-2 border-red-300 bg-red-50 p-4 text-xs font-bold text-red-700 mb-4 shadow-[3px_3px_0_#DC2626]">
+              {error}
+              <button onClick={() => fetchItems()} className="ml-3 underline font-black">ลองใหม่</button>
+            </div>
+          )}
           
-          <div className="grid grid-cols-2 gap-4">
-            {visible.map((item, index) => (
-              <div key={item.id} className="rounded-xl bg-white border border-[#EAE5DF] shadow-sm overflow-hidden flex flex-col">
-                <div className="h-32 bg-[#F4EFEA] relative border-b border-[#EAE5DF]">
-                  <img src={mockImages[index % mockImages.length]} alt={item.name} className="w-full h-full object-cover" />
-                  {index % 3 === 0 && (
-                    <div className="absolute top-2 left-2 bg-white/95 backdrop-blur-sm px-2 py-1 rounded-md flex items-center gap-1 shadow-sm">
-                      <Icons.Fire /> <span className="text-[10px] font-bold text-[#E53E3E]">แนะนำ</span>
-                    </div>
-                  )}
+          <div className="grid grid-cols-2 gap-3.5">
+            {visible.map((item, idx) => (
+              <div 
+                key={item.id} 
+                className={`shabu-card flex flex-col overflow-hidden anim-up d-${(idx % 4) + 1}`}
+              >
+                {/* Dish Graphic Header */}
+                <div className="h-28 bg-gradient-to-br from-[#E8DCD0] via-[#DECEBF] to-[#C7ACA0] relative border-b-2 border-[#2D1B17] p-2 flex flex-col justify-between overflow-hidden">
+                  {item.imagePath && <img src={`${API_BASE_URL}${item.imagePath}`} alt={item.name} className="absolute inset-0 h-full w-full object-cover" />}
+                  <div className="absolute inset-0 bg-white/20" />
+                  <div className="flex justify-between items-start z-10">
+                    <span className="rounded-md border border-[#2D1B17] bg-white/90 px-1.5 py-0.5 text-[9px] font-black text-[#2D1B17]">
+                      {item.availableServings < 1 ? 'หมดแล้ว' : '✦ พร้อมเสิร์ฟ'}
+                    </span>
+                  </div>
+
+                  <div className="text-center z-10">
+                    <p className="font-black text-sm text-[#2D1B17] tracking-tight drop-shadow-xs leading-snug px-1">
+                      {item.name}
+                    </p>
+                  </div>
+
+                  {/* Decorative Shabu Steam Glyphs */}
+                  <div className="pointer-events-none absolute inset-0 opacity-15 flex items-center justify-center font-serif text-5xl select-none">
+                    鍋
+                  </div>
                 </div>
                 
-                <div className="p-3 flex flex-col flex-1">
-                  <h3 className="text-[13px] font-bold text-[#302221] leading-tight mb-1">{item.name}</h3>
+                {/* Card Content & Action */}
+                <div className="p-2.5 flex flex-col flex-1 bg-white">
+                  <h3 className="text-xs font-black text-[#2D1B17] leading-tight mb-1">{item.name}</h3>
                   
-                  <div className="flex flex-wrap gap-1 mb-3 flex-1 content-start">
+                  {/* Ingredients Tags */}
+                  <div className="flex flex-wrap gap-1 mb-2.5 flex-1 content-start">
                     {item.ingredients.map((ing) => (
-                      <span key={ing.id} className="text-[9px] text-[#7B726B] bg-[#F4EFEA] px-1.5 py-0.5 rounded-sm">
-                        {ing.name} {ing.removable && <span className="text-[#999] ml-0.5">(ไม่เอา)</span>}
+                      <span key={ing.id} className="text-[9px] font-bold text-[#5A403E] bg-[#F4EFEA] border border-[#EAE5DF] px-1.5 py-0.2 rounded">
+                        {ing.name} {ing.removable && <span className="text-[#999]">(ปรับได้)</span>}
                       </span>
                     ))}
                   </div>
                   
-                  {getItemQuantity(item.id) > 0 ? (
-                    <div className={`flex items-center justify-between rounded-lg p-1 mt-auto ${isExpired ? 'bg-gray-100 opacity-50' : 'bg-[#F4EFEA]'}`}>
-                      <button disabled={isExpired} onClick={() => handleRemoveOne(item)} className="w-7 h-7 bg-white rounded-md flex items-center justify-center text-[#5A403E] font-bold shadow-sm"><Icons.Minus /></button>
-                      <span className="font-bold text-[#302221] text-xs">{getItemQuantity(item.id)}</span>
-                      <button disabled={isExpired} onClick={() => handleQuickAdd(item)} className={`w-7 h-7 rounded-md flex items-center justify-center text-white font-bold shadow-sm ${isExpired ? 'bg-gray-400' : 'bg-[#5A403E]'}`}><Icons.Plus /></button>
+                  {/* Stepper or Add Button */}
+                  {item.availableServings < 1 ? (
+                    <button disabled className="w-full rounded-xl border-2 border-gray-300 bg-gray-100 py-1.5 text-[11px] font-black text-gray-400 cursor-not-allowed">
+                      ของหมดชั่วคราว
+                    </button>
+                  ) : getItemQuantity(item.id) > 0 ? (
+                    <div className="flex items-center justify-between rounded-xl border-2 border-[#2D1B17] bg-[#FFF8EF] p-1 shadow-[2px_2px_0_#2D1B17]">
+                      <button 
+                        type="button"
+                        disabled={isExpired} 
+                        onClick={() => handleRemoveOne(item)} 
+                        className="w-6 h-6 bg-white border border-[#2D1B17] rounded-lg flex items-center justify-center text-[#2D1B17] font-black shadow-xs active:translate-y-0.5"
+                      >
+                        <Minus size={12} strokeWidth={3} />
+                      </button>
+                      <span className="font-black text-[#2D1B17] text-xs count-anim">{getItemQuantity(item.id)}</span>
+                      <button 
+                        type="button"
+                        disabled={isExpired || getItemQuantity(item.id) >= item.availableServings} 
+                        onClick={() => handleQuickAdd(item)} 
+                        className="w-6 h-6 rounded-lg bg-[#B97861] border border-[#2D1B17] flex items-center justify-center text-white font-black shadow-xs active:translate-y-0.5 disabled:opacity-50"
+                      >
+                        <Plus size={12} strokeWidth={3} />
+                      </button>
                     </div>
                   ) : (
-                    <button disabled={isExpired} onClick={() => handleAdd(item)} className={`w-full py-2 border text-[#302221] rounded-lg text-xs font-bold mt-auto transition-colors shadow-sm ${isExpired ? 'bg-gray-200 border-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white border-[#EAE5DF] hover:bg-gray-50'}`}>
-                      {isExpired ? 'หมดเวลาสั่งอาหาร' : '+ สั่งเลย'}
+                    <button 
+                      type="button"
+                      disabled={isExpired} 
+                      onClick={() => handleAdd(item)} 
+                      className={`w-full py-1.5 rounded-xl border-2 border-[#2D1B17] font-black text-xs transition-all shadow-[2px_2px_0_#2D1B17] active:translate-y-0.5 ${
+                        isExpired 
+                          ? 'bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed shadow-none' 
+                          : 'bg-[#FFF8EF] hover:bg-white text-[#2D1B17]'
+                      }`}
+                    >
+                      {isExpired ? 'หมดเวลา' : '+ สั่งเลย'}
                     </button>
                   )}
                 </div>
               </div>
             ))}
           </div>
-          {!loading && !error && visible.length === 0 && <div className="py-10 text-center text-sm text-[#7B726B]">ไม่พบเมนู</div>}
+
+          {!loading && !error && visible.length === 0 && (
+            <div className="py-16 text-center text-xs font-bold text-[#7B726B]">
+              ไม่พบรายการอาหารที่ค้นหา
+            </div>
+          )}
         </div>
 
         <CallStaffButton />
-        <DevTimeTools onTriggerFetch={fetchItems} />
+        {import.meta.env.DEV && <DevTimeTools onTriggerFetch={fetchItems} />}
 
-        {/* --- Floating Bottom Cart --- */}
-        <div className="absolute bottom-0 left-0 w-full bg-white border-t border-[#EAE5DF] p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-30">
+        {/* ── Floating Bottom Action Bar (Neo-Brutalist) ─────────────── */}
+        <div className="absolute bottom-0 left-0 w-full bg-[#FFF8EF] border-t-2 border-[#2D1B17] p-3 shadow-[0_-6px_20px_rgba(45,27,23,0.12)] z-30 flex gap-2.5">
+          {/* Order Status Button */}
           <button 
-            onClick={() => navigate('/order/cart')}
-            className={`w-full py-3.5 flex items-center justify-between px-5 font-bold transition-colors rounded-lg
-            ${totalItems > 0 ? 'bg-[#5A403E] hover:bg-[#4A3432] text-white shadow-md' : 'bg-[#F4EFEA] text-[#999] cursor-not-allowed'}`}
-            disabled={totalItems === 0}
+            type="button"
+            onClick={() => navigate('/order/history')}
+            className="flex-1 py-2.5 px-3 flex items-center justify-center gap-1.5 font-black text-xs bg-white text-[#2D1B17] border-2 border-[#2D1B17] rounded-xl shadow-[3px_3px_0_#2D1B17] hover:bg-[#FDFBF7] active:translate-y-0.5 transition-all"
           >
-            <div className="flex items-center gap-3">
+            <Clock size={14} strokeWidth={2.5} className="text-[#B97861]" />
+            <span>ประวัติ & สถานะ</span>
+          </button>
+
+          {/* Cart View Button */}
+          <button 
+            type="button"
+            onClick={() => navigate('/order/cart')}
+            className={`flex-[1.4] py-2.5 px-3.5 flex items-center justify-between font-black text-xs rounded-xl border-2 border-[#2D1B17] transition-all active:translate-y-0.5 ${
+              totalItems > 0 
+                ? 'bg-[#2D1B17] text-white shadow-[3px_3px_0_#B97861] hover:bg-[#3E241E]' 
+                : 'bg-white text-[#2D1B17] shadow-[3px_3px_0_#2D1B17] hover:bg-[#FAF8F5]'
+            }`}
+          >
+            <div className="flex items-center gap-2">
               <div className="relative">
-                <Icons.ShoppingBag />
+                <ShoppingBag size={15} strokeWidth={2.5} />
                 {totalItems > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-[#E53E3E] text-white text-[10px] w-4.5 h-4.5 flex items-center justify-center rounded-full shadow-sm">
+                  <span className="absolute -top-2 -right-2 bg-[#E04F34] text-white text-[9px] font-black w-4 h-4 flex items-center justify-center rounded-full border border-[#2D1B17] shadow-xs count-anim">
                     {totalItems}
                   </span>
                 )}
               </div>
-              <span className="text-sm">ดูรายการที่เลือก</span>
+              <span>{totalItems > 0 ? 'ดูตะกร้าของฉัน' : 'เช็คตะกร้า'}</span>
             </div>
-            <span className="text-sm">{totalItems > 0 ? `${totalItems} รายการ` : 'ยังไม่มีรายการ'}</span>
+
+            <span className={`text-[11px] font-bold ${totalItems > 0 ? 'text-[#D9B99A]' : 'text-[#7B726B]'}`}>
+              {totalItems > 0 ? `${totalItems} จาน` : 'ว่าง'}
+            </span>
           </button>
         </div>
+
       </div>
     </div>
   );

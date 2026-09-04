@@ -4,6 +4,7 @@ import OrderBuilder from './pages/OrderBuilder';
 import Menu from './pages/Menu';
 import OrderHistory from './pages/OrderHistory';
 import GracePeriodCountdown from './pages/GracePeriodCountdown';
+import Expired from './pages/Expired';
 import { CartProvider } from './lib/CartContext';
 
 function App() {
@@ -16,8 +17,10 @@ function App() {
           
           {/* Main Flow Routes */}
           <Route path="/order" element={<Menu />} />
-          <Route path="/order/cart" element={<OrderHistory />} />
+          <Route path="/order/cart" element={<OrderHistory defaultTab="cart" />} />
+          <Route path="/order/history" element={<OrderHistory defaultTab="history" />} />
           <Route path="/order/success" element={<GracePeriodCountdown />} />
+          <Route path="/expired" element={<Expired />} />
 
           {/* Redirect default path to landing */}
           <Route path="/" element={<Navigate to="/landing" replace />} />

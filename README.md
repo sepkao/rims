@@ -133,6 +133,14 @@ All routes below live in **`apps/api/src/index.ts`**. This is the *entire* backe
 | GET | `/owner/menu-items` | Lists every menu item joined with its BOM lines (flat rows — one row per ingredient, group by `id` client-side if you want nested) | owner only |
 | PUT | `/owner/menu-items/:id` | Body: `{ name, description, price, is_active }`. Edits a menu item (`is_active` is a soft-delete flag — set `false` to hide from customers instead of deleting) | owner only |
 | DELETE | `/owner/menu-items/:id` | Deletes a menu item — blocked if any `order_items` reference it; otherwise deletes its BOM rows first, then the item | owner only |
+| GET | `/inventory/ingredients` | Lists registered ingredients and their portion presets | owner or staff |
+| PUT | `/inventory/ingredients/:id/portion-preset` | Updates an ingredient's kg-per-plate preset | owner only |
+| GET | `/inventory/lots` | Lists all stock lots with storage, quantity, expiry and computed status | owner or staff |
+| POST | `/inventory/lots` | Receives a multi-line lot atomically; converts vegetable kg to whole Prep plates | owner or staff |
+| POST | `/inventory/lots/:id/transfer` | Transfers meat from one Freezer source lot into a traceable Prep sub-lot | staff only |
+| POST | `/inventory/ingredients/:id/transfer` | Transfers meat into Prep across fresh source lots in expiry-first order | staff only |
+
+For the implemented Inventory behavior, conversion rules, Prep expiry calculation, filtering, and verification status, see [`docs/inventory_implementation_status.md`](docs/inventory_implementation_status.md).
 
 CORS is enabled (`hono/cors`) for `http://localhost:5173` with `credentials: true` — if your frontend runs on a different port, update the `origin` in `apps/api/src/index.ts` to match, or the browser will block every request with a CORS error.
 
@@ -152,7 +160,7 @@ const data = await res.json()
 
 Every route under `/owner/*` requires the cookie to belong to an active user with `role = 'owner'` — anything else gets `401 Unauthorized` (no/invalid cookie) or `403 Forbidden` (valid cookie, wrong role or account deactivated).
 
-**Still missing**: no order endpoints, no stock-lot endpoints (receive/transfer), no ingredient-threshold settings endpoint, no table-session (QR check-in/check-out) endpoints, no reports/notifications/waste-review endpoints. Check [`docs/rims_jira_backlog.csv`](docs/rims_jira_backlog.csv) (Sprint column, now kept up to date) for what's planned and roughly when.
+**Still missing or incomplete**: ingredient-threshold settings, automated notifications/waste-review, and some reporting flows are not complete. Stock receive/transfer endpoints now exist; use the Inventory implementation document above as the source of truth for that module. Check [`docs/rims_jira_backlog.csv`](docs/rims_jira_backlog.csv) for the wider planned scope.
 
 ---
 
@@ -210,12 +218,12 @@ Nav items per role are defined as plain arrays near the top of the file (`ownerN
 
 ### Page-by-page status (internal app)
 
-Routing, sidebar nav, and logout now work for **every** role (owner/staff/cashier) — that part is done. But **page content is still almost entirely mock/placeholder**, even for pages whose backend endpoint is fully ready:
+Routing, sidebar nav, and logout work for **every** role (owner/staff/cashier). Implementation status varies by module; the Inventory receive, stock, transfer, expired-goods, and portion-preset flows now use real APIs (see the [Inventory implementation status](docs/inventory_implementation_status.md)), while several pages elsewhere are still mock/placeholder:
 
 - `MenuManagement.tsx` — still hardcoded `mockMenuItems` array, doesn't call `GET /owner/menu-items` at all, despite all 5 menu endpoints being done (see §4). This is the highest-value page to wire up next — backend is ready and waiting.
 - `UserManagement.tsx` — just a heading and a logout button, doesn't call `POST`/`PUT /owner/users` either, despite those being done and tested since early in the project.
 - `Dashboard.tsx` — just `Welcome, {role}!` + a link, no real cards; its backend (weekly report aggregates) doesn't exist yet anyway.
-- Every `pages/staff/*` and `pages/cashier/*` file is a one-line placeholder (`<p>... page</p>`) — enough to route to and see something render, nothing functional yet.
+- Staff Inventory pages are functional against the backend. Other staff/cashier flows should be checked individually before treating them as complete.
 
 Don't assume a page's backend is missing just because the page itself is empty — **check §4's endpoint table first**, since several pages (Menu, Users) are blocked on frontend work only, not backend work. Wiring real `fetch()` calls in happens per-page — check the Jira backlog's Sprint column for what's ready, or ask before building a fetch call so you don't build against an endpoint that doesn't exist yet.
 
@@ -254,24 +262,15 @@ This is *what to build*, not just "it's empty". Grounded in `docs/rims_user_stor
 
 | File | What it's for |
 |---|---|
-| `TableList.tsx` | US-09. Overview of every table and its current status (open/closed/awaiting cleanup) — the jumping-off point to pick a table for check-in or check-out. |
-| `CheckIn.tsx` | US-09. Opens a table for a newly seated customer / issues a fresh QR session, expiring `qr_duration_minutes` (from `QrSettings.tsx`) minutes from now. |
-| `CheckOut.tsx` | US-09. Manually closes a table's session when the customer leaves — any still-pending orders on that session get cancelled. (Sessions that simply time out close themselves automatically server-side after expiry + a 60s buffer — this button is only for the "customer leaves early" case.) |
+| `TableList.tsx` | US-09. Polling table overview with guest/order counts, QR access, checkout, and pending-cleanup action. |
+| `CheckIn.tsx` | US-09. Opens an empty table atomically, snapshots buffet prices, and shows/downloads/prints a QR. Requires `VITE_CUSTOMER_APP_URL`. |
+| `CheckOut.tsx` | US-09. Records manually verified Cash/PromptPay/Card payment, cancels pending orders, closes the session, and creates a printable browser receipt. See [Cashier implementation status](docs/cashier_system.md). |
 
 ---
 
 ## 6. Frontend — customer app (`apps/customer`)
 
-This app has **not been started at all** — it's still the untouched default Vite+React template (`App.tsx` still has the Vite counter demo, `react.svg`/`vite.svg` boilerplate, etc.). There is no routing set up yet, no auth context, nothing project-specific except empty stub files under `src/pages/`:
-
-- `pages/Landing.tsx`
-- `pages/Menu.tsx`
-- `pages/OrderBuilder.tsx`
-- `pages/OrderHistory.tsx`
-- `pages/GracePeriodCountdown.tsx`
-- `components/QrExpiryBanner.tsx`
-
-If you're picking up this app, you're starting from scratch: you'll need to add a router (see how `apps/internal` does it with `react-router-dom`, already a dependency pattern you can copy), replace the placeholder `App.tsx`, and build each page. No login/session is needed here — this app is for anonymous customers who scan a QR code, not for staff.
+Customer app is implemented as anonymous QR flow: Landing validates QR, Menu reads active/available menu, OrderBuilder supports removable BOM items, Cart/History sends real orders, and Grace screen polls cancellation/confirmation. It has no login; QR session is issued by Cashier. See [Customer system](docs/customer_system.md).
 
 ### Page-by-page content spec (customer app)
 
@@ -313,7 +312,7 @@ Then open a PR targeting `mockupDEVKao` (not `main` — `main` only gets updated
 | Requirements / scope lock | ✅ Done |
 | Database schema + functions | ✅ Done in the reference file (16 tables, FIFO deduction, return, reports, notifications) — confirm with DB owner it's fully applied live, see warning in §2 |
 | Frontend scaffolding — internal app | ✅ Routing/sidebar/auth-guard/logout wired for **all 3 roles** (owner, staff, cashier); auth is real (login/logout call the backend). Page *content* is still mostly mock — see §5 |
-| Frontend — customer app | ⬜ Not started — default Vite template only |
+| Frontend — customer app | ✅ QR-gated menu/order/cancel/history/call-staff flow wired to API; run migration `0002_cashier_hardening.sql` before deployment |
 | Backend API | 🔄 In progress — auth (login/logout) done, full Menu+BOM CRUD done, Staff/cashier account CRUD partially done (missing `is_active` toggle + delete). Stock-lot intake/transfer, ingredient thresholds, table sessions, order flow, notifications, waste review, and reports are all not started — see §4 |
 | Frontend ⇄ backend wiring | 🔄 Partial — only login/logout call real endpoints. Menu Management and User Management pages have *ready* backends but still show mock data; everything else is blocked on its backend first |
 

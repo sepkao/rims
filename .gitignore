@@ -9,6 +9,9 @@ dist/
 dist-ssr/
 build/
 
+# Runtime uploads (store production media in object storage)
+apps/api/uploads/
+
 # Environment / secrets
 .env
 .env.local
@@ -29,6 +32,9 @@ lerna-debug.log*
 
 # Test coverage
 coverage/
+
+# Local knowledge graph output
+graphify-out/
 
 # Editor / IDE
 .vscode/*

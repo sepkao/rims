@@ -21,7 +21,7 @@ const navItems: Record<Role, Array<{ to: string; label: string; icon: typeof Lay
     { to: '/staff/prep-fridge', label: 'Prep fridge', icon: Refrigerator },
     { to: '/staff/receive-lot', label: 'Receive lot', icon: PackagePlus },
     { to: '/staff/transfer-to-thaw-prep', label: 'Transfer to prep', icon: ShoppingBasket },
-    { to: '/staff/orders', label: 'Kitchen queue', icon: UtensilsCrossed },
+    { to: '/staff/orders', label: 'Kitchen queue', icon: Refrigerator },
     { to: '/staff/serving-queue', label: 'Serving queue', icon: Table2 },
   ],
   cashier: [
@@ -31,6 +31,22 @@ const navItems: Record<Role, Array<{ to: string; label: string; icon: typeof Lay
   ],
 }
 
+const roleLabel: Record<Role, string> = {
+  owner: 'Owner',
+  staff: 'Staff',
+  cashier: 'Cashier',
+}
+
+const roleColor: Record<Role, string> = {
+  owner: 'sidebar-role-owner',
+  staff: 'sidebar-role-staff',
+  cashier: 'sidebar-role-cashier',
+}
+
+function getInitials(name: string) {
+  return name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase() || '?'
+}
+
 export default function Sidebar() {
   const { role, user, logout } = useAuth()
   const navigate = useNavigate()
@@ -38,24 +54,56 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-header">
-        <span className="sidebar-title">SHABU RIMS</span>
-        <span className="sidebar-user">{user?.name ?? 'Restaurant workspace'}</span>
+      {/* Brand header */}
+      <div className="sidebar-brand">
+        <div className="sidebar-brand-icon text-[#E8D8CA]">
+          <UtensilsCrossed size={18} strokeWidth={2.5} />
+        </div>
+        <div>
+          <div className="sidebar-title">SHABU RIMS</div>
+          <div className="sidebar-subtitle">Restaurant OS</div>
+        </div>
       </div>
+
+      {/* User identity card */}
+      <div className="sidebar-user-card">
+        <div className="sidebar-avatar">{getInitials(user?.name ?? '?')}</div>
+        <div className="sidebar-user-info">
+          <div className="sidebar-user-name">{user?.name ?? 'Guest'}</div>
+          {role && <span className={`sidebar-role-badge ${roleColor[role]}`}>{roleLabel[role]}</span>}
+        </div>
+      </div>
+
+      <div className="sidebar-section-label">Menu</div>
+
+      {/* Nav links */}
       <nav className="sidebar-nav" aria-label="Main navigation">
         {items.map(({ to, label, icon: Icon }) => (
-          <NavLink key={to} to={to} className={({ isActive }) => isActive ? 'active' : ''}>
-            <Icon size={18} />
-            <span className="nav-label">{label}</span>
+          <NavLink key={to} to={to} className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}>
+            {({ isActive }) => (
+              <>
+                <span className="sidebar-link-icon">
+                  <Icon size={17} strokeWidth={isActive ? 2.5 : 2} />
+                </span>
+                <span className="sidebar-link-label">{label}</span>
+                {isActive && <span className="sidebar-active-pip" />}
+              </>
+            )}
           </NavLink>
         ))}
       </nav>
-      <nav className="sidebar-nav sidebar-bottom" aria-label="Account navigation">
-        <button type="button" onClick={async () => { await logout(); navigate('/login', { replace: true }) }}>
-          <LogOut size={18} />
-          <span className="nav-label">Logout</span>
+
+      {/* Footer logout */}
+      <div className="sidebar-footer">
+        <button
+          type="button"
+          className="sidebar-logout"
+          onClick={async () => { await logout(); navigate('/login', { replace: true }) }}
+        >
+          <LogOut size={15} />
+          <span>Logout</span>
         </button>
-      </nav>
+      </div>
     </aside>
   )
 }
