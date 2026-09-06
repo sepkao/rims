@@ -27,7 +27,6 @@ const navItems: Record<Role, Array<{ to: string; label: string; icon: typeof Lay
   ],
   cashier: [
     { to: '/cashier/tables', label: 'Tables', icon: Table2 },
-    { to: '/cashier/check-in', label: 'Check In', icon: PackagePlus },
     { to: '/cashier/payment', label: 'Payment', icon: History },
   ],
 }

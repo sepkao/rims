@@ -399,7 +399,7 @@ app.put('/staff/orders/:id/serve', async (c) => {
 
 app.get('/cashier/dining-tables', async (c) => {
   const result = await pool.query(
-    `SELECT dt.id::text, dt.table_number AS "tableNumber",
+    `SELECT dt.id::text, dt.table_number AS "tableNumber", dt.is_hidden AS "isHidden",
             CASE
               WHEN ts.id IS NOT NULL AND ts.expires_at <= now() THEN 'expired'
               WHEN ts.id IS NOT NULL AND ts.expires_at <= now() + INTERVAL '5 minutes' THEN 'near_expiry'
@@ -413,9 +413,51 @@ app.get('/cashier/dining-tables', async (c) => {
             (SELECT COUNT(*) FROM orders o WHERE o.table_session_id = ts.id AND o.status = 'confirmed') AS "confirmedOrders"
      FROM dining_tables dt
      LEFT JOIN table_sessions ts ON ts.dining_table_id = dt.id AND ts.ended_at IS NULL
-     ORDER BY dt.table_number`,
+     WHERE dt.is_deleted = false AND ($1::boolean OR dt.is_hidden = false)
+     ORDER BY dt.is_hidden, NULLIF(regexp_replace(dt.table_number, '\\D', '', 'g'), '')::bigint NULLS LAST, dt.table_number`,
+    [c.req.query('includeHidden') === 'true'],
   )
   return c.json({ diningTables: result.rows })
+})
+
+app.post('/cashier/dining-tables', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  const name = typeof body?.tableNumber === 'string' ? body.tableNumber.trim() : ''
+  if (!name || name.length > 50) return c.json({ error: 'ระบุชื่อโต๊ะ 1–50 ตัวอักษร' }, 400)
+  try {
+    const result = await pool.query('INSERT INTO dining_tables (table_number) VALUES ($1) RETURNING id::text', [name])
+    return c.json({ id: result.rows[0].id }, 201)
+  } catch (error) {
+    if ((error as { code?: string }).code === '23505') return c.json({ error: 'ชื่อโต๊ะนี้มีอยู่แล้ว กรุณาใช้ชื่ออื่น' }, 409)
+    return c.json({ error: 'เพิ่มโต๊ะไม่สำเร็จ' }, 500)
+  }
+})
+
+app.on(['PATCH', 'DELETE'], '/cashier/dining-tables/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!/^\d+$/.test(id)) return c.json({ error: 'รหัสโต๊ะไม่ถูกต้อง' }, 400)
+  const deleting = c.req.method === 'DELETE'
+  const body = deleting ? null : await c.req.json().catch(() => null)
+  const name = typeof body?.tableNumber === 'string' ? body.tableNumber.trim() : ''
+  if (!deleting && (!name || name.length > 50 || typeof body?.isHidden !== 'boolean')) return c.json({ error: 'ข้อมูลโต๊ะไม่ถูกต้อง' }, 400)
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const result = await client.query('SELECT status FROM dining_tables WHERE id = $1 AND NOT is_deleted FOR UPDATE', [id])
+    if (!result.rows.length) { await client.query('ROLLBACK'); return c.json({ error: 'ไม่พบโต๊ะ' }, 404) }
+    const sessions = await client.query('SELECT id FROM table_sessions WHERE dining_table_id = $1 AND ended_at IS NULL', [id])
+    if (result.rows[0].status !== 'empty' || sessions.rows.length) {
+      await client.query('ROLLBACK')
+      return c.json({ error: 'แก้ไขได้เฉพาะโต๊ะว่าง กรุณาปิดบิลและเก็บโต๊ะก่อน' }, 409)
+    }
+    if (deleting) await client.query('UPDATE dining_tables SET is_deleted = true, is_hidden = true WHERE id = $1', [id])
+    else await client.query('UPDATE dining_tables SET table_number = $2, is_hidden = $3 WHERE id = $1', [id, name, body.isHidden])
+    await client.query('COMMIT')
+    return c.json({ success: true })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    return c.json({ error: (error as { code?: string }).code === '23505' ? 'ชื่อโต๊ะนี้มีอยู่แล้ว กรุณาใช้ชื่ออื่น' : 'บันทึกโต๊ะไม่สำเร็จ' }, 409)
+  } finally { client.release() }
 })
 
 app.post('/cashier/table-sessions', async (c) => {
@@ -448,7 +490,7 @@ app.post('/cashier/table-sessions', async (c) => {
     await client.query('BEGIN')
     transactionStarted = true
     const tableResult = await client.query<{ status: string }>(
-      `SELECT status FROM dining_tables WHERE id = $1 FOR UPDATE`,
+      `SELECT status FROM dining_tables WHERE id = $1 AND NOT is_hidden AND NOT is_deleted FOR UPDATE`,
       [diningTableId],
     )
     if (!tableResult.rows[0]) {

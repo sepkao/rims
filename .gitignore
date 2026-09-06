@@ -33,6 +33,9 @@ lerna-debug.log*
 # Test coverage
 coverage/
 
+# Local document render QA artifacts
+.docx-qa/
+
 # Local knowledge graph output
 graphify-out/
 
