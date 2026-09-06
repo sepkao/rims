@@ -11,14 +11,19 @@ import InventoryLogsPage from './pages/owner/StockMovementHistory'
 import MenuManagementPage from './pages/owner/MenuManagement'
 import SystemLogsPage from './pages/owner/SystemLogs'
 import BuffetPricesPage from './pages/owner/QrSettings'
+import WasteReviewPage from './pages/owner/WasteReview'
+import OwnerFreezerStockPage from './pages/owner/FreezerStock'
+import OwnerPrepFridgeStockPage from './pages/owner/PrepFridgeStock'
 import UserManagementPage from './pages/owner/UserManagement'
+import IngredientSettings from './pages/owner/IngredientSettings'
 import AddLotPage from './pages/staff/ReceiveLot'
 import KitchenStockPage from './pages/staff/KitchenStock'
 import StaffDashboardPage from './pages/staff/StaffDashboard'
-import StaffKitchenQueuePage from './pages/staff/OrdersToServe'
+import StaffServingQueuePage from './pages/staff/OrdersToServe'
+import StaffKitchenQueuePage from './pages/staff/KitchenQueue'
 import StaffPrepFridgePage from './pages/staff/PrepFridge'
-import StaffServingQueuePage from './pages/staff/ServingQueue'
 import TransferStocksPage from './pages/staff/TransferToThawPrep'
+import StaffNotifications from './pages/staff/Notifications'
 import TableList from './pages/cashier/TableList'
 import CheckIn from './pages/cashier/CheckIn'
 import CheckOut from './pages/cashier/CheckOut'
@@ -50,15 +55,20 @@ export function AppRoutes() {
           <Route path="/owner/menu" element={<RequireRole role="owner"><MenuManagementPage /></RequireRole>} />
           <Route path="/owner/users" element={<RequireRole role="owner"><UserManagementPage /></RequireRole>} />
           <Route path="/owner/history" element={<RequireRole role="owner"><InventoryLogsPage /></RequireRole>} />
+          <Route path="/owner/freezer-stock" element={<RequireRole role="owner"><OwnerFreezerStockPage /></RequireRole>} />
+          <Route path="/owner/prep-fridge-stock" element={<RequireRole role="owner"><OwnerPrepFridgeStockPage /></RequireRole>} />
           <Route path="/owner/expired" element={<RequireRole role="owner"><ExpiredGoodsPage /></RequireRole>} />
+          <Route path="/owner/waste-review" element={<RequireRole role="owner"><WasteReviewPage /></RequireRole>} />
           <Route path="/owner/system-logs" element={<RequireRole role="owner"><SystemLogsPage /></RequireRole>} />
           <Route path="/owner/settings" element={<RequireRole role="owner"><BuffetPricesPage /></RequireRole>} />
+          <Route path="/owner/ingredient-settings" element={<RequireRole role="owner"><IngredientSettings /></RequireRole>} />
 
           <Route path="/staff/dashboard" element={<RequireRole role="staff"><StaffDashboardPage /></RequireRole>} />
           <Route path="/staff/freezer-stock" element={<RequireRole role="staff"><KitchenStockPage area="Freezer Stock" /></RequireRole>} />
           <Route path="/staff/prep-fridge" element={<RequireRole role="staff"><StaffPrepFridgePage /></RequireRole>} />
           <Route path="/staff/receive-lot" element={<RequireRole role="staff"><AddLotPage /></RequireRole>} />
           <Route path="/staff/transfer-to-thaw-prep" element={<RequireRole role="staff"><TransferStocksPage /></RequireRole>} />
+          <Route path="/staff/notifications" element={<RequireRole role="staff"><StaffNotifications /></RequireRole>} />
           <Route path="/staff/orders" element={<RequireRole role="staff"><StaffKitchenQueuePage /></RequireRole>} />
           <Route path="/staff/serving-queue" element={<RequireRole role="staff"><StaffServingQueuePage /></RequireRole>} />
 

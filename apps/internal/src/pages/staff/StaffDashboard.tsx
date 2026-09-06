@@ -6,9 +6,10 @@ export default function StaffDashboardPage() {
   const { batches, fifoQueue } = useInventory()
   const navigate = useNavigate()
 
-  const usable    = batches.filter((b) => b.status !== 'Expired')
-  const expiring  = batches.filter((b) => b.status === 'Expiring Soon')
-  const expired   = batches.filter((b) => b.status === 'Expired')
+  const inStock   = batches.filter((b) => Number.parseFloat(b.qty) > 0)
+  const usable    = inStock.filter((b) => b.status !== 'Expired')
+  const expiring  = inStock.filter((b) => b.status === 'Expiring Soon')
+  const expired   = inStock.filter((b) => b.status === 'Expired')
 
   const categoryCount = (['Meat', 'Vegetable', 'Others'] as const).map((cat) => ({
     cat,

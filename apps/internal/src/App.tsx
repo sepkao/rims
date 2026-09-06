@@ -1,6 +1,7 @@
 import Sidebar from './components/sidebar.tsx'
 import { Outlet, useLocation } from 'react-router-dom'
 import CashierNotification from './components/CashierNotification'
+import StaffPrepAlert from './components/StaffPrepAlert'
 
 export default function App() {
   const location = useLocation()
@@ -13,6 +14,7 @@ export default function App() {
           <Outlet />
         </div>
         <CashierNotification />
+        <StaffPrepAlert />
       </div>
     </div>
   )

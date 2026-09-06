@@ -63,7 +63,7 @@ function playKitchenChime() {
   }
 }
 
-export default function StaffKitchenQueuePage() {
+export default function StaffServingQueuePage() {
   const [orders, setOrders] = useState<KitchenOrder[]>([])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -320,12 +320,12 @@ export default function StaffKitchenQueuePage() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-black text-[#302221]">Kitchen Queue</h1>
+              <h1 className="text-xl sm:text-2xl font-black text-[#302221]">Serving Queue</h1>
               <span className="rounded-full bg-[#EAE5DF] px-2 py-0.5 text-[10px] font-bold text-[#7B726B]">
                 Live 3s
               </span>
             </div>
-            <p className="text-xs text-[#7B726B]">จัดการคิวครัว ออเดอร์รอปรุง และจัดเสิร์ฟ</p>
+            <p className="text-xs text-[#7B726B]">รับออเดอร์ลูกค้า จัดคิว และยืนยันเมื่อเสิร์ฟแล้ว</p>
           </div>
         </div>
 

@@ -50,6 +50,8 @@ export default function AddLotPage() {
   const [savedLot, setSavedLot] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [creatingIngredient, setCreatingIngredient] = useState(false)
+  const [newCategory, setNewCategory] = useState<'meat' | 'vegetable'>('meat')
 
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -85,6 +87,25 @@ export default function AddLotPage() {
       category: ingredient?.category === 'vegetable' ? 'Vegetable' : 'Meat',
       unit: ingredient?.category === 'vegetable' ? current.unit : 'kg',
     }))
+  }
+
+  async function createIngredient() {
+    const name = entry.item.trim()
+    setError('')
+    if (!name) return setError('กรอกชื่อวัตถุดิบใหม่ก่อน')
+    setCreatingIngredient(true)
+    try {
+      const data = await apiFetch<{ ingredient: IngredientPreset }>('/inventory/ingredients', {
+        method: 'POST',
+        body: JSON.stringify({ name, category: newCategory }),
+      })
+      setIngredients((current) => [...current, data.ingredient].sort((a, b) => a.name.localeCompare(b.name, 'th')))
+      setEntry((current) => ({ ...current, ingredientId: data.ingredient.id, item: data.ingredient.name, category: newCategory === 'meat' ? 'Meat' : 'Vegetable', unit: newCategory === 'meat' ? 'kg' : 'plates' }))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'สร้างวัตถุดิบใหม่ไม่สำเร็จ')
+    } finally {
+      setCreatingIngredient(false)
+    }
   }
 
   function addLine() {
@@ -236,6 +257,7 @@ export default function AddLotPage() {
                     loading={ingredientLoading}
                     onChange={handleIngredientChange}
                   />
+                  {!entry.ingredientId && entry.item.trim() && <div className="mt-3 rounded-xl border-2 border-dashed border-[#B97861] bg-[#FFF8EF] p-3"><p className="text-xs font-bold normal-case tracking-normal text-[#76564A]">ยังไม่มี “{entry.item.trim()}” ในทะเบียน</p><select value={newCategory} onChange={(event) => setNewCategory(event.target.value as 'meat' | 'vegetable')} className="mt-3 w-full rounded-lg border border-[#BFA99D] bg-white px-3 py-2 text-xs font-bold normal-case tracking-normal"><option value="meat">เนื้อสัตว์</option><option value="vegetable">ผัก</option></select><p className="mt-2 text-[11px] font-semibold normal-case tracking-normal text-[#8B5746]">ขนาดต่อถาดกำหนดและแก้ไขได้โดย Owner เท่านั้น</p><button type="button" disabled={creatingIngredient} onClick={() => void createIngredient()} className="mt-3 w-full rounded-lg bg-[#2D1B17] px-3 py-2 text-xs font-black text-white disabled:opacity-50">{creatingIngredient ? 'กำลังสร้าง…' : `+ สร้างวัตถุดิบ “${entry.item.trim()}”`}</button></div>}
                 </Field>
                 <Field label="หมวดวัตถุดิบ">
                   <div className="relative">

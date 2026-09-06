@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch } from '../lib/api';
+import { API_BASE_URL, apiFetch } from '../lib/api';
 import CallStaffButton from '../components/CallStaffButton';
 import DevTimeTools from '../components/DevTimeTools';
 import BuffetTimer from '../components/BuffetTimer';
@@ -13,11 +13,11 @@ type MenuItem = {
   id: string;
   name: string;
   description: string | null;
+  category: string;
+  imagePath: string | null;
   ingredients: Array<{ id: string; name: string; removable: boolean }>;
   availableServings: number;
 };
-
-const categories = ["ทั้งหมด"];
 
 export default function Menu() {
   const navigate = useNavigate();
@@ -39,8 +39,8 @@ export default function Menu() {
     return () => clearInterval(interval);
   }, [session]);
 
-  const fetchItems = () => {
-    setLoading(true);
+  const fetchItems = useCallback((showLoading = true) => {
+    if (showLoading) setLoading(true);
     setError('');
     let sessionQuery: string;
     try {
@@ -61,17 +61,20 @@ export default function Menu() {
       })
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดเมนูไม่สำเร็จ'))
       .finally(() => setLoading(false));
-  };
+  }, []);
 
   useEffect(() => {
     fetchItems();
-  }, []);
+    const polling = window.setInterval(() => fetchItems(false), 5_000);
+    return () => window.clearInterval(polling);
+  }, [fetchItems]);
 
   const visible = useMemo(() => items.filter((item) => {
     const matchesSearch = `${item.name} ${item.description ?? ''} ${item.ingredients.map(i => i.name).join(' ')}`.toLowerCase().includes(query.toLowerCase());
-    const matchesCategory = activeCategory === "ทั้งหมด";
+    const matchesCategory = activeCategory === "ทั้งหมด" || item.category === activeCategory;
     return matchesSearch && matchesCategory;
   }), [items, query, activeCategory]);
+  const categories = useMemo(() => ['ทั้งหมด', ...Array.from(new Set(items.map((item) => item.category).filter(Boolean)))], [items]);
 
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -197,7 +200,7 @@ export default function Menu() {
           {error && (
             <div className="rounded-2xl border-2 border-red-300 bg-red-50 p-4 text-xs font-bold text-red-700 mb-4 shadow-[3px_3px_0_#DC2626]">
               {error}
-              <button onClick={fetchItems} className="ml-3 underline font-black">ลองใหม่</button>
+              <button onClick={() => fetchItems()} className="ml-3 underline font-black">ลองใหม่</button>
             </div>
           )}
           
@@ -209,6 +212,8 @@ export default function Menu() {
               >
                 {/* Dish Graphic Header */}
                 <div className="h-28 bg-gradient-to-br from-[#E8DCD0] via-[#DECEBF] to-[#C7ACA0] relative border-b-2 border-[#2D1B17] p-2 flex flex-col justify-between overflow-hidden">
+                  {item.imagePath && <img src={`${API_BASE_URL}${item.imagePath}`} alt={item.name} className="absolute inset-0 h-full w-full object-cover" />}
+                  <div className="absolute inset-0 bg-white/20" />
                   <div className="flex justify-between items-start z-10">
                     <span className="rounded-md border border-[#2D1B17] bg-white/90 px-1.5 py-0.5 text-[9px] font-black text-[#2D1B17]">
                       {item.availableServings < 1 ? 'หมดแล้ว' : '✦ พร้อมเสิร์ฟ'}

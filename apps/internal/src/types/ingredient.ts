@@ -3,5 +3,8 @@ export type IngredientPreset = {
   name: string
   category: 'meat' | 'vegetable'
   defaultPortionSizeKg: number
+  prepAvailablePlates?: number
+  thawPrepThresholdPlates?: number | null
+  isActive?: boolean
 }
 

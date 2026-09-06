@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useInventory } from '../../contexts/InventoryContext';
+import type { InventoryStatus } from '../../types/inventory';
 
 // --- Icons ---
 const Icons = {
@@ -10,14 +11,30 @@ const Icons = {
   Calendar: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
 };
 
+// รับเข้าไม่เกิน 7 วันที่แล้ว นับจากวันนี้
+function isWithinLastWeek(dateText: string) {
+  const received = new Date(dateText);
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  return received >= weekAgo;
+}
+
+const STATUS_OPTIONS: Array<InventoryStatus | 'All'> = ['All', 'Fresh', 'Expiring Soon', 'Expired'];
+
 export default function InventoryLogsPage() {
   const { batches } = useInventory();
   const [activeTab, setActiveTab] = useState('All');
   const [search, setSearch] = useState('');
+  const [thisWeekOnly, setThisWeekOnly] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<InventoryStatus | 'All'>('All');
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
+
   const inventoryLogs = useMemo(() => batches
     .filter((log) => activeTab === 'All' || log.category === activeTab)
+    .filter((log) => statusFilter === 'All' || log.status === statusFilter)
+    .filter((log) => !thisWeekOnly || isWithinLastWeek(log.receiveDate))
     .filter((log) => `${log.item} ${log.batch}`.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => a.receiveDate.localeCompare(b.receiveDate)), [activeTab, batches, search]);
+    .sort((a, b) => a.receiveDate.localeCompare(b.receiveDate)), [activeTab, batches, search, statusFilter, thisWeekOnly]);
   const expiringCount = batches.filter((batch) => batch.status === 'Expiring Soon').length;
   const expiredCount = batches.filter((batch) => batch.status === 'Expired').length;
 
@@ -42,7 +59,12 @@ export default function InventoryLogsPage() {
         </div>
 
         <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
-          <button className="admin-control flex items-center gap-2 px-4 py-2 bg-white border border-[#e0dcd5] rounded-md text-sm font-semibold text-[#555] hover:bg-gray-50 shadow-sm transition-colors">
+          <button
+            onClick={() => setThisWeekOnly((value) => !value)}
+            className={`admin-control flex items-center gap-2 px-4 py-2 border rounded-md text-sm font-semibold shadow-sm transition-colors ${
+              thisWeekOnly ? 'border-[#694b49] bg-[#694b49] text-white' : 'border-[#e0dcd5] bg-white text-[#555] hover:bg-gray-50'
+            }`}
+          >
             <Icons.Calendar /> This Week
           </button>
           <div className="relative w-full sm:w-[240px]">
@@ -106,10 +128,23 @@ export default function InventoryLogsPage() {
               )}
             </button>
           ))}
-          <div className="ml-auto pb-3">
-             <button className="flex items-center gap-1.5 text-xs font-bold text-[#666] hover:text-[#333]">
-                <Icons.Filter /> Filter
+          <div className="relative ml-auto pb-3">
+             <button onClick={() => setShowStatusMenu((value) => !value)} className={`flex items-center gap-1.5 text-xs font-bold ${statusFilter !== 'All' ? 'text-[#4A322F]' : 'text-[#666] hover:text-[#333]'}`}>
+                <Icons.Filter /> {statusFilter === 'All' ? 'Filter' : `Status: ${statusFilter}`}
              </button>
+             {showStatusMenu && (
+               <div className="absolute right-0 top-full z-10 mt-1 w-40 overflow-hidden rounded-lg border border-[#e8e3dd] bg-white shadow-lg">
+                 {STATUS_OPTIONS.map((option) => (
+                   <button
+                     key={option}
+                     onClick={() => { setStatusFilter(option); setShowStatusMenu(false) }}
+                     className={`block w-full px-4 py-2 text-left text-xs font-semibold hover:bg-[#F4EFEA] ${statusFilter === option ? 'text-[#4A322F]' : 'text-[#777]'}`}
+                   >
+                     {option === 'All' ? 'ทุกสถานะ' : option}
+                   </button>
+                 ))}
+               </div>
+             )}
           </div>
         </div>
 
@@ -146,6 +181,9 @@ export default function InventoryLogsPage() {
                   </td>
                 </tr>
               ))}
+              {inventoryLogs.length === 0 && (
+                <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-[#777]">ไม่พบล็อตที่ตรงกับตัวกรอง</td></tr>
+              )}
             </tbody>
           </table>
         </div>

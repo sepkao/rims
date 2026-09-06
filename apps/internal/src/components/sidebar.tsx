@@ -1,4 +1,4 @@
-import { CircleDollarSign, History, LayoutDashboard, LogOut, PackagePlus, Refrigerator, ScrollText, ShoppingBasket, Table2, UtensilsCrossed, Users, Warehouse } from 'lucide-react'
+import { BellRing, CircleDollarSign, History, LayoutDashboard, LogOut, PackagePlus, Refrigerator, ScrollText, Settings2, ShoppingBasket, Table2, Trash2, UtensilsCrossed, Users, Warehouse } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth, type Role } from '../contexts/AuthContext'
 
@@ -8,9 +8,13 @@ const navItems: Record<Role, Array<{ to: string; label: string; icon: typeof Lay
     { to: '/owner/menu', label: 'Menu', icon: UtensilsCrossed },
     { to: '/owner/users', label: 'Users', icon: Users },
     { to: '/owner/history', label: 'Inventory history', icon: History },
+    { to: '/owner/freezer-stock', label: 'Freezer stock', icon: Warehouse },
+    { to: '/owner/prep-fridge-stock', label: 'Prep fridge', icon: Refrigerator },
     { to: '/owner/expired', label: 'Expired inventory', icon: Warehouse },
+    { to: '/owner/waste-review', label: 'Waste review', icon: Trash2 },
     { to: '/owner/system-logs', label: 'System logs', icon: ScrollText },
     { to: '/owner/settings', label: 'Buffet prices', icon: CircleDollarSign },
+    { to: '/owner/ingredient-settings', label: 'Ingredient settings', icon: Settings2 },
   ],
   staff: [
     { to: '/staff/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -18,7 +22,8 @@ const navItems: Record<Role, Array<{ to: string; label: string; icon: typeof Lay
     { to: '/staff/prep-fridge', label: 'Prep fridge', icon: Refrigerator },
     { to: '/staff/receive-lot', label: 'Receive lot', icon: PackagePlus },
     { to: '/staff/transfer-to-thaw-prep', label: 'Transfer to prep', icon: ShoppingBasket },
-    { to: '/staff/orders', label: 'Kitchen queue', icon: UtensilsCrossed },
+    { to: '/staff/notifications', label: 'Prep alerts', icon: BellRing },
+    { to: '/staff/orders', label: 'Kitchen queue', icon: Refrigerator },
     { to: '/staff/serving-queue', label: 'Serving queue', icon: Table2 },
   ],
   cashier: [

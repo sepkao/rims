@@ -9,9 +9,10 @@ const statusStyle = {
 
 export default function DashboardPage() {
   const { batches: inventoryBatches, fifoQueue } = useInventory();
-  const expiring = inventoryBatches.filter((batch) => batch.status === 'Expiring Soon');
-  const expired = inventoryBatches.filter((batch) => batch.status === 'Expired');
-  const usable = inventoryBatches.filter((batch) => batch.status !== 'Expired');
+  const inStock = inventoryBatches.filter((batch) => Number.parseFloat(batch.qty) > 0);
+  const expiring = inStock.filter((batch) => batch.status === 'Expiring Soon');
+  const expired = inStock.filter((batch) => batch.status === 'Expired');
+  const usable = inStock.filter((batch) => batch.status !== 'Expired');
 
   return (
     <div className="admin-page max-w-[1200px] w-full">

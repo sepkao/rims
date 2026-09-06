@@ -22,6 +22,7 @@ type InventoryContextValue = {
   error: string
   refresh: () => Promise<void>
   receiveLot: (lot: NewLot) => Promise<string>
+  disposeLot: (lotId: string, reason: string) => Promise<void>
 }
 
 type ApiLot = {
@@ -101,6 +102,14 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     return response.id
   }, [refresh])
 
+  const disposeLot = useCallback(async (lotId: string, reason: string) => {
+    await apiFetch(`/inventory/lots/${lotId.replace(/^LOT-/, '')}/dispose`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    })
+    await refresh()
+  }, [refresh])
+
   const fifoQueue = useMemo(
     () => [...batches]
       .filter((batch) => batch.status !== 'Expired' && Number.parseFloat(batch.qty) > 0)
@@ -108,7 +117,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     [batches],
   )
 
-  return <InventoryContext.Provider value={{ batches, fifoQueue, loading, error, refresh, receiveLot }}>{children}</InventoryContext.Provider>
+  return <InventoryContext.Provider value={{ batches, fifoQueue, loading, error, refresh, receiveLot, disposeLot }}>{children}</InventoryContext.Provider>
 }
 
 export function useInventory() {

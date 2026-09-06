@@ -4,10 +4,10 @@ This document describes the Cashier module as it is implemented. Product require
 
 ## Required deployment setup
 
-1. From `apps/api`, run `npm run cashier:p0`. It detects whether the core schema is absent, then applies `0001_init.sql` when needed, `0002_cashier_hardening.sql`, `0003_cashier_expiry_schedule.sql`, and `0005_cashier_stock_deduction_signature.sql`. Run `npm run cashier:p0:check` for a read-only readiness check.
+1. From `apps/api`, run `npm run cashier:p0`. It detects whether the core schema is absent, then applies `0001_init.sql` when needed, `0002_cashier_hardening.sql`, `0003_cashier_expiry_schedule.sql`, `0005_cashier_stock_deduction_signature.sql`, and `0006_fifo_expiry_guard.sql`. Run `npm run cashier:p0:check` for a read-only readiness check.
 2. Set `VITE_CUSTOMER_APP_URL` for the internal app. Copy `apps/internal/.env.example`; in production this must be the public HTTPS URL of the customer app, not `localhost`.
 3. Set `VITE_PROMPTPAY_ID` in the internal app environment before release. Do not commit the real recipient number.
-4. Migration `0003_cashier_expiry_schedule.sql` enables pg_cron and schedules `expire_table_sessions()` every minute. The Node worker is a development fallback only and is disabled when `NODE_ENV=production`.
+4. Migration `0003_cashier_expiry_schedule.sql` enables pg_cron and schedules table-session expiry and order confirmation every minute. Migration `0006_fifo_expiry_guard.sql` prevents expired Prep lots from being deducted and schedules freshness-flag reconciliation. The Node worker is a development fallback only and is disabled when `NODE_ENV=production`.
 
 For phone testing on the same LAN, both `VITE_CUSTOMER_APP_URL` and `VITE_API_URL` must use the development PC's LAN IP, and the Vite/API servers must be reachable from that device. `localhost` on a phone points to the phone itself.
 
