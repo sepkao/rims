@@ -19,7 +19,7 @@ function formatCurrency(value: number) {
   return `฿${value.toLocaleString('th-TH', { maximumFractionDigits: 2 })}`
 }
 
-export default function WasteReviewPage() {
+export default function WasteReviewTab() {
   const [records, setRecords] = useState<WasteRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -71,16 +71,13 @@ export default function WasteReviewPage() {
   }
 
   return (
-    <div className="admin-page w-full max-w-[1200px]">
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-[26px] font-bold text-[#302221]">Waste Review Queue</h1>
-          <p className="text-sm text-[#7B726B]">รายการที่ระบบเสนอว่าอาจเป็นของเสีย (ใกล้หมดอายุ 2 วัน + ไม่มีการเคลื่อนไหว 3 วัน) รอ Owner ตรวจสอบ</p>
-        </div>
+    <>
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-[#7B726B]">รายการที่ระบบเสนอว่าอาจเป็นของเสีย (ใกล้หมดอายุ 2 วัน + ไม่มีการเคลื่อนไหว 3 วัน) รอ Owner ตรวจสอบ</p>
         <button
           disabled={scanning}
           onClick={runScan}
-          className="admin-primary rounded-md bg-[#4A322F] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+          className="admin-primary shrink-0 rounded-md bg-[#4A322F] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
         >
           {scanning ? 'กำลังสแกน…' : 'สแกนหาของเสียใหม่'}
         </button>
@@ -149,6 +146,6 @@ export default function WasteReviewPage() {
           </div>
         )}
       </div>
-    </div>
+    </>
   )
 }

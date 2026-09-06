@@ -1,8 +1,6 @@
 import { serve } from '@hono/node-server'
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
-import { extname, join, resolve } from 'node:path'
 import { Hono, type Context, type Next } from 'hono'
 import { cors } from 'hono/cors'
 import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie'
@@ -21,7 +19,43 @@ type SessionUser = {
 }
 
 const app = new Hono()
-const menuImageRoot = resolve(process.cwd(), 'uploads', 'menu')
+
+// รูปเมนูเก็บบน Supabase Storage (bucket ชื่อ "menu-images", ต้องเป็น public bucket) แทนดิสก์เครื่อง backend เอง
+// เหตุผล: ดิสก์เครื่อง dev คนละคนไม่ sync กัน — ถ้าเก็บไว้ในเครื่องใครเครื่องมัน พอคนอื่น pull โค้ด/DB มา
+// จะเจอ image_path ชี้ไปยังไฟล์ที่ไม่มีอยู่จริงในเครื่องตัวเอง (รูป broken)
+const SUPABASE_STORAGE_BUCKET = 'menu-images'
+
+function supabaseEnv() {
+  const url = process.env.SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !serviceRoleKey) throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured for menu image storage')
+  return { url: url.replace(/\/$/, ''), serviceRoleKey }
+}
+
+function supabasePublicImageUrl(filename: string) {
+  const { url } = supabaseEnv()
+  return `${url}/storage/v1/object/public/${SUPABASE_STORAGE_BUCKET}/${filename}`
+}
+
+async function uploadMenuImage(filename: string, buffer: Buffer, contentType: string) {
+  const { url, serviceRoleKey } = supabaseEnv()
+  // ห่อเป็น Blob ก่อนส่งเข้า fetch — Buffer เฉยๆ ชนกับ type ของ BodyInit ในบาง TS/Node lib version
+  const response = await fetch(`${url}/storage/v1/object/${SUPABASE_STORAGE_BUCKET}/${filename}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey, 'Content-Type': contentType },
+    body: new Blob([Uint8Array.from(buffer)], { type: contentType }),
+  })
+  if (!response.ok) throw new Error(`Supabase Storage upload failed: ${response.status} ${await response.text()}`)
+}
+
+async function deleteMenuImage(filename: string) {
+  const { url, serviceRoleKey } = supabaseEnv()
+  await fetch(`${url}/storage/v1/object/${SUPABASE_STORAGE_BUCKET}/${filename}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey },
+  }).catch(() => undefined)
+}
+
 const allowedOrigins = new Set([
   'http://localhost:5173',
   'http://localhost:5174',
@@ -1195,11 +1229,11 @@ app.get('/menu-images/:filename', async (c) => {
   const filename = c.req.param('filename')
   if (!/^[a-f0-9-]+\.(jpg|jpeg|png|webp)$/i.test(filename)) return c.json({ error: 'Image not found' }, 404)
   try {
-    const image = await readFile(join(menuImageRoot, filename))
-    const extension = extname(filename).toLowerCase()
-    const contentType = extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg'
-    return new Response(image, { headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=31536000, immutable' } })
-  } catch {
+    // redirect ไป URL จริงบน Supabase Storage — เบราว์เซอร์ตามไปโหลดตรงจาก Supabase CDN เอง
+    // ไม่ต้อง proxy ผ่าน backend ของเรา (เร็วกว่า, ไม่กิน bandwidth เซิร์ฟเวอร์เราเอง)
+    return c.redirect(supabasePublicImageUrl(filename), 302)
+  } catch (error) {
+    console.error(error)
     return c.json({ error: 'Image not found' }, 404)
   }
 })
@@ -1239,8 +1273,7 @@ app.put('/owner/menu-items/:id/image', async (c) => {
     if (image.size > 5 * 1024 * 1024) return c.json({ error: 'Image must be 5 MB or smaller' }, 400)
 
     const filename = `${randomBytes(16).toString('hex')}${extension}`
-    await mkdir(menuImageRoot, { recursive: true })
-    await writeFile(join(menuImageRoot, filename), Buffer.from(await image.arrayBuffer()))
+    await uploadMenuImage(filename, Buffer.from(await image.arrayBuffer()), image.type)
     const previous = await pool.query<{ imagePath: string | null }>('SELECT image_path AS "imagePath" FROM menu_items WHERE id = $1 AND is_deleted = false', [c.req.param('id')])
     const result = await pool.query(
       `UPDATE menu_items SET image_path = $1, image_alt = COALESCE(NULLIF($2, ''), name)
@@ -1248,10 +1281,10 @@ app.put('/owner/menu-items/:id/image', async (c) => {
       [filename, body.altText ?? '', c.req.param('id')],
     )
     if (!result.rows[0]) {
-      await unlink(join(menuImageRoot, filename)).catch(() => undefined)
+      await deleteMenuImage(filename)
       return c.json({ error: 'Menu item not found' }, 404)
     }
-    if (previous.rows[0]?.imagePath) await unlink(join(menuImageRoot, previous.rows[0].imagePath)).catch(() => undefined)
+    if (previous.rows[0]?.imagePath) await deleteMenuImage(previous.rows[0].imagePath)
     return c.json({ image: result.rows[0] })
   } catch (error) {
     console.error(error)
