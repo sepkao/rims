@@ -10,8 +10,7 @@ const navItems: Record<Role, Array<{ to: string; label: string; icon: typeof Lay
     { to: '/owner/history', label: 'Inventory history', icon: History },
     { to: '/owner/freezer-stock', label: 'Freezer stock', icon: Warehouse },
     { to: '/owner/prep-fridge-stock', label: 'Prep fridge', icon: Refrigerator },
-    { to: '/owner/expired', label: 'Expired inventory', icon: Warehouse },
-    { to: '/owner/waste-review', label: 'Waste review', icon: Trash2 },
+    { to: '/owner/waste-management', label: 'Waste management', icon: Trash2 },
     { to: '/owner/system-logs', label: 'System logs', icon: ScrollText },
     { to: '/owner/settings', label: 'Buffet prices', icon: CircleDollarSign },
     { to: '/owner/ingredient-settings', label: 'Ingredient settings', icon: Settings2 },
@@ -28,7 +27,6 @@ const navItems: Record<Role, Array<{ to: string; label: string; icon: typeof Lay
   ],
   cashier: [
     { to: '/cashier/tables', label: 'Tables', icon: Table2 },
-    { to: '/cashier/check-in', label: 'Check In', icon: PackagePlus },
     { to: '/cashier/payment', label: 'Payment', icon: History },
   ],
 }

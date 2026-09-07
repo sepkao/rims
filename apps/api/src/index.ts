@@ -1,8 +1,6 @@
 import { serve } from '@hono/node-server'
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
-import { extname, join, resolve } from 'node:path'
 import { Hono, type Context, type Next } from 'hono'
 import { cors } from 'hono/cors'
 import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie'
@@ -21,7 +19,43 @@ type SessionUser = {
 }
 
 const app = new Hono()
-const menuImageRoot = resolve(process.cwd(), 'uploads', 'menu')
+
+// รูปเมนูเก็บบน Supabase Storage (bucket ชื่อ "menu-images", ต้องเป็น public bucket) แทนดิสก์เครื่อง backend เอง
+// เหตุผล: ดิสก์เครื่อง dev คนละคนไม่ sync กัน — ถ้าเก็บไว้ในเครื่องใครเครื่องมัน พอคนอื่น pull โค้ด/DB มา
+// จะเจอ image_path ชี้ไปยังไฟล์ที่ไม่มีอยู่จริงในเครื่องตัวเอง (รูป broken)
+const SUPABASE_STORAGE_BUCKET = 'menu-images'
+
+function supabaseEnv() {
+  const url = process.env.SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !serviceRoleKey) throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured for menu image storage')
+  return { url: url.replace(/\/$/, ''), serviceRoleKey }
+}
+
+function supabasePublicImageUrl(filename: string) {
+  const { url } = supabaseEnv()
+  return `${url}/storage/v1/object/public/${SUPABASE_STORAGE_BUCKET}/${filename}`
+}
+
+async function uploadMenuImage(filename: string, buffer: Buffer, contentType: string) {
+  const { url, serviceRoleKey } = supabaseEnv()
+  // ห่อเป็น Blob ก่อนส่งเข้า fetch — Buffer เฉยๆ ชนกับ type ของ BodyInit ในบาง TS/Node lib version
+  const response = await fetch(`${url}/storage/v1/object/${SUPABASE_STORAGE_BUCKET}/${filename}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey, 'Content-Type': contentType },
+    body: new Blob([Uint8Array.from(buffer)], { type: contentType }),
+  })
+  if (!response.ok) throw new Error(`Supabase Storage upload failed: ${response.status} ${await response.text()}`)
+}
+
+async function deleteMenuImage(filename: string) {
+  const { url, serviceRoleKey } = supabaseEnv()
+  await fetch(`${url}/storage/v1/object/${SUPABASE_STORAGE_BUCKET}/${filename}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey },
+  }).catch(() => undefined)
+}
+
 const allowedOrigins = new Set([
   'http://localhost:5173',
   'http://localhost:5174',
@@ -365,7 +399,7 @@ app.put('/staff/orders/:id/serve', async (c) => {
 
 app.get('/cashier/dining-tables', async (c) => {
   const result = await pool.query(
-    `SELECT dt.id::text, dt.table_number AS "tableNumber",
+    `SELECT dt.id::text, dt.table_number AS "tableNumber", dt.is_hidden AS "isHidden",
             CASE
               WHEN ts.id IS NOT NULL AND ts.expires_at <= now() THEN 'expired'
               WHEN ts.id IS NOT NULL AND ts.expires_at <= now() + INTERVAL '5 minutes' THEN 'near_expiry'
@@ -379,9 +413,51 @@ app.get('/cashier/dining-tables', async (c) => {
             (SELECT COUNT(*) FROM orders o WHERE o.table_session_id = ts.id AND o.status = 'confirmed') AS "confirmedOrders"
      FROM dining_tables dt
      LEFT JOIN table_sessions ts ON ts.dining_table_id = dt.id AND ts.ended_at IS NULL
-     ORDER BY dt.table_number`,
+     WHERE dt.is_deleted = false AND ($1::boolean OR dt.is_hidden = false)
+     ORDER BY dt.is_hidden, NULLIF(regexp_replace(dt.table_number, '\\D', '', 'g'), '')::bigint NULLS LAST, dt.table_number`,
+    [c.req.query('includeHidden') === 'true'],
   )
   return c.json({ diningTables: result.rows })
+})
+
+app.post('/cashier/dining-tables', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  const name = typeof body?.tableNumber === 'string' ? body.tableNumber.trim() : ''
+  if (!name || name.length > 50) return c.json({ error: 'ระบุชื่อโต๊ะ 1–50 ตัวอักษร' }, 400)
+  try {
+    const result = await pool.query('INSERT INTO dining_tables (table_number) VALUES ($1) RETURNING id::text', [name])
+    return c.json({ id: result.rows[0].id }, 201)
+  } catch (error) {
+    if ((error as { code?: string }).code === '23505') return c.json({ error: 'ชื่อโต๊ะนี้มีอยู่แล้ว กรุณาใช้ชื่ออื่น' }, 409)
+    return c.json({ error: 'เพิ่มโต๊ะไม่สำเร็จ' }, 500)
+  }
+})
+
+app.on(['PATCH', 'DELETE'], '/cashier/dining-tables/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!/^\d+$/.test(id)) return c.json({ error: 'รหัสโต๊ะไม่ถูกต้อง' }, 400)
+  const deleting = c.req.method === 'DELETE'
+  const body = deleting ? null : await c.req.json().catch(() => null)
+  const name = typeof body?.tableNumber === 'string' ? body.tableNumber.trim() : ''
+  if (!deleting && (!name || name.length > 50 || typeof body?.isHidden !== 'boolean')) return c.json({ error: 'ข้อมูลโต๊ะไม่ถูกต้อง' }, 400)
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const result = await client.query('SELECT status FROM dining_tables WHERE id = $1 AND NOT is_deleted FOR UPDATE', [id])
+    if (!result.rows.length) { await client.query('ROLLBACK'); return c.json({ error: 'ไม่พบโต๊ะ' }, 404) }
+    const sessions = await client.query('SELECT id FROM table_sessions WHERE dining_table_id = $1 AND ended_at IS NULL', [id])
+    if (result.rows[0].status !== 'empty' || sessions.rows.length) {
+      await client.query('ROLLBACK')
+      return c.json({ error: 'แก้ไขได้เฉพาะโต๊ะว่าง กรุณาปิดบิลและเก็บโต๊ะก่อน' }, 409)
+    }
+    if (deleting) await client.query('UPDATE dining_tables SET is_deleted = true, is_hidden = true WHERE id = $1', [id])
+    else await client.query('UPDATE dining_tables SET table_number = $2, is_hidden = $3 WHERE id = $1', [id, name, body.isHidden])
+    await client.query('COMMIT')
+    return c.json({ success: true })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    return c.json({ error: (error as { code?: string }).code === '23505' ? 'ชื่อโต๊ะนี้มีอยู่แล้ว กรุณาใช้ชื่ออื่น' : 'บันทึกโต๊ะไม่สำเร็จ' }, 409)
+  } finally { client.release() }
 })
 
 app.post('/cashier/table-sessions', async (c) => {
@@ -414,7 +490,7 @@ app.post('/cashier/table-sessions', async (c) => {
     await client.query('BEGIN')
     transactionStarted = true
     const tableResult = await client.query<{ status: string }>(
-      `SELECT status FROM dining_tables WHERE id = $1 FOR UPDATE`,
+      `SELECT status FROM dining_tables WHERE id = $1 AND NOT is_hidden AND NOT is_deleted FOR UPDATE`,
       [diningTableId],
     )
     if (!tableResult.rows[0]) {
@@ -1195,11 +1271,11 @@ app.get('/menu-images/:filename', async (c) => {
   const filename = c.req.param('filename')
   if (!/^[a-f0-9-]+\.(jpg|jpeg|png|webp)$/i.test(filename)) return c.json({ error: 'Image not found' }, 404)
   try {
-    const image = await readFile(join(menuImageRoot, filename))
-    const extension = extname(filename).toLowerCase()
-    const contentType = extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg'
-    return new Response(image, { headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=31536000, immutable' } })
-  } catch {
+    // redirect ไป URL จริงบน Supabase Storage — เบราว์เซอร์ตามไปโหลดตรงจาก Supabase CDN เอง
+    // ไม่ต้อง proxy ผ่าน backend ของเรา (เร็วกว่า, ไม่กิน bandwidth เซิร์ฟเวอร์เราเอง)
+    return c.redirect(supabasePublicImageUrl(filename), 302)
+  } catch (error) {
+    console.error(error)
     return c.json({ error: 'Image not found' }, 404)
   }
 })
@@ -1239,8 +1315,7 @@ app.put('/owner/menu-items/:id/image', async (c) => {
     if (image.size > 5 * 1024 * 1024) return c.json({ error: 'Image must be 5 MB or smaller' }, 400)
 
     const filename = `${randomBytes(16).toString('hex')}${extension}`
-    await mkdir(menuImageRoot, { recursive: true })
-    await writeFile(join(menuImageRoot, filename), Buffer.from(await image.arrayBuffer()))
+    await uploadMenuImage(filename, Buffer.from(await image.arrayBuffer()), image.type)
     const previous = await pool.query<{ imagePath: string | null }>('SELECT image_path AS "imagePath" FROM menu_items WHERE id = $1 AND is_deleted = false', [c.req.param('id')])
     const result = await pool.query(
       `UPDATE menu_items SET image_path = $1, image_alt = COALESCE(NULLIF($2, ''), name)
@@ -1248,10 +1323,10 @@ app.put('/owner/menu-items/:id/image', async (c) => {
       [filename, body.altText ?? '', c.req.param('id')],
     )
     if (!result.rows[0]) {
-      await unlink(join(menuImageRoot, filename)).catch(() => undefined)
+      await deleteMenuImage(filename)
       return c.json({ error: 'Menu item not found' }, 404)
     }
-    if (previous.rows[0]?.imagePath) await unlink(join(menuImageRoot, previous.rows[0].imagePath)).catch(() => undefined)
+    if (previous.rows[0]?.imagePath) await deleteMenuImage(previous.rows[0].imagePath)
     return c.json({ image: result.rows[0] })
   } catch (error) {
     console.error(error)
