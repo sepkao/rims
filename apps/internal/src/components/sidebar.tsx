@@ -12,6 +12,7 @@ const navItems: Record<Role, Array<{ to: string; label: string; icon: typeof Lay
     { to: '/owner/prep-fridge-stock', label: 'Prep fridge', icon: Refrigerator },
     { to: '/owner/waste-management', label: 'Waste management', icon: Trash2 },
     { to: '/owner/system-logs', label: 'System logs', icon: ScrollText },
+    { to: '/owner/notifications', label: 'Notifications', icon: BellRing },
     { to: '/owner/settings', label: 'Buffet prices', icon: CircleDollarSign },
     { to: '/owner/ingredient-settings', label: 'Ingredient settings', icon: Settings2 },
   ],

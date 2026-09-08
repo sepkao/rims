@@ -7,6 +7,7 @@ type Draft = {
   name: string
   portionGrams: string
   thresholdPlates: string
+  reorderThresholdKg: string
   isActive: boolean
 }
 
@@ -47,6 +48,7 @@ export default function IngredientSettings() {
       name: ingredient.name,
       portionGrams: String(Math.round(ingredient.defaultPortionSizeKg * 1000)),
       thresholdPlates: String(ingredient.thawPrepThresholdPlates ?? 0),
+      reorderThresholdKg: ingredient.reorderThresholdKg == null ? '' : String(ingredient.reorderThresholdKg),
       isActive: ingredient.isActive !== false,
     })
     setError('')
@@ -67,6 +69,16 @@ export default function IngredientSettings() {
     if (!name || name.length > 120) return setError('กรุณากรอกชื่อวัตถุดิบไม่เกิน 120 ตัวอักษร')
     if (!Number.isSafeInteger(portionGrams) || portionGrams < 1 || portionGrams > 9999) return setError('น้ำหนักต้องเป็นจำนวนเต็ม 1–9,999 กรัมต่อถาด')
     if (!Number.isSafeInteger(threshold) || threshold < 0 || threshold > 100000) return setError('จำนวนขั้นต่ำต้องเป็นจำนวนเต็ม 0–100,000 ถาด')
+
+    // reorder_threshold_kg is meat-only (Freezer, kg) — blank means "no alert set".
+    let reorderThresholdKg: number | null = null
+    if (selected.category === 'meat' && draft.reorderThresholdKg.trim() !== '') {
+      reorderThresholdKg = Number(draft.reorderThresholdKg)
+      if (!Number.isFinite(reorderThresholdKg) || reorderThresholdKg < 0 || reorderThresholdKg > 99999.999) {
+        return setError('เกณฑ์แจ้งเตือนสต็อกต่ำต้องเป็นตัวเลข กก. ที่ไม่ติดลบ หรือเว้นว่างไว้')
+      }
+    }
+
     if (selected.isActive !== false && !draft.isActive && !window.confirm(`เก็บ “${selected.name}” เข้าคลังถาวรหรือไม่? รายการจะไม่ปรากฏในงานรับของและแปรรูปใหม่`)) return
 
     setSaving(true)
@@ -78,6 +90,7 @@ export default function IngredientSettings() {
           name,
           defaultPortionSizeKg: portionGrams / 1000,
           thawPrepThresholdPlates: threshold,
+          reorderThresholdKg,
           isActive: draft.isActive,
         }),
       })
@@ -132,7 +145,7 @@ export default function IngredientSettings() {
 
 function Editor({ ingredient, draft, saving, onDraft, onSave, onClose }: { ingredient: IngredientPreset; draft: Draft; saving: boolean; onDraft: (draft: Draft) => void; onSave: () => void; onClose: () => void }) {
   const inputClass = 'w-full rounded-xl border-2 border-[#2D1B17] bg-white px-4 py-3 text-sm font-black outline-none focus:shadow-[3px_3px_0_#B97861]'
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D1B17]/70 px-4 py-6" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section role="dialog" aria-modal="true" className="w-full max-w-xl overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]"><header className="flex items-start justify-between border-b-2 border-[#2D1B17] bg-[#DBC8B8] px-6 py-5"><div><p className="text-[10px] font-black uppercase tracking-[.14em]">Ingredient #{ingredient.id}</p><h2 className="mt-1 text-2xl font-black">แก้ไขวัตถุดิบ</h2><p className="mt-1 text-xs font-bold text-[#75584E]">ประเภท: {ingredient.category === 'meat' ? 'เนื้อสัตว์' : 'ผัก'} · ไม่อนุญาตให้เปลี่ยนหลังสร้าง</p></div><button type="button" onClick={onClose} aria-label="ปิด" className="rounded-full border-2 border-[#2D1B17] bg-white p-2"><X size={17} /></button></header><div className="grid gap-5 p-6 sm:grid-cols-2"><Field label="ชื่อวัตถุดิบ" wide><input autoFocus value={draft.name} onChange={(event) => onDraft({ ...draft, name: event.target.value })} className={inputClass} maxLength={120} /></Field><Field label="น้ำหนักต่อถาด (กรัม)"><input type="number" min="1" max="9999" step="1" value={draft.portionGrams} onChange={(event) => onDraft({ ...draft, portionGrams: event.target.value })} className={inputClass} /></Field><Field label="ขั้นต่ำใน Prep (ถาด)"><input type="number" min="0" max="100000" step="1" value={draft.thresholdPlates} onChange={(event) => onDraft({ ...draft, thresholdPlates: event.target.value })} className={inputClass} /></Field><div className="sm:col-span-2 rounded-2xl border-2 border-[#2D1B17] bg-[#F1E2CF] p-4"><div className="flex items-center justify-between gap-4"><div><p className="text-sm font-black">สถานะวัตถุดิบ</p><p className="mt-1 text-xs font-bold text-[#75584E]">เก็บถาวรแล้วจะไม่แสดงในงานรับของ แปรรูป หรือแจ้งเตือนใหม่</p></div><button type="button" onClick={() => onDraft({ ...draft, isActive: !draft.isActive })} className={`inline-flex shrink-0 items-center gap-2 rounded-xl border-2 border-[#2D1B17] px-4 py-2 text-xs font-black ${draft.isActive ? 'bg-green-100 text-green-900' : 'bg-stone-200'}`}>{draft.isActive ? <CheckCircle2 size={15} /> : <Archive size={15} />}{draft.isActive ? 'ใช้งาน' : 'เก็บถาวร'}</button></div></div></div><footer className="flex flex-col-reverse gap-3 border-t-2 border-[#2D1B17] bg-[#E7C7B8] px-6 py-5 sm:flex-row sm:justify-end"><button type="button" onClick={() => onDraft({ name: ingredient.name, portionGrams: String(Math.round(ingredient.defaultPortionSizeKg * 1000)), thresholdPlates: String(ingredient.thawPrepThresholdPlates ?? 0), isActive: ingredient.isActive !== false })} disabled={saving} className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-white px-5 py-2.5 text-sm font-black"><RotateCcw size={15} />คืนค่า</button><button type="button" onClick={onSave} disabled={saving} className="rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-6 py-2.5 text-sm font-black text-white shadow-[4px_4px_0_#B97861] disabled:opacity-50">{saving ? 'กำลังบันทึก…' : 'บันทึกทั้งหมด'}</button></footer></section></div>
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D1B17]/70 px-4 py-6" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section role="dialog" aria-modal="true" className="w-full max-w-xl overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]"><header className="flex items-start justify-between border-b-2 border-[#2D1B17] bg-[#DBC8B8] px-6 py-5"><div><p className="text-[10px] font-black uppercase tracking-[.14em]">Ingredient #{ingredient.id}</p><h2 className="mt-1 text-2xl font-black">แก้ไขวัตถุดิบ</h2><p className="mt-1 text-xs font-bold text-[#75584E]">ประเภท: {ingredient.category === 'meat' ? 'เนื้อสัตว์' : 'ผัก'} · ไม่อนุญาตให้เปลี่ยนหลังสร้าง</p></div><button type="button" onClick={onClose} aria-label="ปิด" className="rounded-full border-2 border-[#2D1B17] bg-white p-2"><X size={17} /></button></header><div className="grid gap-5 p-6 sm:grid-cols-2"><Field label="ชื่อวัตถุดิบ" wide><input autoFocus value={draft.name} onChange={(event) => onDraft({ ...draft, name: event.target.value })} className={inputClass} maxLength={120} /></Field><Field label="น้ำหนักต่อถาด (กรัม)"><input type="number" min="1" max="9999" step="1" value={draft.portionGrams} onChange={(event) => onDraft({ ...draft, portionGrams: event.target.value })} className={inputClass} /></Field><Field label="ขั้นต่ำใน Prep (ถาด)"><input type="number" min="0" max="100000" step="1" value={draft.thresholdPlates} onChange={(event) => onDraft({ ...draft, thresholdPlates: event.target.value })} className={inputClass} /></Field>{ingredient.category === 'meat' && <Field label="เกณฑ์แจ้งเตือนสต็อกต่ำใน Freezer (กก.)" wide><input type="number" min="0" max="99999.999" step="0.1" placeholder="เว้นว่าง = ไม่ต้องแจ้งเตือน" value={draft.reorderThresholdKg} onChange={(event) => onDraft({ ...draft, reorderThresholdKg: event.target.value })} className={inputClass} /><p className="mt-1.5 text-[11px] font-bold text-[#8A7067]">ปัจจุบัน Freezer เหลือ {(ingredient.freezerAvailableKg ?? 0).toFixed(3)} kg — ถ้าต่ำกว่าค่านี้จะขึ้นแจ้งเตือนที่หน้า Notifications ของ Owner</p></Field>}<div className="sm:col-span-2 rounded-2xl border-2 border-[#2D1B17] bg-[#F1E2CF] p-4"><div className="flex items-center justify-between gap-4"><div><p className="text-sm font-black">สถานะวัตถุดิบ</p><p className="mt-1 text-xs font-bold text-[#75584E]">เก็บถาวรแล้วจะไม่แสดงในงานรับของ แปรรูป หรือแจ้งเตือนใหม่</p></div><button type="button" onClick={() => onDraft({ ...draft, isActive: !draft.isActive })} className={`inline-flex shrink-0 items-center gap-2 rounded-xl border-2 border-[#2D1B17] px-4 py-2 text-xs font-black ${draft.isActive ? 'bg-green-100 text-green-900' : 'bg-stone-200'}`}>{draft.isActive ? <CheckCircle2 size={15} /> : <Archive size={15} />}{draft.isActive ? 'ใช้งาน' : 'เก็บถาวร'}</button></div></div></div><footer className="flex flex-col-reverse gap-3 border-t-2 border-[#2D1B17] bg-[#E7C7B8] px-6 py-5 sm:flex-row sm:justify-end"><button type="button" onClick={() => onDraft({ name: ingredient.name, portionGrams: String(Math.round(ingredient.defaultPortionSizeKg * 1000)), thresholdPlates: String(ingredient.thawPrepThresholdPlates ?? 0), reorderThresholdKg: ingredient.reorderThresholdKg == null ? '' : String(ingredient.reorderThresholdKg), isActive: ingredient.isActive !== false })} disabled={saving} className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-white px-5 py-2.5 text-sm font-black"><RotateCcw size={15} />คืนค่า</button><button type="button" onClick={onSave} disabled={saving} className="rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-6 py-2.5 text-sm font-black text-white shadow-[4px_4px_0_#B97861] disabled:opacity-50">{saving ? 'กำลังบันทึก…' : 'บันทึกทั้งหมด'}</button></footer></section></div>
 }
 
 function Field({ label, wide = false, children }: { label: string; wide?: boolean; children: ReactNode }) { return <label className={`text-xs font-black ${wide ? 'sm:col-span-2' : ''}`}>{label}<div className="mt-2">{children}</div></label> }

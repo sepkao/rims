@@ -808,6 +808,16 @@ app.put('/owner/users/:id', async (c) => {
       return c.json({ error: 'Role must be staff or cashier' }, 400)
     }
 
+    // This endpoint only manages staff/cashier accounts (matches the UI, which never
+    // shows an edit control on Owner rows — see UserManagement.tsx). Block it here too,
+    // so an Owner can't edit/demote/disable another Owner account by calling the API
+    // directly, bypassing that UI gate.
+    const target = await pool.query<{ role: Role }>('SELECT role FROM users WHERE id = $1', [id])
+    if (!target.rows[0]) return c.json({ error: 'User not found' }, 404)
+    if (target.rows[0].role === 'owner') {
+      return c.json({ error: 'Owner accounts cannot be edited from this endpoint' }, 403)
+    }
+
     const passwordHash = body.password ? await bcrypt.hash(body.password, 10) : null
     const result = await pool.query(
       `UPDATE users
@@ -1403,8 +1413,10 @@ app.get('/owner/ingredients', async (c) => {
       `SELECT i.id::text, i.name, i.category,
               i.default_portion_size_kg::float8 AS "defaultPortionSizeKg",
               i.thaw_prep_threshold_plates AS "thawPrepThresholdPlates",
+              i.reorder_threshold_kg::float8 AS "reorderThresholdKg",
               i.is_active AS "isActive",
-              COALESCE(prep.available_plates, 0)::float8 AS "prepAvailablePlates"
+              COALESCE(prep.available_plates, 0)::float8 AS "prepAvailablePlates",
+              COALESCE(freezer.available_kg, 0)::float8 AS "freezerAvailableKg"
        FROM ingredients i
        LEFT JOIN LATERAL (
          SELECT SUM(sl.quantity_remaining) AS available_plates
@@ -1415,6 +1427,14 @@ app.get('/owner/ingredients', async (c) => {
            AND sl.is_not_fresh = false
            AND sl.expiry_date > now()
        ) prep ON true
+       LEFT JOIN LATERAL (
+         SELECT SUM(sl.quantity_remaining) AS available_kg
+         FROM stock_lots sl
+         JOIN storage_locations loc ON loc.id = sl.storage_location_id
+         WHERE sl.ingredient_id = i.id
+           AND loc.name = 'Freezer'
+           AND sl.is_not_fresh = false
+       ) freezer ON true
        ORDER BY i.is_active DESC, i.name`,
     )
     return c.json({ ingredients: result.rows })
@@ -1434,6 +1454,7 @@ app.put('/owner/ingredients/:id', async (c) => {
       name?: string
       defaultPortionSizeKg?: number
       thawPrepThresholdPlates?: number
+      reorderThresholdKg?: number | null
       isActive?: boolean
     }>()
     const name = body.name?.trim().replace(/\s+/g, ' ')
@@ -1443,12 +1464,23 @@ app.put('/owner/ingredients/:id', async (c) => {
     if (!Number.isFinite(portionSize) || portionSize < 0.001 || portionSize > 9.999) return c.json({ error: 'Portion size must be between 0.001 and 9.999 kg' }, 400)
     if (!Number.isSafeInteger(threshold) || threshold < 0 || threshold > 100000) return c.json({ error: 'Prep threshold must be a whole number between 0 and 100,000 plates' }, 400)
     if (typeof body.isActive !== 'boolean') return c.json({ error: 'Active status is required' }, 400)
+    // reorder_threshold_kg (UC-N7, Freezer low-stock alert) — meat only per schema, NULL for
+    // vegetable and NULL also means "no alert set" for a meat ingredient the Owner hasn't configured yet.
+    const reorderThresholdKg = body.reorderThresholdKg === null || body.reorderThresholdKg === undefined
+      ? null
+      : Number(body.reorderThresholdKg)
+    if (reorderThresholdKg !== null && (!Number.isFinite(reorderThresholdKg) || reorderThresholdKg < 0 || reorderThresholdKg > 99999.999)) {
+      return c.json({ error: 'Reorder threshold must be a non-negative number of kg, or empty' }, 400)
+    }
 
-    const current = await pool.query<{ name: string; isActive: boolean }>(
-      `SELECT name, is_active AS "isActive" FROM ingredients WHERE id = $1`,
+    const current = await pool.query<{ name: string; isActive: boolean; category: 'meat' | 'vegetable' }>(
+      `SELECT name, is_active AS "isActive", category FROM ingredients WHERE id = $1`,
       [c.req.param('id')],
     )
     if (!current.rows[0]) return c.json({ error: 'Ingredient not found' }, 404)
+    if (reorderThresholdKg !== null && current.rows[0].category !== 'meat') {
+      return c.json({ error: 'Reorder threshold applies to meat (Freezer) ingredients only' }, 400)
+    }
 
     const duplicate = await pool.query(
       `SELECT id FROM ingredients WHERE lower(name) = lower($1) AND id <> $2`,
@@ -1474,13 +1506,15 @@ app.put('/owner/ingredients/:id', async (c) => {
        SET name = $1,
            default_portion_size_kg = $2,
            thaw_prep_threshold_plates = $3,
-           is_active = $4
-       WHERE id = $5
+           reorder_threshold_kg = $4,
+           is_active = $5
+       WHERE id = $6
        RETURNING id::text, name, category,
                  default_portion_size_kg::float8 AS "defaultPortionSizeKg",
                  thaw_prep_threshold_plates AS "thawPrepThresholdPlates",
+                 reorder_threshold_kg::float8 AS "reorderThresholdKg",
                  is_active AS "isActive"`,
-      [name, portionSize, threshold, body.isActive, c.req.param('id')],
+      [name, portionSize, threshold, reorderThresholdKg, body.isActive, c.req.param('id')],
     )
     await pool.query(
       `INSERT INTO system_logs (actor_id, action, details)
@@ -1491,6 +1525,7 @@ app.put('/owner/ingredients/:id', async (c) => {
         name,
         defaultPortionSizeKg: portionSize,
         thawPrepThresholdPlates: threshold,
+        reorderThresholdKg,
         isActive: body.isActive,
       })],
     )
@@ -1671,6 +1706,95 @@ app.get('/staff/prep-alerts', async (c) => {
         severity: Number(row.availablePlates) === 0 ? 'critical' : 'low',
       })),
     })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
+// UC-N11 — Freezer lots nearing expiry (meat only, since Freezer is meat-only storage —
+// see [[rims_scope_lock_v2]]). Shared by /staff/expiry-alerts and /owner/expiry-alerts.
+// check_freezer_expiry_warnings() in supabase/migrations/0001_init.sql logs the same
+// condition to system_logs on a cron schedule (0013_freezer_expiry_cron.sql) for the
+// audit trail — this is the live-computed version the UI reads directly, so alerts don't
+// depend on when the cron last ran.
+async function loadFreezerExpiryAlerts() {
+  const result = await pool.query(
+    `SELECT sl.id::text AS "lotId",
+            i.id::text AS "ingredientId",
+            i.name AS "ingredientName",
+            sl.quantity_remaining::float8 AS "quantityKg",
+            sl.expiry_date AS "expiryDate",
+            i.freezer_expiry_warning_days AS "warningDays",
+            GREATEST(0, CEIL(EXTRACT(EPOCH FROM (sl.expiry_date - now())) / 86400))::int AS "daysLeft"
+     FROM stock_lots sl
+     JOIN ingredients i ON i.id = sl.ingredient_id
+     JOIN storage_locations loc ON loc.id = sl.storage_location_id
+     WHERE loc.name = 'Freezer'
+       AND sl.is_not_fresh = false
+       AND sl.quantity_remaining > 0
+       AND sl.expiry_date <= now() + (i.freezer_expiry_warning_days || ' days')::INTERVAL
+     ORDER BY sl.expiry_date ASC`,
+  )
+  return result.rows.map((row) => ({
+    ...row,
+    severity: Number(row.daysLeft) <= 1 ? 'critical' : 'warning',
+  }))
+}
+
+app.get('/staff/expiry-alerts', async (c) => {
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    if (actor.role !== 'staff') return c.json({ error: 'Only staff can view expiry alerts' }, 403)
+    return c.json({ alerts: await loadFreezerExpiryAlerts() })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
+app.get('/owner/expiry-alerts', async (c) => {
+  try {
+    return c.json({ alerts: await loadFreezerExpiryAlerts() })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
+// UC-N7 — Freezer raw stock (kg) below the Owner-set reorder_threshold_kg. Live-computed,
+// same total the trg_check_stock_threshold trigger uses (it only fires on stock_lots
+// writes and logs to system_logs — this is what the UI reads directly instead).
+async function loadLowStockAlerts() {
+  const result = await pool.query(
+    `SELECT i.id::text AS "ingredientId",
+            i.name AS "ingredientName",
+            i.reorder_threshold_kg::float8 AS "thresholdKg",
+            COALESCE(freezer.available_kg, 0)::float8 AS "remainingKg"
+     FROM ingredients i
+     LEFT JOIN LATERAL (
+       SELECT SUM(sl.quantity_remaining) AS available_kg
+       FROM stock_lots sl
+       JOIN storage_locations loc ON loc.id = sl.storage_location_id
+       WHERE sl.ingredient_id = i.id
+         AND loc.name = 'Freezer'
+         AND sl.is_not_fresh = false
+     ) freezer ON true
+     WHERE i.is_active = true
+       AND i.reorder_threshold_kg IS NOT NULL
+       AND COALESCE(freezer.available_kg, 0) < i.reorder_threshold_kg
+     ORDER BY (COALESCE(freezer.available_kg, 0) / NULLIF(i.reorder_threshold_kg, 0)) ASC`,
+  )
+  return result.rows.map((row) => ({
+    ...row,
+    severity: Number(row.remainingKg) === 0 ? 'critical' : 'low',
+  }))
+}
+
+app.get('/owner/low-stock-alerts', async (c) => {
+  try {
+    return c.json({ alerts: await loadLowStockAlerts() })
   } catch (error) {
     console.error(error)
     return c.json({ error: errorMessage(error) }, 400)

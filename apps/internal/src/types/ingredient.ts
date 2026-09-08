@@ -5,6 +5,8 @@ export type IngredientPreset = {
   defaultPortionSizeKg: number
   prepAvailablePlates?: number
   thawPrepThresholdPlates?: number | null
+  reorderThresholdKg?: number | null
+  freezerAvailableKg?: number
   isActive?: boolean
 }
 

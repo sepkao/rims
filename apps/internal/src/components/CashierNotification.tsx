@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Bell, Check } from 'lucide-react';
+import { Bell, Check, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 
 type Notification = {
@@ -14,14 +14,17 @@ export default function CashierNotification() {
   const { role } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [error, setError] = useState('');
 
   const fetchNotifications = useCallback(async () => {
     if (role !== 'cashier') return;
     try {
       const data = await apiFetch<{ notifications: Notification[] }>(`/cashier/notifications?_t=${Date.now()}`);
       setNotifications(data.notifications || []);
+      setError('');
     } catch (e) {
       console.error(e);
+      setError('โหลดการแจ้งเตือนไม่สำเร็จ');
     }
   }, [role]);
 
@@ -35,8 +38,10 @@ export default function CashierNotification() {
     try {
       await apiFetch(`/cashier/notifications/${id}/read`, { method: 'POST' });
       setNotifications(prev => prev.filter(n => n.id !== id));
+      setError('');
     } catch (e) {
       console.error(e);
+      setError('รับทราบการแจ้งเตือนไม่สำเร็จ');
     }
   };
 
@@ -45,8 +50,10 @@ export default function CashierNotification() {
       await apiFetch('/cashier/notifications/read-all', { method: 'POST' });
       setNotifications([]);
       setIsOpen(false);
+      setError('');
     } catch (e) {
       console.error(e);
+      setError('อ่านทั้งหมดไม่สำเร็จ');
     }
   };
 
@@ -54,6 +61,23 @@ export default function CashierNotification() {
 
   return (
     <div className="fixed bottom-6 right-6 z-50">
+      {error && (
+        <div
+          role="alert"
+          className={`absolute right-0 mb-2 flex w-72 items-start gap-2 rounded-xl border-2 border-red-700 bg-red-50 p-3 text-xs font-bold text-red-700 shadow-[3px_3px_0_#2D1B17] ${isOpen ? 'bottom-[27rem]' : 'bottom-16'}`}
+        >
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <span className="flex-1">{error}</span>
+          <button
+            type="button"
+            onClick={() => setError('')}
+            className="shrink-0 text-red-700/70 hover:text-red-700"
+            aria-label="ปิดข้อความแจ้งเตือน"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {isOpen && (
         <div className="absolute bottom-16 right-0 w-80 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden flex flex-col max-h-[400px] transform origin-bottom-right transition-all">
           <div className="bg-[#5A403E] text-white px-4 py-3 flex justify-between items-center">
