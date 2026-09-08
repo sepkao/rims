@@ -1046,15 +1046,16 @@ app.get('/menu-items', async (c) => {
        FROM menu_items mi
        LEFT JOIN menu_item_ingredients mii ON mii.menu_item_id = mi.id
        LEFT JOIN ingredients i ON i.id = mii.ingredient_id
-       LEFT JOIN LATERAL (
-         SELECT SUM(sl.quantity_remaining)::float8 AS available_plates
+       LEFT JOIN (
+         SELECT sl.ingredient_id, SUM(sl.quantity_remaining)::float8 AS available_plates
          FROM stock_lots sl
          JOIN storage_locations loc ON loc.id = sl.storage_location_id
-         WHERE sl.ingredient_id = mii.ingredient_id
-           AND loc.name = 'ตู้พักละลาย'
+         WHERE loc.name = 'ตู้พักละลาย'
+           AND sl.quantity_remaining > 0
            AND sl.is_not_fresh = false
            AND sl.expiry_date > now()
-       ) stock ON true
+         GROUP BY sl.ingredient_id
+       ) stock ON stock.ingredient_id = mii.ingredient_id
        WHERE mi.is_deleted = false
        GROUP BY mi.id
        ORDER BY mi.name`,
@@ -1135,15 +1136,16 @@ app.get('/customer/menu-items', async (c) => {
        FROM menu_items mi
        LEFT JOIN menu_item_ingredients mii ON mii.menu_item_id = mi.id
        LEFT JOIN ingredients i ON i.id = mii.ingredient_id
-       LEFT JOIN LATERAL (
-         SELECT SUM(sl.quantity_remaining) AS available_plates
+       LEFT JOIN (
+         SELECT sl.ingredient_id, SUM(sl.quantity_remaining) AS available_plates
          FROM stock_lots sl
          JOIN storage_locations loc ON loc.id = sl.storage_location_id
-         WHERE sl.ingredient_id = mii.ingredient_id
-           AND loc.name = 'ตู้พักละลาย'
+         WHERE loc.name = 'ตู้พักละลาย'
+           AND sl.quantity_remaining > 0
            AND sl.is_not_fresh = false
            AND sl.expiry_date > now()
-       ) stock ON true
+         GROUP BY sl.ingredient_id
+       ) stock ON stock.ingredient_id = mii.ingredient_id
        WHERE mi.is_active = true AND mi.is_deleted = false
        GROUP BY mi.id
        ORDER BY mi.name`,
@@ -1179,15 +1181,16 @@ app.get('/customer/menu-items/:id', async (c) => {
        FROM menu_items mi
        LEFT JOIN menu_item_ingredients mii ON mii.menu_item_id = mi.id
        LEFT JOIN ingredients i ON i.id = mii.ingredient_id
-       LEFT JOIN LATERAL (
-         SELECT SUM(sl.quantity_remaining) AS available_plates
+       LEFT JOIN (
+         SELECT sl.ingredient_id, SUM(sl.quantity_remaining) AS available_plates
          FROM stock_lots sl
          JOIN storage_locations loc ON loc.id = sl.storage_location_id
-         WHERE sl.ingredient_id = mii.ingredient_id
-           AND loc.name = 'ตู้พักละลาย'
+         WHERE loc.name = 'ตู้พักละลาย'
+           AND sl.quantity_remaining > 0
            AND sl.is_not_fresh = false
            AND sl.expiry_date > now()
-       ) stock ON true
+         GROUP BY sl.ingredient_id
+       ) stock ON stock.ingredient_id = mii.ingredient_id
        WHERE mi.id = $1 AND mi.is_active = true AND mi.is_deleted = false
        GROUP BY mi.id`,
       [c.req.param('id')],
