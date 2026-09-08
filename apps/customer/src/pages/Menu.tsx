@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { API_BASE_URL, apiFetch } from '../lib/api';
+import { API_BASE_URL, apiFetch, ApiError } from '../lib/api';
 import CallStaffButton from '../components/CallStaffButton';
 import DevTimeTools from '../components/DevTimeTools';
 import BuffetTimer from '../components/BuffetTimer';
 import QrExpiryBanner from '../components/QrExpiryBanner';
-import { customerQuery, type CustomerSession } from '../lib/customer-session';
+import { clearCustomerSession, customerQuery, type CustomerSession } from '../lib/customer-session';
 import { useCart } from '../lib/CartContext';
 import { Clock, Minus, Plus, Search, ShoppingBag, UtensilsCrossed } from 'lucide-react';
 
@@ -59,9 +59,18 @@ export default function Menu() {
         setSession(sessionData.session);
         setIsExpired(sessionData.session.status === 'expired' || new Date(sessionData.session.expiresAt).getTime() <= Date.now());
       })
-      .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดเมนูไม่สำเร็จ'))
+      .catch((caught) => {
+        // 410 = QR code ใน sessionStorage ใช้ไม่ได้แล้ว (โต๊ะถูก Check Out, session หมดอายุ ฯลฯ)
+        // เคลียร์ทิ้งแล้วพากลับหน้า scan ใหม่ กัน error ค้าง/กด "ลองใหม่" แล้วพังซ้ำด้วยโค้ดเดิม
+        if (caught instanceof ApiError && caught.status === 410) {
+          clearCustomerSession();
+          navigate('/landing', { replace: true });
+          return;
+        }
+        setError(caught instanceof Error ? caught.message : 'โหลดเมนูไม่สำเร็จ');
+      })
       .finally(() => setLoading(false));
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     fetchItems();

@@ -1114,7 +1114,7 @@ app.delete('/owner/menu-categories/:id', async (c) => {
 app.get('/customer/menu-items', async (c) => {
   try {
     const session = await findCustomerSession(c.req.query('qr_code'))
-    if (!session) return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
+    if (!session) return c.json({ error: 'QR Code หมดอายุ ปิดใช้งาน หรือไม่ถูกต้อง' }, 410)
     const result = await pool.query(
       `SELECT mi.id::text, mi.name, mi.description, mi.category,
               CASE WHEN mi.image_path IS NULL THEN NULL ELSE '/menu-images/' || mi.image_path END AS "imagePath",
@@ -1151,14 +1151,14 @@ app.get('/customer/menu-items', async (c) => {
     return c.json({ menuItems: result.rows })
   } catch (error) {
     console.error(error)
-    return c.json({ error: 'Unable to load available menu items' }, 500)
+    return c.json({ error: 'ไม่สามารถโหลดเมนูได้ กรุณาลองใหม่อีกครั้ง' }, 500)
   }
 })
 
 app.get('/customer/menu-items/:id', async (c) => {
   try {
     const session = await findCustomerSession(c.req.query('qr_code'))
-    if (!session) return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
+    if (!session) return c.json({ error: 'QR Code หมดอายุ ปิดใช้งาน หรือไม่ถูกต้อง' }, 410)
     const result = await pool.query(
       `SELECT mi.id::text, mi.name, mi.description, mi.category,
               CASE WHEN mi.image_path IS NULL THEN NULL ELSE '/menu-images/' || mi.image_path END AS "imagePath",
@@ -1193,12 +1193,12 @@ app.get('/customer/menu-items/:id', async (c) => {
       [c.req.param('id')],
     )
     if (!result.rows[0]) {
-      return c.json({ error: 'Menu item not found' }, 404)
+      return c.json({ error: 'ไม่พบเมนูนี้' }, 404)
     }
     return c.json({ menuItem: result.rows[0] })
   } catch (error) {
     console.error(error)
-    return c.json({ error: 'Unable to load menu item' }, 500)
+    return c.json({ error: 'ไม่สามารถโหลดเมนูนี้ได้ กรุณาลองใหม่อีกครั้ง' }, 500)
   }
 })
 
@@ -2043,7 +2043,7 @@ app.post('/customer/call-staff', async (c) => {
   try {
     const body = await c.req.json<{ qrCode?: string }>()
     const session = await findCustomerSession(body.qrCode, false)
-    if (!session) return c.json({ error: 'QR session is invalid or closed' }, 410)
+    if (!session) return c.json({ error: 'QR Code ไม่ถูกต้องหรือปิดใช้งานแล้ว' }, 410)
     const recentCall = await pool.query<{ recent: boolean }>(
       `SELECT EXISTS(
          SELECT 1 FROM cashier_notifications
@@ -2067,7 +2067,7 @@ app.post('/customer/call-staff', async (c) => {
     return c.json({ success: true })
   } catch (error) {
     console.error(error)
-    return c.json({ error: 'Unable to call staff' }, 500)
+    return c.json({ error: 'ไม่สามารถเรียกพนักงานได้ กรุณาลองใหม่อีกครั้ง' }, 500)
   }
 })
 
@@ -2075,7 +2075,7 @@ app.post('/dev/reset-session', async (c) => {
   try {
     const body = await c.req.json<{ qrCode?: string }>().catch((): { qrCode?: string } => ({}))
     const session = await findCustomerSession(body.qrCode, false)
-    if (!session) return c.json({ error: 'QR session is invalid or closed' }, 404)
+    if (!session) return c.json({ error: 'QR Code ไม่ถูกต้องหรือปิดใช้งานแล้ว' }, 404)
 
     await pool.query(`UPDATE table_sessions SET expires_at = now() + interval '100 years' WHERE id = $1`, [session.id]);
     return c.json({ success: true });
@@ -2125,7 +2125,7 @@ app.post('/cashier/notifications/read-all', async (c) => {
 app.get('/customer/orders', async (c) => {
   try {
     const session = await findCustomerSession(c.req.query('qr_code'), false)
-    if (!session) return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
+    if (!session) return c.json({ error: 'QR Code หมดอายุ ปิดใช้งาน หรือไม่ถูกต้อง' }, 410)
     const result = await pool.query(
       `SELECT
           oi.id AS "id",
@@ -2155,7 +2155,7 @@ app.get('/customer/orders', async (c) => {
     })
   } catch (error) {
     console.error(error)
-    return c.json({ error: 'Unable to load orders' }, 500)
+    return c.json({ error: 'ไม่สามารถโหลดรายการอาหารได้ กรุณาลองใหม่อีกครั้ง' }, 500)
   }
 })
 
@@ -2169,11 +2169,11 @@ app.post('/customer/orders', async (c) => {
     }>()
     const items = body.items
     if (!Array.isArray(items) || items.length === 0 || items.length > 30) {
-      return c.json({ error: 'Order must contain 1 to 30 items' }, 400)
+      return c.json({ error: 'ออเดอร์ต้องมี 1-30 รายการ' }, 400)
     }
-    if (typeof body.qrCode !== 'string' || !body.qrCode.trim()) return c.json({ error: 'QR code is required' }, 400)
+    if (typeof body.qrCode !== 'string' || !body.qrCode.trim()) return c.json({ error: 'ต้องมี QR Code' }, 400)
     if (items.some((item) => !item.menuItemId || !Number.isInteger(item.quantity) || Number(item.quantity) < 1 || Number(item.quantity) > 20 || !Array.isArray(item.removedIngredients))) {
-      return c.json({ error: 'Every order item needs a menu item, quantity from 1 to 20, and removed ingredients array' }, 400)
+      return c.json({ error: 'แต่ละรายการต้องระบุเมนู จำนวน 1-20 ที่ และรายการวัตถุดิบที่เอาออก' }, 400)
     }
     const validatedItems = items as Array<{ menuItemId: string; quantity: number; removedIngredients: string[] }>
 
@@ -2187,7 +2187,7 @@ app.post('/customer/orders', async (c) => {
     if (!sessionRes.rows[0]) {
       await client.query('ROLLBACK')
       transactionStarted = false
-      return c.json({ error: 'QR session is invalid, closed, or expired' }, 410)
+      return c.json({ error: 'QR Code หมดอายุ ปิดใช้งาน หรือไม่ถูกต้อง' }, 410)
     }
     const tableSessionId = sessionRes.rows[0].id
 
@@ -2218,13 +2218,13 @@ app.post('/customer/orders', async (c) => {
       if (!rows?.length || !rows[0].is_active || rows.some((row) => !row.ingredient_id)) {
         await client.query('ROLLBACK')
         transactionStarted = false
-        return c.json({ error: 'One or more menu items are unavailable' }, 409)
+        return c.json({ error: 'มีบางเมนูที่ไม่พร้อมขายแล้ว' }, 409)
       }
       const removed = new Set(item.removedIngredients)
       if (removed.size !== item.removedIngredients.length || [...removed].some((id) => !rows.some((row) => row.ingredient_id === id && row.removable))) {
         await client.query('ROLLBACK')
         transactionStarted = false
-        return c.json({ error: 'Removed ingredients must be removable ingredients in that menu item' }, 400)
+        return c.json({ error: 'วัตถุดิบที่เลือกเอาออกต้องเป็นวัตถุดิบที่อนุญาตให้เอาออกได้ของเมนูนั้น' }, 400)
       }
       for (const row of rows) {
         if (removed.has(row.ingredient_id)) continue
@@ -2245,7 +2245,7 @@ app.post('/customer/orders', async (c) => {
     if ([...requiredByIngredient].some(([ingredientId, required]) => (availableByIngredient.get(ingredientId) ?? 0) < required)) {
       await client.query('ROLLBACK')
       transactionStarted = false
-      return c.json({ error: 'One or more items just sold out. Please refresh the menu.' }, 409)
+      return c.json({ error: 'มีบางเมนูเพิ่งหมด กรุณารีเฟรชเมนูอีกครั้ง' }, 409)
     }
 
     const orderRes = await client.query(
@@ -2290,7 +2290,8 @@ app.post('/customer/orders', async (c) => {
   } catch (error) {
     if (transactionStarted) await client.query('ROLLBACK')
     console.error(error)
-    return c.json({ error: errorMessage(error) }, 500)
+    // ไม่ส่ง errorMessage(error) ดิบๆ กลับไปให้ลูกค้า (อาจเป็น SQL/technical error ที่อ่านไม่รู้เรื่อง) ใช้ข้อความคงที่แทน
+    return c.json({ error: 'ไม่สามารถสั่งอาหารได้ กรุณาลองใหม่อีกครั้ง' }, 500)
   } finally {
     client.release()
   }
@@ -2300,12 +2301,12 @@ app.get('/customer/session', async (c) => {
   try {
     const qrCode = c.req.query('qr_code')
     const session = await findCustomerSession(qrCode, false)
-    if (!session) return c.json({ error: 'QR session is invalid or closed' }, 404)
+    if (!session) return c.json({ error: 'QR Code ไม่ถูกต้องหรือปิดใช้งานแล้ว' }, 404)
     const isExpired = new Date(session.expiresAt).getTime() <= Date.now()
     return c.json({ session: { ...session, capacity: 4, status: isExpired ? 'expired' : 'active' } })
   } catch (error) {
     console.error(error)
-    return c.json({ error: 'Unable to load session' }, 500)
+    return c.json({ error: 'ไม่สามารถโหลดข้อมูลโต๊ะได้ กรุณาลองใหม่อีกครั้ง' }, 500)
   }
 })
 
@@ -2319,10 +2320,10 @@ app.post('/customer/orders/:id/cancel', async (c) => {
   const orderId = c.req.param('id')
   try {
     const body = await c.req.json<{ qrCode?: string }>()
-    if (typeof body.qrCode !== 'string' || !body.qrCode.trim()) return c.json({ error: 'QR code is required' }, 400)
+    if (typeof body.qrCode !== 'string' || !body.qrCode.trim()) return c.json({ error: 'ต้องมี QR Code' }, 400)
     const result = await pool.query(
-      `UPDATE orders 
-       SET status = 'cancelled', cancelled_at = now() 
+      `UPDATE orders
+       SET status = 'cancelled', cancelled_at = now()
        WHERE id = $1 AND status = 'pending'
          AND table_session_id = (
            SELECT id FROM table_sessions
@@ -2332,12 +2333,12 @@ app.post('/customer/orders/:id/cancel', async (c) => {
       [orderId, body.qrCode.trim()]
     )
     if (result.rows.length === 0) {
-      return c.json({ error: 'Order cannot be cancelled' }, 400)
+      return c.json({ error: 'ไม่สามารถยกเลิกออเดอร์นี้ได้' }, 400)
     }
     return c.json({ success: true })
   } catch (error) {
     console.error(error)
-    return c.json({ error: 'Failed to cancel order' }, 500)
+    return c.json({ error: 'ยกเลิกออเดอร์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง' }, 500)
   }
 })
 
@@ -2384,7 +2385,7 @@ app.post('/dev/force-confirm', async (c) => {
   try {
     const { qrCode } = await c.req.json<{ qrCode?: string }>()
     const session = await findCustomerSession(qrCode, false)
-    if (!session) return c.json({ error: 'QR session is invalid or closed' }, 404)
+    if (!session) return c.json({ error: 'QR Code ไม่ถูกต้องหรือปิดใช้งานแล้ว' }, 404)
 
     // Make pending orders confirmable immediately by pushing their confirm_at to the past
     await pool.query(

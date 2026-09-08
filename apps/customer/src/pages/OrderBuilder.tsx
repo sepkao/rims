@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { apiFetch } from '../lib/api';
+import { apiFetch, ApiError } from '../lib/api';
 import { useCart, type MenuItem } from '../lib/CartContext';
-import { customerQuery, type CustomerSession } from '../lib/customer-session';
+import { clearCustomerSession, customerQuery, type CustomerSession } from '../lib/customer-session';
 import QrExpiryBanner from '../components/QrExpiryBanner';
 import { AlertCircle, ArrowLeft, Check, Minus, Plus, UtensilsCrossed } from 'lucide-react';
 
@@ -53,9 +53,17 @@ export default function OrderBuilder() {
         setSession(sessionData.session);
         setIsExpired(sessionData.session.status === 'expired' || new Date(sessionData.session.expiresAt).getTime() <= Date.now());
       })
-      .catch((caught) => setError(caught instanceof Error ? caught.message : 'โหลดเมนูไม่สำเร็จ'))
+      .catch((caught) => {
+        // 410 = QR code ใน sessionStorage ใช้ไม่ได้แล้ว — เคลียร์ทิ้งแล้วพากลับหน้า scan ใหม่
+        if (caught instanceof ApiError && caught.status === 410) {
+          clearCustomerSession();
+          navigate('/landing', { replace: true });
+          return;
+        }
+        setError(caught instanceof Error ? caught.message : 'โหลดเมนูไม่สำเร็จ');
+      })
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, navigate]);
 
   useEffect(() => {
     loadItem();
