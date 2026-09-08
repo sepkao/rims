@@ -52,4 +52,54 @@ k6 run --quiet `
   tests/k6/menu-catalog.js
 ```
 
+## ขั้นตอนสาธิตแบบทีละขั้น
+
+ให้เปิด PowerShell 2 หน้าต่าง และรันตามลำดับ โดยรอให้แต่ละรอบจบก่อนเริ่มรอบถัดไป
+
+### Step 1: เปิด API
+
+ในหน้าต่างที่ 1:
+
+```powershell
+cd C:\Users\Asus\Documents\rims
+.\node_modules\.bin\tsx.cmd watch apps/api/src/index.ts
+```
+
+ถ้า API เปิดอยู่แล้วที่ port 3000 ให้ข้ามขั้นตอนนี้ได้
+
+### Step 2: ตรวจ API
+
+ในหน้าต่างที่ 2:
+
+```powershell
+cd C:\Users\Asus\Documents\rims
+Invoke-WebRequest http://127.0.0.1:3000/health
+```
+
+ต้องได้ HTTP 200 ก่อนเริ่ม K6
+
+### Step 3: ทดสอบ 300 VUs
+
+```powershell
+k6 run -e BASE_URL=http://127.0.0.1:3000 -e VUS=300 -e DURATION=20s -e RAMP_UP=10s -e RAMP_DOWN=5s -e THINK_TIME_SECONDS=1 tests/k6/menu-catalog.js
+```
+
+คาดหวัง: ผ่านเกณฑ์, error rate 0% โดยประมาณ
+
+### Step 4: ทดสอบ 325 VUs
+
+```powershell
+k6 run -e BASE_URL=http://127.0.0.1:3000 -e VUS=325 -e DURATION=20s -e RAMP_UP=10s -e RAMP_DOWN=5s -e THINK_TIME_SECONDS=1 tests/k6/menu-catalog.js
+```
+
+คาดหวัง: เริ่มไม่ผ่าน threshold เพราะ error rate สูงกว่า 1%
+
+### Step 5: ทดสอบ 350 VUs
+
+```powershell
+k6 run -e BASE_URL=http://127.0.0.1:3000 -e VUS=350 -e DURATION=20s -e RAMP_UP=10s -e RAMP_DOWN=5s -e THINK_TIME_SECONDS=1 tests/k6/menu-catalog.js
+```
+
+คาดหวัง: error rate สูงขึ้นจากรอบ 325 VUs และ throughput เพิ่มขึ้นเพียงเล็กน้อย แสดงว่าระบบเริ่มอิ่มตัว
+
 ค่าความจุนี้ใช้ได้กับเครื่อง, network, database plan และข้อมูล ณ วันที่ทดสอบเท่านั้น หากเปลี่ยน environment ต้องวัดใหม่ และไม่ควรรัน load test ใส่ production ระหว่างมีผู้ใช้งานจริง
