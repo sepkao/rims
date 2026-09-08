@@ -1,194 +1,167 @@
-import { useMemo, useState } from 'react';
-import { useInventory } from '../../contexts/InventoryContext';
-import type { InventoryStatus } from '../../types/inventory';
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { apiFetch } from '../../lib/api'
 
-// --- Icons ---
-const Icons = {
-  Search: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>,
-  Filter: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>,
-  Alert: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>,
-  Box: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>,
-  Calendar: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-};
-
-// รับเข้าไม่เกิน 7 วันที่แล้ว นับจากวันนี้
-function isWithinLastWeek(dateText: string) {
-  const received = new Date(dateText);
-  const weekAgo = new Date();
-  weekAgo.setDate(weekAgo.getDate() - 7);
-  return received >= weekAgo;
+type Movement = {
+  id: string
+  movementType: 'intake' | 'adjustment' | 'deduction' | 'return'
+  quantity: number
+  createdAt: string
+  ingredientName: string
+  category: 'Meat' | 'Vegetable'
+  location: string
+  unit: string
+  batch: string
+  actorName: string | null
+  orderId: string | null
 }
 
-const STATUS_OPTIONS: Array<InventoryStatus | 'All'> = ['All', 'Fresh', 'Expiring Soon', 'Expired'];
+const TYPE_OPTIONS: Array<{ value: Movement['movementType'] | 'All'; label: string }> = [
+  { value: 'All', label: 'ทั้งหมด' },
+  { value: 'intake', label: 'รับเข้า' },
+  { value: 'deduction', label: 'ตัดขาย' },
+  { value: 'return', label: 'คืนสต็อก' },
+  { value: 'adjustment', label: 'ปรับปรุง/ย้าย/ของเสีย' },
+]
 
-export default function InventoryLogsPage() {
-  const { batches } = useInventory();
-  const [activeTab, setActiveTab] = useState('All');
-  const [search, setSearch] = useState('');
-  const [thisWeekOnly, setThisWeekOnly] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<InventoryStatus | 'All'>('All');
-  const [showStatusMenu, setShowStatusMenu] = useState(false);
+function typeBadge(type: Movement['movementType']) {
+  switch (type) {
+    case 'intake': return { label: 'รับเข้า', color: 'bg-[#d1fae5] text-[#065f46] border-[#a7f3d0]' }
+    case 'deduction': return { label: 'ตัดขาย', color: 'bg-[#fee2e2] text-[#991b1b] border-[#fecaca]' }
+    case 'return': return { label: 'คืนสต็อก', color: 'bg-[#dbeafe] text-[#1e40af] border-[#bfdbfe]' }
+    case 'adjustment': return { label: 'ปรับปรุง/ย้าย/ของเสีย', color: 'bg-[#fef3c7] text-[#92400e] border-[#fde68a]' }
+  }
+}
 
-  const inventoryLogs = useMemo(() => batches
-    .filter((log) => activeTab === 'All' || log.category === activeTab)
-    .filter((log) => statusFilter === 'All' || log.status === statusFilter)
-    .filter((log) => !thisWeekOnly || isWithinLastWeek(log.receiveDate))
-    .filter((log) => `${log.item} ${log.batch}`.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => a.receiveDate.localeCompare(b.receiveDate)), [activeTab, batches, search, statusFilter, thisWeekOnly]);
-  const expiringCount = batches.filter((batch) => batch.status === 'Expiring Soon').length;
-  const expiredCount = batches.filter((batch) => batch.status === 'Expired').length;
+export default function StockMovementHistory() {
+  const [movements, setMovements] = useState<Movement[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState<Movement['movementType'] | 'All'>('All')
+  const [days, setDays] = useState(30)
 
-  // ฟังก์ชันช่วยกำหนดสีของ Badge สถานะ
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Fresh': return 'bg-[#d1fae5] text-[#065f46] border-[#a7f3d0]'; // เขียว
-      case 'Expiring Soon': return 'bg-[#fef3c7] text-[#92400e] border-[#fde68a]'; // เหลือง/ส้ม
-      case 'Expired': return 'bg-[#fee2e2] text-[#991b1b] border-[#fecaca]'; // แดง
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const params = new URLSearchParams({ days: String(days), limit: '300' })
+      if (typeFilter !== 'All') params.set('type', typeFilter)
+      if (search.trim()) params.set('search', search.trim())
+      const data = await apiFetch<{ movements: Movement[] }>(`/owner/stock-movements?${params.toString()}`)
+      setMovements(data.movements)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'โหลดประวัติการเคลื่อนไหวไม่สำเร็จ')
+    } finally {
+      setLoading(false)
     }
-  };
+  }, [days, search, typeFilter])
+
+  useEffect(() => { void load() }, [load])
+
+  const intakeCount = useMemo(() => movements.filter((m) => m.movementType === 'intake').length, [movements])
+  const deductionCount = useMemo(() => movements.filter((m) => m.movementType === 'deduction').length, [movements])
+  const otherCount = movements.length - intakeCount - deductionCount
 
   return (
     <div className="admin-page max-w-[1200px] w-full">
-
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end mb-8 gap-4">
         <div>
-          <h1 className="text-[28px] font-bold text-[#302221] mb-1">Inventory Logs</h1>
-          <p className="text-sm text-[#7B726B]">Track incoming shipments and monitor ingredient expiration dates.</p>
+          <h1 className="text-[28px] font-bold text-[#302221] mb-1">ประวัติการเคลื่อนไหวสต็อก</h1>
+          <p className="text-sm text-[#7B726B]">รับเข้า / ตัดขาย / คืนสต็อก / ปรับปรุงและย้ายของ — เรียงจากล่าสุดไปเก่าสุด</p>
         </div>
 
         <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
           <button
-            onClick={() => setThisWeekOnly((value) => !value)}
+            onClick={() => setDays((current) => (current === 7 ? 30 : 7))}
             className={`admin-control flex items-center gap-2 px-4 py-2 border rounded-md text-sm font-semibold shadow-sm transition-colors ${
-              thisWeekOnly ? 'border-[#694b49] bg-[#694b49] text-white' : 'border-[#e0dcd5] bg-white text-[#555] hover:bg-gray-50'
+              days === 7 ? 'border-[#694b49] bg-[#694b49] text-white' : 'border-[#e0dcd5] bg-white text-[#555] hover:bg-gray-50'
             }`}
           >
-            <Icons.Calendar /> This Week
+            {days === 7 ? '7 วันล่าสุด' : '30 วันล่าสุด'}
           </button>
-          <div className="relative w-full sm:w-[240px]">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2">
-              <Icons.Search />
-            </div>
-            <input
-              type="text"
-              placeholder="ค้นหาวัตถุดิบหรือรหัสล็อต..."
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="admin-control w-full pl-10 pr-4 py-2 bg-white border border-[#e0dcd5] rounded-md text-sm outline-none focus:border-[#694b49] transition-colors"
-            />
-          </div>
+          <input
+            type="text"
+            placeholder="ค้นหาวัตถุดิบ..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="admin-control w-full sm:w-[240px] px-4 py-2 bg-white border border-[#e0dcd5] rounded-md text-sm outline-none focus:border-[#694b49] transition-colors"
+          />
         </div>
       </div>
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="admin-stat-card bg-white p-5 rounded-lg border border-[#e8e3dd] shadow-sm flex items-center gap-4">
-          <div className="bg-[#f0ece9] p-3 rounded-md text-[#694b49]"><Icons.Box /></div>
-          <div>
-            <p className="text-xs font-semibold text-[#7B726B] uppercase tracking-wide">Total Received (This Week)</p>
-            <h2 className="text-2xl font-bold text-[#302221]">{batches.length}<span className="text-sm font-medium text-[#777] ml-1">items</span></h2>
-          </div>
+        <div className="admin-stat-card bg-white p-5 rounded-lg border border-[#e8e3dd] shadow-sm">
+          <p className="text-xs font-semibold text-[#7B726B] uppercase tracking-wide">รายการทั้งหมด (ช่วงที่เลือก)</p>
+          <h2 className="text-2xl font-bold text-[#302221] mt-1">{movements.length.toLocaleString('th-TH')}</h2>
         </div>
-
-        <div className="admin-stat-card bg-[#fffbeb] p-5 rounded-lg border border-[#fde68a] shadow-sm flex items-center gap-4">
-          <div className="bg-[#fef3c7] p-3 rounded-md text-[#d97706]"><Icons.Alert /></div>
-          <div>
-            <p className="text-xs font-semibold text-[#92400e] uppercase tracking-wide">Expiring Soon (&lt; 3 days)</p>
-            <h2 className="text-2xl font-bold text-[#92400e]">{expiringCount}<span className="text-sm font-medium text-[#d97706] ml-1">items</span></h2>
-          </div>
+        <div className="admin-stat-card bg-[#ecfdf5] p-5 rounded-lg border border-[#a7f3d0] shadow-sm">
+          <p className="text-xs font-semibold text-[#065f46] uppercase tracking-wide">รับเข้า</p>
+          <h2 className="text-2xl font-bold text-[#065f46] mt-1">{intakeCount.toLocaleString('th-TH')}</h2>
         </div>
-
-        <div className="admin-stat-card bg-[#fef2f2] p-5 rounded-lg border border-[#fecaca] shadow-sm flex items-center gap-4">
-          <div className="bg-[#fee2e2] p-3 rounded-md text-[#dc2626]"><Icons.Alert /></div>
-          <div>
-            <p className="text-xs font-semibold text-[#991b1b] uppercase tracking-wide">Expired Items</p>
-            <h2 className="text-2xl font-bold text-[#991b1b]">{expiredCount}<span className="text-sm font-medium text-[#ef4444] ml-1">items</span></h2>
-          </div>
+        <div className="admin-stat-card bg-[#fef2f2] p-5 rounded-lg border border-[#fecaca] shadow-sm">
+          <p className="text-xs font-semibold text-[#991b1b] uppercase tracking-wide">ตัดขาย</p>
+          <h2 className="text-2xl font-bold text-[#991b1b] mt-1">{deductionCount.toLocaleString('th-TH')}</h2>
         </div>
       </div>
 
-      {/* Table Container */}
-      <div className="admin-surface bg-[#FDFBF7] rounded-lg border border-[#e8e3dd] shadow-sm overflow-hidden">
+      {error && <div className="mb-5 rounded-2xl border-2 border-red-700 bg-red-50 px-5 py-4 text-sm font-bold text-red-700">{error}</div>}
 
-        {/* Tabs หมวดหมู่ */}
-        <div className="flex items-center gap-6 overflow-x-auto px-6 pt-4 border-b border-[#e8e3dd] bg-white">
-          {['All', 'Meat', 'Vegetable', 'Others'].map((tab) => (
+      <div className="admin-surface bg-[#FDFBF7] rounded-lg border border-[#e8e3dd] shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2 overflow-x-auto px-6 pt-4 pb-3 border-b border-[#e8e3dd] bg-white">
+          {TYPE_OPTIONS.map((option) => (
             <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`pb-3 text-sm font-bold transition-colors relative ${
-                activeTab === tab ? 'text-[#4A322F]' : 'text-[#999] hover:text-[#666]'
+              key={option.value}
+              onClick={() => setTypeFilter(option.value)}
+              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${
+                typeFilter === option.value ? 'border-[#4A322F] bg-[#4A322F] text-white' : 'border-[#e0dcd5] text-[#666] hover:bg-gray-50'
               }`}
             >
-              {tab}
-              {activeTab === tab && (
-                <div className="absolute bottom-0 left-0 w-full h-0.5 bg-[#4A322F] rounded-t-full" />
-              )}
+              {option.label}
             </button>
           ))}
-          <div className="relative ml-auto pb-3">
-             <button onClick={() => setShowStatusMenu((value) => !value)} className={`flex items-center gap-1.5 text-xs font-bold ${statusFilter !== 'All' ? 'text-[#4A322F]' : 'text-[#666] hover:text-[#333]'}`}>
-                <Icons.Filter /> {statusFilter === 'All' ? 'Filter' : `Status: ${statusFilter}`}
-             </button>
-             {showStatusMenu && (
-               <div className="absolute right-0 top-full z-10 mt-1 w-40 overflow-hidden rounded-lg border border-[#e8e3dd] bg-white shadow-lg">
-                 {STATUS_OPTIONS.map((option) => (
-                   <button
-                     key={option}
-                     onClick={() => { setStatusFilter(option); setShowStatusMenu(false) }}
-                     className={`block w-full px-4 py-2 text-left text-xs font-semibold hover:bg-[#F4EFEA] ${statusFilter === option ? 'text-[#4A322F]' : 'text-[#777]'}`}
-                   >
-                     {option === 'All' ? 'ทุกสถานะ' : option}
-                   </button>
-                 ))}
-               </div>
-             )}
-          </div>
+          {otherCount > 0 && typeFilter === 'All' && <span className="ml-auto shrink-0 text-[11px] font-semibold text-[#999]">คืนสต็อก/ปรับปรุง {otherCount.toLocaleString('th-TH')} รายการ</span>}
         </div>
 
-        {/* ตาราง Data Log */}
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#F4EFEA] text-[11px] font-bold text-[#7B726B] uppercase tracking-wider border-b border-[#e8e3dd]">
-                <th className="px-6 py-4">Log ID</th>
-                <th className="px-6 py-4">Item Name</th>
-                <th className="px-6 py-4">Batch / Lot</th>
-                <th className="px-6 py-4">Quantity</th>
-                <th className="px-6 py-4">Receive Date</th>
-                <th className="px-6 py-4">Expire Date</th>
-                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4">เวลา</th>
+                <th className="px-6 py-4">ประเภท</th>
+                <th className="px-6 py-4">วัตถุดิบ</th>
+                <th className="px-6 py-4">ล็อต / คลัง</th>
+                <th className="px-6 py-4">จำนวน</th>
+                <th className="px-6 py-4">ผู้ทำรายการ</th>
+                <th className="px-6 py-4">ออเดอร์</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#e8e3dd] bg-white">
-              {inventoryLogs.map((log) => (
-                <tr key={log.id} className="hover:bg-[#faf8f5] transition-colors">
-                  <td className="px-6 py-4 text-xs font-mono font-medium text-[#777]">{log.id}</td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-bold text-[#302221]">{log.item}</div>
-                    <div className="text-[11px] text-[#7B726B] mt-0.5 uppercase tracking-wide">{log.category}</div>
-                  </td>
-                  <td className="px-6 py-4 text-sm font-medium text-[#555]">{log.batch}</td>
-                  <td className="px-6 py-4 text-sm font-bold text-[#4A322F]">{log.qty}</td>
-                  <td className="px-6 py-4 text-sm text-[#555]">{log.receiveDate}</td>
-                  <td className="px-6 py-4 text-sm font-semibold text-[#302221]">{log.expireDate}</td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getStatusColor(log.status)}`}>
-                      {log.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {inventoryLogs.length === 0 && (
-                <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-[#777]">ไม่พบล็อตที่ตรงกับตัวกรอง</td></tr>
-              )}
+              {loading ? (
+                <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-[#777]">กำลังโหลด…</td></tr>
+              ) : movements.length === 0 ? (
+                <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-[#777]">ไม่พบรายการเคลื่อนไหวที่ตรงกับตัวกรอง</td></tr>
+              ) : movements.map((m) => {
+                const badge = typeBadge(m.movementType)
+                const positive = m.quantity >= 0
+                return (
+                  <tr key={m.id} className="hover:bg-[#faf8f5] transition-colors">
+                    <td className="px-6 py-4 text-sm text-[#555] whitespace-nowrap">{new Date(m.createdAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                    <td className="px-6 py-4"><span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${badge.color}`}>{badge.label}</span></td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-bold text-[#302221]">{m.ingredientName}</div>
+                      <div className="text-[11px] text-[#7B726B] mt-0.5 uppercase tracking-wide">{m.category === 'Meat' ? 'เนื้อสัตว์' : 'ผัก'}</div>
+                    </td>
+                    <td className="px-6 py-4 text-sm font-medium text-[#555]">{m.batch} · {m.location}</td>
+                    <td className={`px-6 py-4 text-sm font-bold ${positive ? 'text-green-700' : 'text-red-700'}`}>{positive ? '+' : ''}{m.quantity.toLocaleString('th-TH', { maximumFractionDigits: 3 })} {m.unit}</td>
+                    <td className="px-6 py-4 text-sm text-[#555]">{m.actorName ?? 'ระบบ (อัตโนมัติ)'}</td>
+                    <td className="px-6 py-4 text-sm text-[#555]">{m.orderId ? `#${m.orderId}` : '—'}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
       </div>
-
     </div>
-  );
+  )
 }

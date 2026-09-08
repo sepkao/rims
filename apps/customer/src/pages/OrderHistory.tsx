@@ -67,6 +67,7 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isExpired, setIsExpired] = useState(false);
   const [error, setError] = useState('');
+  const [now, setNow] = useState(() => Date.now());
 
   const handleTabChange = (tab: 'cart' | 'history') => {
     setActiveTab(tab);
@@ -84,6 +85,14 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
     setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
     return () => clearInterval(interval);
   }, [session]);
+
+  // Ticks every second so the "ยกเลิกออเดอร์" button in the History tab disappears exactly
+  // at the real 60s cancel deadline (order.confirmAt), instead of only ever checking
+  // order.status === 'pending' — see [B12].
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchOrders = async () => {
     try {
@@ -372,13 +381,15 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
                               <Clock size={11} strokeWidth={2.5} />
                               <span>รอครัวยืนยัน</span>
                             </div>
-                            <button 
-                              type="button"
-                              onClick={() => handleCancelOrder(item.orderId)}
-                              className="text-[10px] text-red-600 font-bold underline hover:text-red-800"
-                            >
-                              ยกเลิกออเดอร์
-                            </button>
+                            {new Date(item.confirmAt).getTime() > now && (
+                              <button
+                                type="button"
+                                onClick={() => handleCancelOrder(item.orderId)}
+                                className="text-[10px] text-red-600 font-bold underline hover:text-red-800"
+                              >
+                                ยกเลิกออเดอร์
+                              </button>
+                            )}
                           </>
                         ) : item.status === 'cooking' ? (
                           <div className="inline-flex items-center gap-1 bg-amber-100 text-[#92400E] border-2 border-[#D97706] px-2.5 py-0.8 rounded-full text-[10px] font-black animate-pulse">

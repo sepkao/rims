@@ -985,6 +985,51 @@ app.get('/owner/system-logs', async (c) => {
   return c.json({ logs: result.rows })
 })
 
+// [O06]/[B19] — stock_movements is written on every intake/deduction/transfer/return
+// (see deduct_stock_fifo(), return_order_item_to_stock(), inventory-transfer.ts, and the
+// waste/dispose endpoints above) but was never read back anywhere until this endpoint —
+// the old "Inventory history" page only re-showed current lot status, not movements.
+app.get('/owner/stock-movements', async (c) => {
+  const requestedLimit = Number(c.req.query('limit') ?? 100)
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 500) : 100
+  const requestedDays = Number(c.req.query('days') ?? 30)
+  const days = Number.isFinite(requestedDays) ? Math.min(Math.max(requestedDays, 1), 365) : 30
+  const type = c.req.query('type') || null
+  const search = c.req.query('search')?.trim() || null
+
+  try {
+    const result = await pool.query(
+      `SELECT sm.id::text,
+              sm.movement_type AS "movementType",
+              sm.quantity::float8,
+              sm.created_at AS "createdAt",
+              i.name AS "ingredientName",
+              CASE i.category WHEN 'meat' THEN 'Meat' ELSE 'Vegetable' END AS category,
+              loc.name AS location,
+              loc.unit_type AS unit,
+              ('LOT-' || lh.id) AS batch,
+              u.name AS "actorName",
+              sm.order_id::text AS "orderId"
+       FROM stock_movements sm
+       JOIN stock_lots sl ON sl.id = sm.stock_lot_id
+       JOIN ingredients i ON i.id = sl.ingredient_id
+       JOIN storage_locations loc ON loc.id = sl.storage_location_id
+       JOIN lot_headers lh ON lh.id = sl.lot_header_id
+       LEFT JOIN users u ON u.id = sm.actor_id
+       WHERE sm.created_at >= now() - ($1 || ' days')::interval
+         AND ($2::text IS NULL OR sm.movement_type = $2)
+         AND ($3::text IS NULL OR i.name ILIKE '%' || $3 || '%')
+       ORDER BY sm.created_at DESC
+       LIMIT $4`,
+      [days, type, search, limit],
+    )
+    return c.json({ movements: result.rows })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  }
+})
+
 const BUFFET_PRICE_KEYS = ['buffet_price_adult', 'buffet_price_child', 'buffet_price_senior', 'buffet_price_disabled'] as const
 
 app.get('/owner/settings/buffet-prices', async (c) => {
@@ -2448,10 +2493,15 @@ app.post('/customer/orders/:id/cancel', async (c) => {
   try {
     const body = await c.req.json<{ qrCode?: string }>()
     if (typeof body.qrCode !== 'string' || !body.qrCode.trim()) return c.json({ error: 'ต้องมี QR Code' }, 400)
+    // [B12] Don't rely solely on status='pending' — auto_confirm_order() only runs on a
+    // 1-minute pg_cron tick in production (0003_cashier_expiry_schedule.sql), so an order
+    // could still be 'pending' up to ~60s after its own confirm_at deadline has passed.
+    // Check confirm_at directly so the 60-second cancel window is enforced exactly, not
+    // just "eventually, whenever the cron catches up."
     const result = await pool.query(
       `UPDATE orders
        SET status = 'cancelled', cancelled_at = now()
-       WHERE id = $1 AND status = 'pending'
+       WHERE id = $1 AND status = 'pending' AND confirm_at > now()
          AND table_session_id = (
            SELECT id FROM table_sessions
            WHERE qr_code = $2 AND ended_at IS NULL AND expires_at > now()
