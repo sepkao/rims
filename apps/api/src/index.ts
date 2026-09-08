@@ -1808,32 +1808,57 @@ app.get('/owner/expiry-alerts', async (c) => {
   }
 })
 
-// UC-N7 — Freezer raw stock (kg) below the Owner-set reorder_threshold_kg. Live-computed,
-// same total the trg_check_stock_threshold trigger uses (it only fires on stock_lots
-// writes and logs to system_logs — this is what the UI reads directly instead).
+// UC-N7 — everything Owner (not Staff) is responsible for reordering, live-computed the
+// same way trg_check_stock_threshold's two UC-N7 branches do (that trigger only fires on
+// stock_lots writes and logs to system_logs — this is what the UI reads directly instead):
+//   1. Meat raw stock in Freezer, below reorder_threshold_kg (kg)
+//   2. Vegetables in ตู้พักละลาย, below thaw_prep_threshold_plates (plates) — vegetables
+//      have no Freezer lot to pull from, so unlike meat this is Owner's job (UC-N7), not
+//      Staff's (UC-N10, meat-only — see /staff/prep-alerts).
 async function loadLowStockAlerts() {
   const result = await pool.query(
-    `SELECT i.id::text AS "ingredientId",
-            i.name AS "ingredientName",
-            i.reorder_threshold_kg::float8 AS "thresholdKg",
-            COALESCE(freezer.available_kg, 0)::float8 AS "remainingKg"
-     FROM ingredients i
-     LEFT JOIN LATERAL (
-       SELECT SUM(sl.quantity_remaining) AS available_kg
-       FROM stock_lots sl
-       JOIN storage_locations loc ON loc.id = sl.storage_location_id
-       WHERE sl.ingredient_id = i.id
-         AND loc.name = 'Freezer'
-         AND sl.is_not_fresh = false
-     ) freezer ON true
-     WHERE i.is_active = true
-       AND i.reorder_threshold_kg IS NOT NULL
-       AND COALESCE(freezer.available_kg, 0) < i.reorder_threshold_kg
-     ORDER BY (COALESCE(freezer.available_kg, 0) / NULLIF(i.reorder_threshold_kg, 0)) ASC`,
+    `SELECT * FROM (
+       SELECT i.id::text AS "ingredientId",
+              i.name AS "ingredientName",
+              'Freezer' AS storage,
+              'kg' AS unit,
+              i.reorder_threshold_kg::float8 AS threshold,
+              COALESCE(freezer.available_kg, 0)::float8 AS remaining
+       FROM ingredients i
+       LEFT JOIN LATERAL (
+         SELECT SUM(sl.quantity_remaining) AS available_kg
+         FROM stock_lots sl
+         JOIN storage_locations loc ON loc.id = sl.storage_location_id
+         WHERE sl.ingredient_id = i.id AND loc.name = 'Freezer' AND sl.is_not_fresh = false
+       ) freezer ON true
+       WHERE i.is_active = true AND i.category = 'meat'
+         AND i.reorder_threshold_kg IS NOT NULL
+         AND COALESCE(freezer.available_kg, 0) < i.reorder_threshold_kg
+
+       UNION ALL
+
+       SELECT i.id::text AS "ingredientId",
+              i.name AS "ingredientName",
+              'ตู้พักละลาย' AS storage,
+              'plate' AS unit,
+              i.thaw_prep_threshold_plates::float8 AS threshold,
+              COALESCE(prep.available_plates, 0)::float8 AS remaining
+       FROM ingredients i
+       LEFT JOIN LATERAL (
+         SELECT SUM(sl.quantity_remaining) AS available_plates
+         FROM stock_lots sl
+         JOIN storage_locations loc ON loc.id = sl.storage_location_id
+         WHERE sl.ingredient_id = i.id AND loc.name = 'ตู้พักละลาย' AND sl.is_not_fresh = false
+       ) prep ON true
+       WHERE i.is_active = true AND i.category = 'vegetable'
+         AND i.thaw_prep_threshold_plates IS NOT NULL
+         AND COALESCE(prep.available_plates, 0) < i.thaw_prep_threshold_plates
+     ) alerts
+     ORDER BY (remaining / NULLIF(threshold, 0)) ASC`,
   )
   return result.rows.map((row) => ({
     ...row,
-    severity: Number(row.remainingKg) === 0 ? 'critical' : 'low',
+    severity: Number(row.remaining) === 0 ? 'critical' : 'low',
   }))
 }
 
