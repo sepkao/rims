@@ -115,9 +115,9 @@ export default function IngredientSettings() {
     <div className="w-full max-w-[1240px]">
       <header className="anim-down d-1 relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#E8D8CA] px-7 py-7 shadow-[8px_8px_0_#2D1B17]">
         <div className="absolute -right-8 -top-12 h-44 w-44 rounded-full border-[24px] border-white/40" />
-        <span className="relative inline-flex rounded-full border-2 border-[#2D1B17] bg-[#DBC8B8] px-3 py-1 text-[10px] font-black shadow-[2px_2px_0_#2D1B17]">INGREDIENT SETTINGS ✦</span>
-        <h1 className="relative mt-4 text-4xl font-black tracking-[-.035em]">จัดการวัตถุดิบ</h1>
-        <p className="relative mt-2 max-w-2xl text-sm font-bold text-[#6D5147]">แก้ชื่อ น้ำหนักต่อถาด เกณฑ์ขั้นต่ำ และสถานะใช้งานได้จากหน้าเดียว โดยข้อมูลเก่าจะยังคงอยู่ในประวัติ</p>
+        <span className="relative inline-flex rounded-full border-2 border-[#2D1B17] bg-[#DBC8B8] px-3 py-1 text-[10px] font-black shadow-[2px_2px_0_#2D1B17]">INGREDIENT & NOTIFICATION SETTINGS ✦</span>
+        <h1 className="relative mt-4 text-4xl font-black tracking-[-.035em]">จัดการวัตถุดิบ & การแจ้งเตือน</h1>
+        <p className="relative mt-2 max-w-2xl text-sm font-bold text-[#6D5147]">แก้ชื่อ น้ำหนักต่อถาด เกณฑ์ขั้นต่ำใน Prep เกณฑ์แจ้งเตือนสต็อกต่ำใน Freezer และสถานะใช้งานได้จากหน้าเดียว โดยข้อมูลเก่าจะยังคงอยู่ในประวัติ</p>
       </header>
 
       <section className="mb-7 grid gap-5 sm:grid-cols-3"><Stat label="กำลังใช้งาน" value={activeCount} color="bg-[#E8D8CA]" /><Stat label="ต่ำกว่าเกณฑ์" value={lowCount} color={lowCount ? 'bg-[#E7C7B8]' : 'bg-[#F1E2CF]'} /><Stat label="เก็บถาวร" value={archivedCount} color="bg-[#DBC8B8]" /></section>
