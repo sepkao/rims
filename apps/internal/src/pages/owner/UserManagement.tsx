@@ -113,7 +113,7 @@ function CreateUserForm({ onCreated }: { onCreated: () => Promise<void> }) {
     }}>
       <input name="name" required placeholder="Name" className="admin-control rounded-lg border px-3 py-2" />
       <input name="email" required type="email" placeholder="Email" className="admin-control rounded-lg border px-3 py-2" />
-      <input name="password" required type="password" placeholder="Temporary password" className="admin-control rounded-lg border px-3 py-2" />
+      <input name="password" required minLength={8} type="password" placeholder="Temporary password (อย่างน้อย 8 ตัว)" className="admin-control rounded-lg border px-3 py-2" />
       <select name="role" className="admin-control rounded-lg border px-3 py-2"><option value="staff">Staff</option><option value="cashier">Cashier</option></select>
       {error && <div className="text-sm font-bold text-red-700 md:col-span-3">{error}</div>}
       <button disabled={submitting} className="admin-primary rounded-lg bg-[#4A322F] px-4 py-2 font-bold text-white md:col-start-4">{submitting ? 'Saving…' : 'Create user'}</button>

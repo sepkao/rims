@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { apiFetch } from '../../lib/api'
-import { Bell, BellOff, Check, CheckCheck, Clock, Eye, LayoutGrid, RotateCcw, Search, UtensilsCrossed } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { ApiError, apiFetch } from '../../lib/api'
+import { useAuth } from '../../contexts/AuthContext'
+import { Bell, BellOff, Check, CheckCheck, Clock, Eye, LayoutGrid, Plus, RotateCcw, Search, TriangleAlert, UserRoundCheck, UtensilsCrossed, X } from 'lucide-react'
 
 type KitchenOrderItem = {
   id: string
   name: string
   quantity: number
+  servedQuantity: number
+  returnedQuantity: number
+  remainingQuantity: number
   removedIngredients: string[]
 }
 
@@ -15,6 +20,8 @@ type KitchenOrder = {
   createdAt: string
   confirmedAt: string
   acknowledgedAt: string | null
+  acknowledgedById: string | null
+  acknowledgedByName: string | null
   items: KitchenOrderItem[]
 }
 
@@ -64,11 +71,16 @@ function playKitchenChime() {
 }
 
 export default function StaffServingQueuePage() {
+  const { user } = useAuth()
   const [orders, setOrders] = useState<KitchenOrder[]>([])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [processingId, setProcessingId] = useState<string | null>(null)
+  const [returnTarget, setReturnTarget] = useState<KitchenOrder | null>(null)
+  const [returnReason, setReturnReason] = useState('')
+  const [handoffTarget, setHandoffTarget] = useState<KitchenOrder | null>(null)
+  const [serveAllTarget, setServeAllTarget] = useState<KitchenOrder | null>(null)
   const [, setClock] = useState(0)
 
   // Filter & Layout States
@@ -77,16 +89,17 @@ export default function StaffServingQueuePage() {
   const [soundEnabled, setSoundEnabled] = useState(() => {
     return localStorage.getItem('rims.staff.order_sound') !== 'false'
   })
-
   const prevOrderIdsRef = useRef<Set<string>>(new Set())
   const isFirstLoadRef = useRef(true)
 
-  const toggleSound = () => {
-    const next = !soundEnabled
-    setSoundEnabled(next)
-    localStorage.setItem('rims.staff.order_sound', String(next))
-    if (next) playKitchenChime()
-  }
+  const toggleSound = useCallback(() => {
+    setSoundEnabled((prev) => {
+      const next = !prev
+      localStorage.setItem('rims.staff.order_sound', String(next))
+      if (next) playKitchenChime()
+      return next
+    })
+  }, [])
 
   const loadOrders = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true)
@@ -149,7 +162,7 @@ export default function StaffServingQueuePage() {
     try {
       await apiFetch(`/staff/orders/${orderId}/acknowledge`, { method: 'PUT' })
       setOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, acknowledgedAt: new Date().toISOString() } : o)),
+        prev.map((o) => (o.id === orderId ? { ...o, acknowledgedAt: new Date().toISOString(), acknowledgedById: user?.id ?? null, acknowledgedByName: user?.name ?? null } : o)),
       )
       setError('')
     } catch (caught) {
@@ -165,27 +178,11 @@ export default function StaffServingQueuePage() {
     try {
       await apiFetch(`/staff/orders/${orderId}/unacknowledge`, { method: 'PUT' })
       setOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, acknowledgedAt: null } : o)),
+        prev.map((o) => (o.id === orderId ? { ...o, acknowledgedAt: null, acknowledgedById: null, acknowledgedByName: null } : o)),
       )
       setError('')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'ยกเลิกการรับออเดอร์ไม่สำเร็จ')
-    } finally {
-      setProcessingId(null)
-    }
-  }
-
-  // Acknowledge all unread at once
-  const markAllAcknowledged = async () => {
-    setProcessingId('all')
-    try {
-      await apiFetch('/staff/orders/acknowledge-all', { method: 'PUT' })
-      setOrders((prev) =>
-        prev.map((o) => (!o.acknowledgedAt ? { ...o, acknowledgedAt: new Date().toISOString() } : o)),
-      )
-      setError('')
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'รับออเดอร์ทั้งหมดไม่สำเร็จ')
     } finally {
       setProcessingId(null)
     }
@@ -197,35 +194,115 @@ export default function StaffServingQueuePage() {
     try {
       await apiFetch(`/staff/orders/${orderId}/serve`, { method: 'PUT' })
       setOrders((current) => current.filter((order) => order.id !== orderId))
+      setServeAllTarget(null)
       setError('')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'อัปเดตสถานะเสิร์ฟไม่สำเร็จ')
+      if (caught instanceof ApiError && caught.status === 409) {
+        setServeAllTarget(null)
+        await loadOrders(false)
+      }
     } finally {
       setProcessingId(null)
     }
   }
 
-  // Render a single compact ticket card
+  const serveItem = async (order: KitchenOrder, item: KitchenOrderItem) => {
+    const processingKey = `${order.id}:${item.id}`
+    setProcessingId(processingKey)
+    try {
+      const result = await apiFetch<{
+        item: Pick<KitchenOrderItem, 'id' | 'servedQuantity' | 'returnedQuantity' | 'remainingQuantity'>
+        orderComplete: boolean
+      }>(`/staff/order-items/${item.id}/serve`, { method: 'PUT', body: JSON.stringify({ quantity: 1, requestId: crypto.randomUUID() }) })
+      setOrders((current) => result.orderComplete
+        ? current.filter((candidate) => candidate.id !== order.id)
+        : current.map((candidate) => candidate.id !== order.id ? candidate : {
+          ...candidate,
+          items: candidate.items.map((candidateItem) => candidateItem.id === item.id ? { ...candidateItem, ...result.item } : candidateItem),
+        }))
+      setError('')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'บันทึกจำนวนที่เสิร์ฟไม่สำเร็จ')
+      if (caught instanceof ApiError && caught.status === 409) await loadOrders(false)
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  const takeOverOrder = async () => {
+    if (!handoffTarget) return
+    const order = handoffTarget
+    setProcessingId(order.id)
+    try {
+      await apiFetch(`/staff/orders/${order.id}/reassign`, { method: 'PUT' })
+      setOrders((current) => current.map((candidate) => candidate.id === order.id ? {
+        ...candidate,
+        acknowledgedAt: candidate.acknowledgedAt ?? new Date().toISOString(),
+        acknowledgedById: user?.id ?? null,
+        acknowledgedByName: user?.name ?? null,
+      } : candidate))
+      setHandoffTarget(null)
+      setError('')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'รับช่วงต่อออเดอร์ไม่สำเร็จ')
+      if (caught instanceof ApiError && caught.status === 409) {
+        setHandoffTarget(null)
+        await loadOrders(false)
+      }
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  const returnOrder = async () => {
+    if (!returnTarget || !returnReason.trim()) return
+    const order = returnTarget
+    setProcessingId(order.id)
+    try {
+      await apiFetch(`/staff/orders/${order.id}/return`, { method: 'PUT', body: JSON.stringify({ reason: returnReason.trim() }) })
+      setOrders((current) => current.filter((candidate) => candidate.id !== order.id))
+      setReturnTarget(null)
+      setReturnReason('')
+      setError('')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'คืนวัตถุดิบของออเดอร์ไม่สำเร็จ')
+      if (caught instanceof ApiError && caught.status === 409) {
+        setReturnTarget(null)
+        setReturnReason('')
+        await loadOrders(false)
+      }
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  // Render a single compact ticket card styled as a hanging kitchen receipt
   const renderTicketCard = (order: KitchenOrder) => {
     const isUnread = !order.acknowledgedAt
-    const isBusy = processingId === order.id
+    const isBusy = processingId === order.id || processingId?.startsWith(`${order.id}:`) === true
+    const isOwner = order.acknowledgedById === user?.id || user?.role === 'owner'
+    const remainingTotal = order.items.reduce((sum, item) => sum + item.remainingQuantity, 0)
 
     return (
       <article
         key={order.id}
-        className={`flex flex-col rounded-xl border-2 transition-all duration-150 overflow-hidden bg-white ${
-          isUnread
-            ? 'border-[#E04F34] shadow-[4px_4px_0_#E04F34] ring-2 ring-[#E04F34]/20'
-            : 'border-[#302221] shadow-[3px_3px_0_#302221]'
-        }`}
+        className={`relative mt-2 flex flex-col rounded-xl border-2 border-[#2D1B17] transition-all duration-150 overflow-visible bg-white shadow-[4px_4px_0_#2D1B17] hover:-translate-y-0.5 hover:shadow-[5px_5px_0_#2D1B17] ${isUnread ? 'ring-2 ring-[#7A4939]/35' : ''
+          }`}
       >
+        {/* Warm brass ticket clip */}
+        <div className="absolute -top-2 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center pointer-events-none">
+          <div className="h-3.5 w-7 rounded-[3px] border-2 border-[#2D1B17] bg-gradient-to-b from-[#F4DDAC] via-[#D9B99A] to-[#B97861] shadow-[0_1px_3px_rgba(45,27,23,0.28)] flex items-center justify-center">
+            <div className="h-1 w-3.5 rounded-full bg-[#2D1B17]/40" />
+          </div>
+        </div>
+
         {/* Compact Card Header */}
         <header
-          className={`flex items-center justify-between px-3.5 py-2.5 transition-colors ${
-            isUnread
-              ? 'bg-gradient-to-r from-[#D84328] to-[#B8321B] text-white'
-              : 'bg-[#2D1B17] text-white'
-          }`}
+          className={`flex items-center justify-between px-3.5 pt-3 pb-2 rounded-t-[10px] transition-colors ${isUnread
+              ? 'bg-[#7A4939] text-white'
+              : 'bg-[#B97861] text-white'
+            }`}
         >
           <div className="flex items-center gap-2">
             <h3 className="text-base font-black tracking-tight">โต๊ะ {order.tableNumber}</h3>
@@ -234,7 +311,7 @@ export default function StaffServingQueuePage() {
 
           <div className="flex items-center gap-1.5">
             {isUnread ? (
-              <span className="relative flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-[#B8321B] shadow-xs">
+              <span className="relative flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-[#8C3E25] shadow-xs">
                 <span className="relative flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-red-600" />
@@ -242,9 +319,9 @@ export default function StaffServingQueuePage() {
                 ยังไม่อ่าน
               </span>
             ) : (
-              <span className="flex items-center gap-1 rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-black text-amber-200 border border-amber-400/40">
+              <span className="flex items-center gap-1 rounded-full border border-white/60 bg-white/90 px-2 py-0.5 text-[10px] font-black text-[#7A4939]">
                 <Clock size={10} />
-                กำลังจัดเสิร์ฟ
+                กำลังจัดเสิร์ฟ{order.acknowledgedByName ? ` · ${order.acknowledgedByName}` : ''}
               </span>
             )}
             <span className="text-[10px] text-white/80 font-semibold">{elapsedLabel(order.confirmedAt)}</span>
@@ -252,48 +329,76 @@ export default function StaffServingQueuePage() {
         </header>
 
         {/* Compact Items List */}
-        <ul className="flex-1 divide-y divide-[#F4EFEA] px-3 py-1.5 text-xs">
-          {order.items.map((item) => (
-            <li key={item.id} className="py-2 flex items-start gap-2">
+        <ul className="flex-1 divide-y divide-[#F4EFEA] px-3 py-1.5 text-xs bg-[#FFFDFB]">
+          {order.items.map((item) => {
+            const itemBusy = processingId === `${order.id}:${item.id}`
+            const fulfilled = item.remainingQuantity === 0
+            return <li key={item.id} className={`py-2 flex items-start gap-2 ${fulfilled ? 'opacity-60' : ''}`}>
               <span className="grid h-6 min-w-6 place-items-center rounded-md bg-[#F4EFEA] text-[11px] font-black text-[#5A403E] border border-[#EAE5DF]">
                 {item.quantity}×
               </span>
               <div className="min-w-0 flex-1 leading-snug">
-                <p className="font-bold text-[#302221] text-xs">{item.name}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className={`font-bold text-[#302221] text-xs ${fulfilled ? 'line-through' : ''}`}>{item.name}</p>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${fulfilled ? 'bg-emerald-100 text-emerald-800' : 'bg-[#F1E2CF] text-[#63382E]'}`}>
+                    เสิร์ฟ {item.servedQuantity}/{item.quantity - item.returnedQuantity}
+                  </span>
+                </div>
                 {item.removedIngredients.length > 0 && (
                   <span className="inline-block mt-0.5 text-[10px] font-bold text-red-700 bg-red-50 border border-red-200/60 px-1.5 py-0.2 rounded">
                     ไม่ใส่: {item.removedIngredients.join(', ')}
                   </span>
                 )}
+                {!isUnread && !fulfilled && <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() => void serveItem(order, item)}
+                  className="mt-1.5 inline-flex items-center gap-1 rounded-lg border-2 border-[#2D1B17] bg-white px-2.5 py-1 text-[10px] font-black text-[#573D35] shadow-[2px_2px_0_#D9B99A] transition hover:bg-[#FFF8EF] active:translate-y-0.5 disabled:opacity-40"
+                >
+                  <Plus size={11} strokeWidth={3} />
+                  {itemBusy ? 'กำลังบันทึก…' : isOwner ? 'เสิร์ฟเพิ่ม 1' : 'เสิร์ฟแทน +1'}
+                </button>}
               </div>
             </li>
-          ))}
+          })}
         </ul>
 
         {/* Compact Card Action Footer */}
-        <footer className="p-2.5 pt-1.5 bg-[#FAF8F5] border-t border-[#EAE5DF]/70">
+        <footer className="p-2.5 pt-2 bg-[#FAF8F5] border-t border-[#EAE5DF] rounded-b-[10px]">
           {isUnread ? (
-            <button
+            <div className="flex flex-col gap-1.5"><button
               type="button"
               disabled={isBusy}
               onClick={() => markAcknowledged(order.id)}
-              className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-[#E04F34] hover:bg-[#C93B22] active:translate-y-0.5 py-2 px-3 text-xs font-black text-white shadow-sm transition-all disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-1.5 rounded-lg border-2 border-[#2D1B17] bg-[#7A4939] hover:bg-[#63382E] active:translate-y-0.5 py-2 px-3 text-xs font-black text-white shadow-[2px_2px_0_#2D1B17] transition-all disabled:opacity-50"
             >
               <Eye size={13} strokeWidth={2.5} />
               <span>{isBusy ? 'กำลังรับ…' : 'รับออเดอร์ (กำลังจัดเสิร์ฟ)'}</span>
-            </button>
+            </button></div>
           ) : (
             <div className="flex flex-col gap-1">
               <button
                 type="button"
                 disabled={isBusy}
-                onClick={() => markServed(order.id)}
-                className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-[#2F855A] hover:bg-[#256C48] active:translate-y-0.5 py-2 px-3 text-xs font-black text-white shadow-sm transition-all disabled:opacity-50"
+                onClick={() => setServeAllTarget(order)}
+                className="w-full flex items-center justify-center gap-1.5 rounded-lg border-2 border-[#2D1B17] bg-[#B97861] hover:bg-[#A36652] active:translate-y-0.5 py-2 px-3 text-xs font-black text-white shadow-[2px_2px_0_#2D1B17] transition-all disabled:opacity-50"
               >
                 <Check size={14} strokeWidth={3} />
-                <span>{isBusy ? 'กำลังบันทึก…' : 'เสิร์ฟแล้ว'}</span>
+                <span>{isBusy ? 'กำลังบันทึก…' : isOwner ? `เสิร์ฟส่วนที่เหลือทั้งหมด (${remainingTotal})` : `เสิร์ฟแทนคุณ ${order.acknowledgedByName ?? 'พนักงาน'} (${remainingTotal})`}</span>
               </button>
-              <button
+              {!isOwner && <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => setHandoffTarget(order)}
+                className="flex items-center justify-center gap-1 rounded-lg border border-[#D9B99A] bg-[#FFF8EF] px-3 py-1.5 text-[10px] font-black text-[#6D5147]"
+              ><UserRoundCheck size={11} /> รับช่วงต่อจากคุณ {order.acknowledgedByName ?? 'พนักงาน'}</button>}
+              {isOwner && remainingTotal > 0 && <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => { setReturnTarget(order); setReturnReason('') }}
+                className="flex items-center justify-center gap-1 text-[10px] font-semibold text-red-700 hover:underline py-0.5"
+              >ไม่ได้จัดเสิร์ฟ · คืนสต็อก</button>}
+              {isOwner && <button
                 type="button"
                 disabled={isBusy}
                 onClick={() => markUnacknowledged(order.id)}
@@ -302,7 +407,7 @@ export default function StaffServingQueuePage() {
               >
                 <RotateCcw size={10} />
                 <span>ย้อนกลับเป็นยังไม่อ่าน</span>
-              </button>
+              </button>}
             </div>
           )}
         </footer>
@@ -311,6 +416,7 @@ export default function StaffServingQueuePage() {
   }
 
   return (
+    <>
     <div className="w-full max-w-[1600px] bg-[#FDFBF7] p-4 sm:p-6 pb-20">
       {/* ── Top Header & Global Controls ─────────────────────────────── */}
       <div className="anim-down d-1 mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
@@ -344,11 +450,10 @@ export default function StaffServingQueuePage() {
           <button
             type="button"
             onClick={toggleSound}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all ${
-              soundEnabled
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all ${soundEnabled
                 ? 'bg-amber-50 border-amber-300 text-amber-900 shadow-xs'
-                : 'bg-white border-[#d6d0c4] text-[#7B726B]'
-            }`}
+                : 'bg-[#FFFDF9] border-[#D9B99A] text-[#7B726B]'
+              }`}
             title={soundEnabled ? 'ปิดเสียงแจ้งเตือนครัว' : 'เปิดเสียงแจ้งเตือนครัว'}
           >
             {soundEnabled ? <Bell size={13} className="text-amber-600 animate-bounce" /> : <BellOff size={13} />}
@@ -358,7 +463,7 @@ export default function StaffServingQueuePage() {
           <button
             type="button"
             onClick={() => loadOrders(true)}
-            className="rounded-xl border border-[#d6d0c4] bg-white hover:bg-gray-50 px-3 py-1.5 text-xs font-bold text-[#302221] shadow-xs active:translate-y-0.5"
+            className="rounded-xl border border-[#D9B99A] bg-[#FFFDF9] hover:bg-[#FFF8EF] px-3 py-1.5 text-xs font-bold text-[#302221] shadow-xs active:translate-y-0.5"
           >
             รีเฟรช
           </button>
@@ -389,15 +494,6 @@ export default function StaffServingQueuePage() {
             </div>
           </div>
 
-          <button
-            type="button"
-            disabled={processingId === 'all'}
-            onClick={markAllAcknowledged}
-            className="flex items-center gap-1.5 rounded-lg bg-[#E04F34] hover:bg-[#C93B22] px-3.5 py-1.5 text-xs font-black text-white shadow-xs transition-all active:translate-y-0.5 disabled:opacity-50"
-          >
-            <CheckCheck size={14} strokeWidth={2.5} />
-            <span>{processingId === 'all' ? 'กำลังบันทึก…' : 'รับทั้งหมด (กำลังจัดเสิร์ฟ)'}</span>
-          </button>
         </div>
       )}
 
@@ -408,16 +504,14 @@ export default function StaffServingQueuePage() {
           <button
             type="button"
             onClick={() => setFilterTab('all')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
-              filterTab === 'all'
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${filterTab === 'all'
                 ? 'bg-[#302221] text-white shadow-xs'
-                : 'bg-white text-[#7B726B] border border-[#EAE5DF] hover:bg-gray-50'
-            }`}
+                : 'bg-[#FFFDF9] text-[#7B726B] border border-[#E8D8CA] hover:bg-[#FFF8EF]'
+              }`}
           >
             <span>ทั้งหมด</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-              filterTab === 'all' ? 'bg-white/20 text-white' : 'bg-[#F4EFEA] text-[#302221]'
-            }`}>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${filterTab === 'all' ? 'bg-white/20 text-white' : 'bg-[#F4EFEA] text-[#302221]'
+              }`}>
               {orders.length}
             </span>
           </button>
@@ -425,16 +519,14 @@ export default function StaffServingQueuePage() {
           <button
             type="button"
             onClick={() => setFilterTab('unread')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
-              filterTab === 'unread'
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${filterTab === 'unread'
                 ? 'bg-[#E04F34] text-white shadow-xs'
                 : 'bg-white text-[#E04F34] border border-[#EAE5DF] hover:bg-red-50'
-            }`}
+              }`}
           >
             <span>🔴 ยังไม่อ่าน</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-              filterTab === 'unread' ? 'bg-white text-[#E04F34]' : 'bg-red-100 text-[#E04F34]'
-            }`}>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${filterTab === 'unread' ? 'bg-white text-[#E04F34]' : 'bg-red-100 text-[#E04F34]'
+              }`}>
               {unreadCount}
             </span>
           </button>
@@ -442,16 +534,14 @@ export default function StaffServingQueuePage() {
           <button
             type="button"
             onClick={() => setFilterTab('serving')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
-              filterTab === 'serving'
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${filterTab === 'serving'
                 ? 'bg-[#D97706] text-white shadow-xs'
                 : 'bg-white text-[#7B726B] border border-[#EAE5DF] hover:bg-amber-50'
-            }`}
+              }`}
           >
             <span>🟡 กำลังจัดเสิร์ฟ</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-              filterTab === 'serving' ? 'bg-white text-[#D97706]' : 'bg-amber-100 text-[#92400E]'
-            }`}>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${filterTab === 'serving' ? 'bg-white text-[#D97706]' : 'bg-amber-100 text-[#92400E]'
+              }`}>
               {servingCount}
             </span>
           </button>
@@ -464,9 +554,8 @@ export default function StaffServingQueuePage() {
             <button
               type="button"
               onClick={() => setViewMode('grid')}
-              className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-bold transition-all ${
-                viewMode === 'grid' ? 'bg-[#302221] text-white' : 'text-[#7B726B] hover:text-[#302221]'
-              }`}
+              className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-bold transition-all ${viewMode === 'grid' ? 'bg-[#302221] text-white' : 'text-[#7B726B] hover:text-[#302221]'
+                }`}
               title="แสดงแบบตารางกะทัดรัด (Compact Grid)"
             >
               <LayoutGrid size={13} />
@@ -475,9 +564,8 @@ export default function StaffServingQueuePage() {
             <button
               type="button"
               onClick={() => setViewMode('kanban')}
-              className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-bold transition-all ${
-                viewMode === 'kanban' ? 'bg-[#302221] text-white' : 'text-[#7B726B] hover:text-[#302221]'
-              }`}
+              className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-bold transition-all ${viewMode === 'kanban' ? 'bg-[#302221] text-white' : 'text-[#7B726B] hover:text-[#302221]'
+                }`}
               title="แยกคอลัมน์ ยังไม่อ่าน ⟷ กำลังจัดเสิร์ฟ (Kanban)"
             >
               <CheckCheck size={13} />
@@ -512,16 +600,16 @@ export default function StaffServingQueuePage() {
         /* --- KANBAN SPLIT VIEW (ยังไม่อ่าน ⟷ กำลังจัดเสิร์ฟ) --- */
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {/* Column 1: ยังไม่เคยถูกอ่าน */}
-          <div className="rounded-2xl border-2 border-[#E04F34]/40 bg-[#FFFDFB] p-3 shadow-sm flex flex-col">
-            <div className="mb-3 flex items-center justify-between border-b border-[#E04F34]/20 pb-2">
+          <div className="rounded-2xl border-2 border-[#7A4939]/40 bg-[#FFF8EF] p-3 shadow-[3px_3px_0_#D9B99A] flex flex-col">
+            <div className="mb-3 flex items-center justify-between border-b border-[#7A4939]/20 pb-2">
               <div className="flex items-center gap-2">
                 <span className="relative flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#B97861] opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#7A4939]" />
                 </span>
-                <h2 className="text-sm font-black text-[#B8321B]">ยังไม่เคยถูกอ่าน (ออเดอร์ใหม่)</h2>
+                <h2 className="text-sm font-black text-[#63382E]">ยังไม่เคยถูกอ่าน (ออเดอร์ใหม่)</h2>
               </div>
-              <span className="rounded-full bg-[#E04F34] px-2 py-0.5 text-[10px] font-black text-white">
+              <span className="rounded-full bg-[#7A4939] px-2 py-0.5 text-[10px] font-black text-white">
                 {orders.filter((o) => !o.acknowledgedAt).length} คิว
               </span>
             </div>
@@ -538,13 +626,13 @@ export default function StaffServingQueuePage() {
           </div>
 
           {/* Column 2: กำลังจัดเสิร์ฟ */}
-          <div className="rounded-2xl border-2 border-[#2D1B17]/20 bg-[#FAF9F7] p-3 shadow-sm flex flex-col">
+          <div className="rounded-2xl border-2 border-[#D9B99A] bg-[#FFF8EF] p-3 shadow-[3px_3px_0_#E8D8CA] flex flex-col">
             <div className="mb-3 flex items-center justify-between border-b border-[#EAE5DF] pb-2">
               <div className="flex items-center gap-2">
-                <Clock size={14} className="text-[#D97706]" />
+                <Clock size={14} className="text-[#B97861]" />
                 <h2 className="text-sm font-black text-[#302221]">รับทราบแล้ว / กำลังจัดเสิร์ฟ</h2>
               </div>
-              <span className="rounded-full bg-[#302221] px-2 py-0.5 text-[10px] font-black text-white">
+              <span className="rounded-full bg-[#B97861] px-2 py-0.5 text-[10px] font-black text-white">
                 {orders.filter((o) => !!o.acknowledgedAt).length} คิว
               </span>
             </div>
@@ -562,5 +650,41 @@ export default function StaffServingQueuePage() {
         </div>
       )}
     </div>
+      {returnTarget && createPortal(
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !processingId) setReturnTarget(null) }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="return-order-title" className="w-full max-w-md overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]">
+            <header className="flex items-start justify-between border-b-2 border-[#2D1B17] bg-[#E7C7B8] px-5 py-4">
+              <div><span className="inline-flex items-center gap-1 rounded-full border-2 border-[#2D1B17] bg-white px-2.5 py-1 text-[10px] font-black"><TriangleAlert size={12} /> RETURN ORDER</span><h2 id="return-order-title" className="mt-3 text-xl font-black">คืนออเดอร์ #{returnTarget.id}</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">โต๊ะ {returnTarget.tableNumber} · คืนเฉพาะจำนวนที่ยังไม่ถูกเสิร์ฟ</p></div>
+              <button type="button" aria-label="ปิด" disabled={!!processingId} onClick={() => setReturnTarget(null)} className="rounded-full border-2 border-[#2D1B17] bg-white p-2"><X size={16} /></button>
+            </header>
+            <div className="p-5"><label className="text-xs font-black text-[#573D35]">เหตุผลการคืนออเดอร์ (จำเป็น)<textarea autoFocus maxLength={300} value={returnReason} onChange={(event) => setReturnReason(event.target.value)} rows={4} className="mt-2 w-full resize-none rounded-xl border-2 border-[#2D1B17] bg-white p-3 text-sm font-semibold outline-none focus:shadow-[3px_3px_0_#B97861]" placeholder="เช่น ลูกค้าไม่รับรายการนี้แล้ว" /></label><p className="mt-1 text-right text-[10px] font-bold text-[#80675F]">{returnReason.length}/300</p></div>
+            <footer className="flex justify-end gap-2 border-t-2 border-[#2D1B17] bg-[#FFF8EF] px-5 py-4"><button type="button" disabled={!!processingId} onClick={() => setReturnTarget(null)} className="rounded-xl border-2 border-[#2D1B17] bg-white px-4 py-2 text-xs font-black">ยกเลิก</button><button type="button" disabled={!!processingId || !returnReason.trim()} onClick={() => void returnOrder()} className="rounded-xl border-2 border-[#2D1B17] bg-red-700 px-4 py-2 text-xs font-black text-white disabled:opacity-40">{processingId ? 'กำลังคืนสต็อก…' : 'ยืนยันคืนออเดอร์'}</button></footer>
+          </section>
+        </div>, document.body,
+      )}
+      {handoffTarget && createPortal(
+        <div className="fixed inset-0 z-[121] flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !processingId) setHandoffTarget(null) }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="handoff-order-title" className="w-full max-w-md overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]">
+            <header className="flex items-start justify-between border-b-2 border-[#2D1B17] bg-[#DBC8B8] px-5 py-4">
+              <div><span className="inline-flex items-center gap-1 rounded-full border-2 border-[#2D1B17] bg-white px-2.5 py-1 text-[10px] font-black"><UserRoundCheck size={12} /> TAKE OVER</span><h2 id="handoff-order-title" className="mt-3 text-xl font-black">รับช่วงต่อออเดอร์ #{handoffTarget.id}</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">คุณจะเป็นผู้ดูแลหลักแทน {handoffTarget.acknowledgedByName ?? 'พนักงานคนเดิม'} และการเปลี่ยนผู้ดูแลจะถูกบันทึก</p></div>
+              <button type="button" aria-label="ปิด" disabled={!!processingId} onClick={() => setHandoffTarget(null)} className="rounded-full border-2 border-[#2D1B17] bg-white p-2"><X size={16} /></button>
+            </header>
+            <footer className="flex justify-end gap-2 bg-[#FFF8EF] px-5 py-4"><button type="button" disabled={!!processingId} onClick={() => setHandoffTarget(null)} className="rounded-xl border-2 border-[#2D1B17] bg-white px-4 py-2 text-xs font-black">ยกเลิก</button><button type="button" disabled={!!processingId} onClick={() => void takeOverOrder()} className="rounded-xl border-2 border-[#2D1B17] bg-[#7A4939] px-4 py-2 text-xs font-black text-white shadow-[3px_3px_0_#2D1B17]">{processingId ? 'กำลังรับช่วงต่อ…' : 'ยืนยันรับช่วงต่อ'}</button></footer>
+          </section>
+        </div>, document.body,
+      )}
+      {serveAllTarget && createPortal(
+        <div className="fixed inset-0 z-[122] flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !processingId) setServeAllTarget(null) }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="serve-all-title" className="w-full max-w-md overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]">
+            <header className="flex items-start justify-between border-b-2 border-[#2D1B17] bg-[#E7C7B8] px-5 py-4">
+              <div><span className="inline-flex items-center gap-1 rounded-full border-2 border-[#2D1B17] bg-white px-2.5 py-1 text-[10px] font-black"><Check size={12} /> SERVE REMAINING</span><h2 id="serve-all-title" className="mt-3 text-xl font-black">ยืนยันเสิร์ฟส่วนที่เหลือ</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">โต๊ะ {serveAllTarget.tableNumber} · อีก {serveAllTarget.items.reduce((sum, item) => sum + item.remainingQuantity, 0)} จาน{serveAllTarget.acknowledgedById !== user?.id ? ` · เสิร์ฟแทนคุณ ${serveAllTarget.acknowledgedByName ?? 'พนักงาน'}` : ''}</p></div>
+              <button type="button" aria-label="ปิด" disabled={!!processingId} onClick={() => setServeAllTarget(null)} className="rounded-full border-2 border-[#2D1B17] bg-white p-2"><X size={16} /></button>
+            </header>
+            <div className="p-5 text-xs font-semibold text-[#6D5147]">ระบบจะบันทึกจำนวนที่ยังเหลือทั้งหมดว่าเสิร์ฟแล้ว พร้อมชื่อพนักงานผู้ดำเนินการจริง</div>
+            <footer className="flex justify-end gap-2 border-t-2 border-[#2D1B17] bg-[#FFF8EF] px-5 py-4"><button type="button" disabled={!!processingId} onClick={() => setServeAllTarget(null)} className="rounded-xl border-2 border-[#2D1B17] bg-white px-4 py-2 text-xs font-black">ตรวจสอบอีกครั้ง</button><button type="button" disabled={!!processingId} onClick={() => void markServed(serveAllTarget.id)} className="rounded-xl border-2 border-[#2D1B17] bg-[#B97861] px-4 py-2 text-xs font-black text-white shadow-[3px_3px_0_#2D1B17]">{processingId ? 'กำลังบันทึก…' : 'ยืนยันว่าเสิร์ฟครบ'}</button></footer>
+          </section>
+        </div>, document.body,
+      )}
+    </>
   )
 }

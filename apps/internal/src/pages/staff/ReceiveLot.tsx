@@ -18,7 +18,14 @@ type DraftLine = {
 }
 
 const field = 'mt-1.5 w-full rounded-xl border-2 border-[#2D1B17] bg-[#FFFDF9] px-4 py-3 text-sm font-semibold text-[#2D1B17] outline-none transition-all duration-300 placeholder:text-[#A99188] hover:bg-white focus:-translate-y-1 focus:shadow-[4px_4px_0_#B97861] focus:border-[#2D1B17] disabled:cursor-not-allowed disabled:bg-[#F1E2CF] disabled:opacity-70'
-const today = new Date().toISOString().slice(0, 10)
+const now = new Date()
+const today = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
+
+function nextDate(value: string) {
+  const date = new Date(`${value}T00:00:00`)
+  date.setDate(date.getDate() + 1)
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
+}
 
 function createDraftLine(): DraftLine {
   return {
@@ -121,6 +128,10 @@ export default function AddLotPage() {
     }
     if (!Number.isFinite(Number(entry.quantity)) || Number(entry.quantity) <= 0) {
       setError('จำนวนต้องมากกว่า 0')
+      return
+    }
+    if (entry.unit === 'kg' && !/^\d+(?:\.\d)?$/.test(entry.quantity)) {
+      setError('จำนวน kg รองรับทศนิยมไม่เกิน 1 ตำแหน่ง')
       return
     }
     if (entry.unit === 'plates' && !Number.isInteger(Number(entry.quantity))) {
@@ -235,7 +246,7 @@ export default function AddLotPage() {
                 <input value={reference} onChange={(event) => setReference(event.target.value)} required className={field} placeholder="เช่น B-0817" />
               </Field>
               <Field label="วันที่รับเข้า">
-                <StyledDatePicker value={receiveDate} onChange={setReceiveDate} required />
+                <StyledDatePicker value={receiveDate} onChange={setReceiveDate} max={today} required />
               </Field>
             </div>
 
@@ -268,7 +279,7 @@ export default function AddLotPage() {
                   <input disabled value={entry.ingredientId ? (entry.category === 'Meat' ? 'Freezer (kg)' : 'ตู้พักละลาย (plate)') : 'เลือกวัตถุดิบก่อน'} className={`${field} ${entry.ingredientId ? 'bg-white text-blue-900' : ''}`} />
                 </Field>
                 <Field label="จำนวน">
-                  <input value={entry.quantity} onChange={(event) => updateEntry('quantity', event.target.value)} type="number" min={entry.unit === 'plates' ? '1' : '0.001'} step={entry.unit === 'plates' ? '1' : '0.001'} className={field} placeholder={entry.unit === 'plates' ? '0' : '0.000'} />
+                  <input value={entry.quantity} onChange={(event) => updateEntry('quantity', event.target.value)} type="number" min={entry.unit === 'plates' ? '1' : '0.1'} step={entry.unit === 'plates' ? '1' : '0.1'} className={field} placeholder={entry.unit === 'plates' ? '0' : '0.0'} />
                 </Field>
                 <Field label="หน่วย">
                   <select value={entry.unit} onChange={(event) => updateEntry('unit', event.target.value as Unit)} disabled={!entry.ingredientId || entry.category === 'Meat'} className={`${field} appearance-none cursor-pointer`}>
@@ -280,7 +291,7 @@ export default function AddLotPage() {
                   <input value={entry.unitCost} onChange={(event) => updateEntry('unitCost', event.target.value)} type="number" min="0" step="0.01" className={field} placeholder="0.00" />
                 </Field>
                 <Field label="วันหมดอายุ">
-                  <StyledDatePicker value={entry.expireDate} onChange={(v) => updateEntry('expireDate', v)} />
+                  <StyledDatePicker value={entry.expireDate} onChange={(v) => updateEntry('expireDate', v)} min={nextDate(receiveDate)} placement="up" />
                 </Field>
               </div>
               <button
@@ -345,7 +356,7 @@ export default function AddLotPage() {
                   <div className="mt-4 grid grid-cols-3 gap-3 border-t border-white/10 pt-4 text-xs font-bold text-[#E8D8CA]">
                     <div className="rounded-lg bg-black/20 p-2">
                       <span className="text-[10px] text-[#D9B99A]">จำนวน</span>
-                      <strong className="mt-0.5 block text-sm text-white">{line.quantity} {line.unit}</strong>
+                      <strong className="mt-0.5 block text-sm text-white">{line.unit === 'kg' ? Number(line.quantity).toFixed(1) : line.quantity} {line.unit}</strong>
                     </div>
                     <div className="rounded-lg bg-black/20 p-2">
                       <span className="text-[10px] text-[#D9B99A]">ต้นทุน</span>
@@ -385,7 +396,7 @@ export default function AddLotPage() {
           <button
             type="submit"
             disabled={submitting || !lines.length}
-            className="group relative inline-flex items-center justify-center gap-3 overflow-hidden rounded-2xl border-2 border-[#2D1B17] bg-[#2D1B17] px-8 py-4 text-base font-black text-white shadow-[6px_6px_0_#B97861] transition-all duration-300 hover:-translate-y-1 hover:shadow-[8px_8px_0_#B97861] active:translate-y-1 active:shadow-[2px_2px_0_#B97861] disabled:cursor-not-allowed disabled:bg-gray-600 disabled:shadow-none disabled:transform-none"
+            className="group relative inline-flex items-center justify-center gap-3 overflow-hidden rounded-2xl border-2 border-[#2D1B17] bg-[#93AF54] px-8 py-4 text-base font-black text-white shadow-[6px_6px_0_#2D1B17] transition-all duration-300 hover:-translate-y-1 hover:bg-[#86A149] hover:shadow-[8px_8px_0_#2D1B17] active:translate-y-1 active:shadow-[2px_2px_0_#2D1B17] disabled:cursor-not-allowed disabled:bg-[#A9A59F] disabled:shadow-none disabled:transform-none"
           >
             {submitting ? (
               <>
@@ -418,24 +429,6 @@ export default function AddLotPage() {
         .scrollbar-thin::-webkit-scrollbar-thumb {
           background-color: #513931;
           border-radius: 20px;
-        }
-        /* Date input: hide native UI but keep it clickable */
-        .date-invisible {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          opacity: 0;
-          cursor: pointer;
-          z-index: 10;
-        }
-        .date-invisible::-webkit-calendar-picker-indicator {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          opacity: 0;
-          cursor: pointer;
         }
       `}</style>
     </div>
@@ -628,58 +621,102 @@ function IngredientCombobox({ ingredients, value, selectedId, loading, onChange 
 
 // ─── Custom Styled Date Picker ───────────────────────────────────────────────
 
-function StyledDatePicker({ value, onChange, required }: { value: string; onChange: (v: string) => void; required?: boolean }) {
-  const [focused, setFocused] = useState(false)
+const calendarWeekdays = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส']
+
+function parseLocalDate(value: string) {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+function toDateValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function StyledDatePicker({ value, onChange, required, min, max, placement = 'down' }: { value: string; onChange: (v: string) => void; required?: boolean; min?: string; max?: string; placement?: 'up' | 'down' }) {
+  const [open, setOpen] = useState(false)
+  const [draftValue, setDraftValue] = useState(value)
+  const [viewMonth, setViewMonth] = useState(() => {
+    const initial = value ? parseLocalDate(value) : min ? parseLocalDate(min) : new Date()
+    return new Date(initial.getFullYear(), initial.getMonth(), 1)
+  })
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const closePicker = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) setOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', closePicker)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closePicker)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [])
 
   const displayDate = value
-    ? new Date(value + 'T00:00:00').toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })
+    ? parseLocalDate(value).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })
     : ''
+  const monthLabel = viewMonth.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })
+  const gridStart = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1 - viewMonth.getDay())
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart)
+    date.setDate(gridStart.getDate() + index)
+    return date
+  })
+  const minMonth = min ? new Date(parseLocalDate(min).getFullYear(), parseLocalDate(min).getMonth(), 1) : null
+  const maxMonth = max ? new Date(parseLocalDate(max).getFullYear(), parseLocalDate(max).getMonth(), 1) : null
+  const canGoPrevious = !minMonth || viewMonth > minMonth
+  const canGoNext = !maxMonth || viewMonth < maxMonth
+
+  function showPicker() {
+    const initial = value ? parseLocalDate(value) : min ? parseLocalDate(min) : new Date()
+    setDraftValue(value)
+    setViewMonth(new Date(initial.getFullYear(), initial.getMonth(), 1))
+    setOpen((current) => !current)
+  }
 
   return (
-    <div className="relative mt-1.5">
-      {/* Visual display layer (pointer-events-none so the real input sits on top) */}
-      <div
-        className={`pointer-events-none flex items-center gap-3 rounded-xl border-2 px-4 py-3 transition-all duration-300 ${
-          focused
-            ? 'border-[#2D1B17] -translate-y-1 shadow-[4px_4px_0_#B97861] bg-white'
-            : 'border-[#2D1B17] bg-[#FFFDF9]'
-        }`}
-      >
-        {/* Calendar icon */}
-        <div className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-[#2D1B17] transition-all duration-300 ${
-          focused ? 'bg-[#B97861]' : 'bg-[#E7C7B8]'
-        }`}>
-          {focused && <span className="absolute inset-0 rounded-lg animate-ping bg-[#B97861] opacity-40" />}
-          <svg className={`relative h-4 w-4 transition-colors duration-300 ${focused ? 'text-white' : 'text-[#73552E]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <path strokeLinecap="round" d="M16 2v4M8 2v4M3 10h18" />
-          </svg>
-        </div>
-        <div className="flex-1 min-w-0">
-          {value ? (
-            <>
-              <p className="text-sm font-black text-[#2D1B17] leading-tight">{displayDate}</p>
-              <p className="text-[10px] font-bold text-[#A99188] mt-0.5">{value}</p>
-            </>
-          ) : (
-            <p className="text-sm font-semibold text-[#A99188]">คลิกเพื่อเลือกวันที่</p>
-          )}
-        </div>
-        <svg className="h-4 w-4 shrink-0 text-[#A99188]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
-        </svg>
-      </div>
+    <div ref={wrapperRef} className="relative mt-1.5">
+      <button type="button" aria-haspopup="dialog" aria-expanded={open} aria-label={required ? 'เลือกวันที่ (จำเป็น)' : 'เลือกวันที่'} onClick={showPicker} className={`flex w-full items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-all duration-300 ${open ? 'border-[#2D1B17] -translate-y-1 bg-white shadow-[4px_4px_0_#B97861]' : 'border-[#2D1B17] bg-[#FFFDF9] hover:bg-white'}`}>
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-[#2D1B17] ${open ? 'bg-[#B97861] text-white' : 'bg-[#E7C7B8] text-[#73552E]'}`}>
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><rect x="3" y="4" width="18" height="18" rx="2" /><path strokeLinecap="round" d="M16 2v4M8 2v4M3 10h18" /></svg>
+        </span>
+        <span className="min-w-0 flex-1 normal-case tracking-normal">
+          {value ? <><span className="block text-sm font-black leading-tight text-[#2D1B17]">{displayDate}</span><span className="mt-0.5 block text-[10px] font-bold text-[#A99188]">{value}</span></> : <span className="text-sm font-semibold text-[#A99188]">คลิกเพื่อเลือกวันที่</span>}
+        </span>
+        <svg className={`h-4 w-4 shrink-0 text-[#A99188] transition-transform ${open ? '-rotate-90' : 'rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" /></svg>
+      </button>
 
-      {/* Real date input — transparent, sits exactly on top, receives all click/focus events */}
-      <input
-        type="date"
-        value={value}
-        required={required}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        className="date-invisible"
-      />
+      {open && (
+        <div role="dialog" aria-label="ปฏิทินเลือกวันที่" className={`absolute right-0 z-[70] w-[min(292px,calc(100vw-2rem))] overflow-hidden rounded-[22px] border-2 border-[#2D1B17] bg-[#FFFDF9] p-3 normal-case tracking-normal shadow-[6px_6px_0_#2D1B17] sm:left-0 sm:right-auto ${placement === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'}`}>
+          <div className="flex items-center justify-between gap-2">
+            <button type="button" aria-label="เดือนก่อนหน้า" disabled={!canGoPrevious} onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))} className="flex h-8 w-8 items-center justify-center rounded-full bg-[#F1E2CF] text-lg font-black text-[#8B5746] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-30">‹</button>
+            <h4 className="text-base font-black text-[#2D1B17]">{monthLabel}</h4>
+            <button type="button" aria-label="เดือนถัดไป" disabled={!canGoNext} onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))} className="flex h-8 w-8 items-center justify-center rounded-full bg-[#F1E2CF] text-lg font-black text-[#8B5746] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-30">›</button>
+          </div>
+          <div className="mt-3 grid grid-cols-7 gap-0.5 text-center">
+            {calendarWeekdays.map((day) => <span key={day} className="py-0.5 text-[10px] font-black text-[#89A44D]">{day}</span>)}
+            {days.map((date) => {
+              const dateValue = toDateValue(date)
+              const outsideMonth = date.getMonth() !== viewMonth.getMonth()
+              const disabled = (min ? dateValue < min : false) || (max ? dateValue > max : false)
+              const selected = dateValue === draftValue
+              const currentDay = dateValue === today
+              return <button key={dateValue} type="button" disabled={disabled} aria-pressed={selected} onClick={() => setDraftValue(dateValue)} className={`relative aspect-square rounded-full text-xs font-black transition-all ${selected ? 'scale-105 border-2 border-[#2D1B17] bg-[#93AF54] text-white shadow-[2px_2px_0_#2D1B17]' : currentDay ? 'bg-[#F28A2A] text-white' : outsideMonth ? 'text-[#CDBEB6]' : 'text-[#4F443F] hover:bg-[#E8D8CA]'} disabled:cursor-not-allowed disabled:opacity-25`}>
+                {date.getDate()}
+                {currentDay && !selected && <span className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-white" />}
+              </button>
+            })}
+          </div>
+          <button type="button" disabled={!draftValue} onClick={() => { onChange(draftValue); setOpen(false) }} className="mt-3 w-full rounded-xl border-2 border-[#2D1B17] bg-[#93AF54] px-4 py-2.5 text-xs font-black text-white shadow-[3px_3px_0_#2D1B17] transition hover:-translate-y-0.5 hover:bg-[#86A149] disabled:opacity-40">ใช้วันที่นี้</button>
+        </div>
+      )}
     </div>
   )
 }

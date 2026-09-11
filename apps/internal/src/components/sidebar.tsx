@@ -1,34 +1,96 @@
-import { BellRing, CircleDollarSign, History, LayoutDashboard, LogOut, PackagePlus, Refrigerator, ScrollText, Settings2, ShoppingBasket, Table2, Trash2, UtensilsCrossed, Users, Warehouse } from 'lucide-react'
+import {
+  ArrowLeftRight,
+  BellRing,
+  ChefHat,
+  CircleDollarSign,
+  History,
+  LayoutDashboard,
+  LogOut,
+  PackagePlus,
+  Refrigerator,
+  ScrollText,
+  Settings2,
+  Table2,
+  Trash2,
+  Users,
+  UtensilsCrossed,
+  Warehouse,
+} from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth, type Role } from '../contexts/AuthContext'
 
-const navItems: Record<Role, Array<{ to: string; label: string; icon: typeof LayoutDashboard }>> = {
+type NavItem = {
+  to: string
+  label: string
+  icon: typeof LayoutDashboard
+}
+
+type NavGroup = {
+  label: string
+  items: NavItem[]
+}
+
+const navGroups: Record<Role, NavGroup[]> = {
   owner: [
-    { to: '/owner/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/owner/menu', label: 'Menu', icon: UtensilsCrossed },
-    { to: '/owner/users', label: 'Users', icon: Users },
-    { to: '/owner/history', label: 'Inventory history', icon: History },
-    { to: '/owner/freezer-stock', label: 'Freezer stock', icon: Warehouse },
-    { to: '/owner/prep-fridge-stock', label: 'Prep fridge', icon: Refrigerator },
-    { to: '/owner/waste-management', label: 'Waste management', icon: Trash2 },
-    { to: '/owner/system-logs', label: 'System logs', icon: ScrollText },
-    { to: '/owner/notifications', label: 'Notifications', icon: BellRing },
-    { to: '/owner/settings', label: 'Buffet prices', icon: CircleDollarSign },
-    { to: '/owner/ingredient-settings', label: 'Ingredient settings', icon: Settings2 },
+    {
+      label: 'Overview',
+      items: [
+        { to: '/owner/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      ],
+    },
+    {
+      label: 'Inventory',
+      items: [
+        { to: '/owner/freezer-stock', label: 'Freezer stock', icon: Warehouse },
+        { to: '/owner/prep-fridge-stock', label: 'Prep fridge', icon: Refrigerator },
+        { to: '/owner/history', label: 'Stock history', icon: History },
+        { to: '/owner/waste-management', label: 'Waste management', icon: Trash2 },
+      ],
+    },
+    {
+      label: 'Management',
+      items: [
+        { to: '/owner/menu', label: 'Menu & Dishes', icon: UtensilsCrossed },
+        { to: '/owner/settings', label: 'Buffet prices', icon: CircleDollarSign },
+      ],
+    },
+    {
+      label: 'System',
+      items: [
+        { to: '/owner/ingredient-settings', label: 'Ingredient settings', icon: Settings2 },
+        { to: '/owner/users', label: 'Users', icon: Users },
+        { to: '/owner/system-logs', label: 'System logs', icon: ScrollText },
+      ],
+    },
   ],
   staff: [
-    { to: '/staff/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/staff/freezer-stock', label: 'Freezer stock', icon: Warehouse },
-    { to: '/staff/prep-fridge', label: 'Prep fridge', icon: Refrigerator },
-    { to: '/staff/receive-lot', label: 'Receive lot', icon: PackagePlus },
-    { to: '/staff/transfer-to-thaw-prep', label: 'Transfer to prep', icon: ShoppingBasket },
-    { to: '/staff/notifications', label: 'Prep alerts', icon: BellRing },
-    { to: '/staff/orders', label: 'Kitchen queue', icon: Refrigerator },
-    { to: '/staff/serving-queue', label: 'Serving queue', icon: Table2 },
+    {
+      label: 'Operations',
+      items: [
+        { to: '/staff/orders', label: 'Kitchen queue', icon: ChefHat },
+        { to: '/staff/serving-queue', label: 'Serving queue', icon: Table2 },
+        { to: '/staff/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      ],
+    },
+    {
+      label: 'Stock & Prep',
+      items: [
+        { to: '/staff/freezer-stock', label: 'Freezer stock', icon: Warehouse },
+        { to: '/staff/prep-fridge', label: 'Prep fridge', icon: Refrigerator },
+        { to: '/staff/receive-lot', label: 'Receive lot', icon: PackagePlus },
+        { to: '/staff/transfer-to-thaw-prep', label: 'Transfer to prep', icon: ArrowLeftRight },
+        { to: '/staff/notifications', label: 'Prep alerts', icon: BellRing },
+      ],
+    },
   ],
   cashier: [
-    { to: '/cashier/tables', label: 'Tables', icon: Table2 },
-    { to: '/cashier/payment', label: 'Payment', icon: History },
+    {
+      label: 'Service',
+      items: [
+        { to: '/cashier/tables', label: 'Tables', icon: Table2 },
+        { to: '/cashier/payment', label: 'Payment', icon: History },
+      ],
+    },
   ],
 }
 
@@ -51,7 +113,7 @@ function getInitials(name: string) {
 export default function Sidebar() {
   const { role, user, logout } = useAuth()
   const navigate = useNavigate()
-  const items = role ? navItems[role] : []
+  const groups = role ? navGroups[role] : []
 
   return (
     <aside className="sidebar">
@@ -75,22 +137,38 @@ export default function Sidebar() {
         </div>
       </div>
 
-      <div className="sidebar-section-label">Menu</div>
-
-      {/* Nav links */}
+      {/* Grouped Nav links */}
       <nav className="sidebar-nav" aria-label="Main navigation">
-        {items.map(({ to, label, icon: Icon }) => (
-          <NavLink key={to} to={to} className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}>
-            {({ isActive }) => (
-              <>
-                <span className="sidebar-link-icon">
-                  <Icon size={17} strokeWidth={isActive ? 2.5 : 2} />
-                </span>
-                <span className="sidebar-link-label">{label}</span>
-                {isActive && <span className="sidebar-active-pip" />}
-              </>
-            )}
-          </NavLink>
+        {groups.map((group, groupIndex) => (
+          <div
+            key={group.label}
+            className={`sidebar-group ${
+              groupIndex > 0 ? 'mt-3 border-t border-white/[0.08] pt-2.5' : 'mt-1'
+            }`}
+          >
+            <div className="sidebar-section-label !mx-2.5 !mb-1.5 !mt-0 text-[10px] font-black tracking-wider text-[#A89086]/75 uppercase">
+              {group.label}
+            </div>
+            <div className="flex flex-col gap-0.5">
+              {group.items.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
+                >
+                  {({ isActive }) => (
+                    <>
+                      <span className="sidebar-link-icon">
+                        <Icon size={17} strokeWidth={isActive ? 2.5 : 2} />
+                      </span>
+                      <span className="sidebar-link-label">{label}</span>
+                      {isActive && <span className="sidebar-active-pip" />}
+                    </>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
 
@@ -99,7 +177,10 @@ export default function Sidebar() {
         <button
           type="button"
           className="sidebar-logout"
-          onClick={async () => { await logout(); navigate('/login', { replace: true }) }}
+          onClick={async () => {
+            await logout()
+            navigate('/login', { replace: true })
+          }}
         >
           <LogOut size={15} />
           <span>Logout</span>

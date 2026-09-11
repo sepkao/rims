@@ -152,7 +152,7 @@ export default function StockMovementHistory() {
                       <div className="text-[11px] text-[#7B726B] mt-0.5 uppercase tracking-wide">{m.category === 'Meat' ? 'เนื้อสัตว์' : 'ผัก'}</div>
                     </td>
                     <td className="px-6 py-4 text-sm font-medium text-[#555]">{m.batch} · {m.location}</td>
-                    <td className={`px-6 py-4 text-sm font-bold ${positive ? 'text-green-700' : 'text-red-700'}`}>{positive ? '+' : ''}{m.quantity.toLocaleString('th-TH', { maximumFractionDigits: 3 })} {m.unit}</td>
+                    <td className={`px-6 py-4 text-sm font-bold ${positive ? 'text-green-700' : 'text-red-700'}`}>{positive ? '+' : ''}{m.quantity.toLocaleString('th-TH', { minimumFractionDigits: m.unit === 'kg' ? 1 : 0, maximumFractionDigits: 1 })} {m.unit}</td>
                     <td className="px-6 py-4 text-sm text-[#555]">{m.actorName ?? 'ระบบ (อัตโนมัติ)'}</td>
                     <td className="px-6 py-4 text-sm text-[#555]">{m.orderId ? `#${m.orderId}` : '—'}</td>
                   </tr>

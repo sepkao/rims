@@ -11,6 +11,7 @@
     "db:migrate:check": "node scripts/migrate.mjs --check",
     "db:migrate:bootstrap": "node scripts/migrate.mjs --bootstrap",
     "test": "tsc && node --test dist/inventory-transfer.test.js dist/inventory-intake.test.js dist/cashier-payment.test.js",
+    "test:integration": "tsc && node scripts/require-test-db.mjs && node --test --test-concurrency=1 scripts/session-locking.test.mjs scripts/order-flow.test.mjs",
     "start": "node dist/index.js"
   },
   "dependencies": {

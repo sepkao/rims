@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run lint --workspace internal
+      - run: npm run lint --workspace customer
+
+  database-integration:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://postgres:test@localhost:5432/rims_test
+      TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/rims_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: docker build -t rims-test-db -f apps/api/tests/Dockerfile.postgres .
+      - run: docker run -d --name rims-test-db -p 5432:5432 -e POSTGRES_PASSWORD=test -e POSTGRES_DB=rims_test rims-test-db
+      - name: Wait for PostgreSQL
+        run: |
+          for attempt in {1..30}; do
+            docker exec rims-test-db pg_isready -h 127.0.0.1 -U postgres -d rims_test && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Fresh database and upgrade from previous schema
+        run: |
+          if npm run db:migrate:check --workspace api; then exit 1; fi
+          docker exec rims-test-db psql -U postgres -d rims_test -Atc "SELECT to_regclass('public.schema_migrations') IS NULL" | grep -qx t
+          if npm run db:migrate:bootstrap --workspace api; then exit 1; fi
+          npm run db:migrate --workspace api -- --through=0020_session_checkout_locking.sql
+          # Simulate an existing installation without tracking, only in this disposable database.
+          docker exec rims-test-db psql -U postgres -d rims_test -v ON_ERROR_STOP=1 -c 'TRUNCATE public.schema_migrations'
+          if npm run db:migrate --workspace api; then exit 1; fi
+          npm run db:migrate:bootstrap --workspace api -- --through=0020_session_checkout_locking.sql
+          if npm run db:migrate:check --workspace api; then exit 1; fi
+          npm run db:migrate --workspace api
+          npm run db:migrate:check --workspace api
+          npm run db:migrate --workspace api
+      - run: npm run test:integration --workspace api
+      - if: always()
+        run: docker logs rims-test-db

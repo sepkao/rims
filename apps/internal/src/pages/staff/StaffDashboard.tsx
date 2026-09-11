@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { PackagePlus, Refrigerator, ShoppingBasket, Warehouse } from 'lucide-react'
 import { useInventory } from '../../contexts/InventoryContext'
+import { formatInventoryQuantity } from '../../lib/format-quantity'
 
 export default function StaffDashboardPage() {
   const { batches, fifoQueue } = useInventory()
@@ -25,7 +26,7 @@ export default function StaffDashboardPage() {
     <div className="w-full max-w-[1300px] pb-12">
 
       {/* ── Hero banner (Brown Theme) ───────────────────────────────── */}
-      <header className="anim-down d-1 relative mb-8 overflow-hidden rounded-[32px] border-2 border-[#2D1B17] bg-gradient-to-br from-[#B97861] via-[#C4845F] to-[#D9A882] px-8 py-10 shadow-[8px_8px_0_#2D1B17] transition-all hover:shadow-[12px_12px_0_#2D1B17] sm:px-10 group">
+      <header className="anim-down d-1 relative mb-8 overflow-hidden rounded-[32px] border-2 border-[#2D1B17] bg-gradient-to-br from-[#38251F] via-[#4A332B] to-[#65483D] px-8 py-10 shadow-[8px_8px_0_#2D1B17] transition-all hover:shadow-[12px_12px_0_#2D1B17] sm:px-10 group">
         <div className="pointer-events-none absolute -right-16 -top-16 h-72 w-72 rounded-full border-[36px] border-white/10 transition-transform duration-700 group-hover:scale-110" />
         <div className="pointer-events-none absolute -bottom-8 right-32 h-40 w-40 rounded-full border-[20px] border-white/10" />
 
@@ -42,18 +43,18 @@ export default function StaffDashboardPage() {
             {greeting}
           </span>
 
-          <h1 className="mt-5 text-4xl font-black leading-tight tracking-tight text-[#2D1B17] sm:text-5xl">
+          <h1 className="mt-5 text-4xl font-black leading-tight tracking-tight text-[#FFF8EF] sm:text-5xl">
             คลังพร้อม ครัวพร้อม<br />
             <span className="text-[#FFF8EF] drop-shadow-[2px_2px_0_#2D1B17]">ทุกกะก็พร้อมลุย.</span>
           </h1>
-          <p className="mt-4 max-w-lg text-sm font-semibold leading-6 text-[#563128]/90">
+          <p className="mt-4 max-w-lg text-sm font-semibold leading-6 text-[#F1E2CF]/90">
             เช็กล็อตคงเหลือ จัด FIFO และเคลียร์วัตถุดิบเสี่ยงก่อนเริ่มรอบ
           </p>
 
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <button
               onClick={() => navigate('/staff/receive-lot')}
-              className="group/btn relative flex items-center gap-2 overflow-hidden rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-6 py-3 text-sm font-black text-white shadow-[4px_4px_0_#D9B99A] transition-all hover:-translate-y-0.5 hover:shadow-[6px_6px_0_#D9B99A] active:translate-y-0.5"
+              className="group/btn relative flex items-center gap-2 overflow-hidden rounded-xl border-2 border-[#2D1B17] bg-[#93AF54] px-6 py-3 text-sm font-black text-white shadow-[4px_4px_0_#2D1B17] transition-all hover:-translate-y-0.5 hover:bg-[#86A149] hover:shadow-[6px_6px_0_#2D1B17] active:translate-y-0.5"
             >
               <span className="flex h-5 w-5 items-center justify-center rounded-md bg-white/20 text-xs font-black transition-transform group-hover/btn:rotate-90">
                 +
@@ -79,7 +80,6 @@ export default function StaffDashboardPage() {
           label="พร้อมใช้"
           value={usable.length}
           detail="ล็อตที่เบิกใช้ได้ปกติ"
-          icon="✓"
           accent="#F1E2CF"
           accentDark="#5C4033"
           badgeColor="bg-emerald-100 text-emerald-800 border-emerald-600"
@@ -92,7 +92,6 @@ export default function StaffDashboardPage() {
           label="คิว FIFO"
           value={fifoQueue.length}
           detail="รอหยิบตามลำดับ"
-          icon="↳"
           accent="#DBC8B8"
           accentDark="#5C4033"
           badgeColor="bg-[#E8D8CA] text-[#2D1B17] border-[#2D1B17]/20"
@@ -105,7 +104,6 @@ export default function StaffDashboardPage() {
           label="ใกล้หมดอายุ"
           value={expiring.length}
           detail="ต้องใช้ภายใน 3 วัน"
-          icon="!"
           accent="#FEF3C7"
           accentDark="#B45309"
           badgeColor="bg-amber-100 text-amber-900 border-amber-500"
@@ -119,7 +117,6 @@ export default function StaffDashboardPage() {
           label="หมดอายุ"
           value={expired.length}
           detail="ห้ามนำไปใช้เด็ดขาด"
-          icon="✕"
           accent="#FEE2E2"
           accentDark="#B91C1C"
           badgeColor="bg-rose-100 text-rose-900 border-rose-500"
@@ -146,7 +143,7 @@ export default function StaffDashboardPage() {
               </span>
               {expiring.length > 0 && (
                 <span className="flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-[10px] font-black text-amber-900 border border-amber-500 animate-pulse">
-                  <span className="font-bold">!</span> {expiring.length} ล็อตใกล้หมดอายุ
+                  {expiring.length} ล็อตใกล้หมดอายุ
                 </span>
               )}
             </div>
@@ -155,7 +152,6 @@ export default function StaffDashboardPage() {
           <div className="divide-y-2 divide-[#2D1B17]/10">
             {fifoQueue.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-800 text-2xl font-black mb-4">✓</div>
                 <p className="font-black text-[#2D1B17] text-lg">คลังเรียบร้อยสมบูรณ์</p>
                 <p className="mt-1 text-sm text-[#947870]">ไม่มีล็อตรอหยิบตกค้าง</p>
               </div>
@@ -203,7 +199,7 @@ export default function StaffDashboardPage() {
                     <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs font-medium text-[#80665D]">
                       <span>รับ {batch.receiveDate}</span>
                       <span className="text-[#2D1B17]/20">·</span>
-                      <span>เหลือ <strong className="text-[#2D1B17]">{batch.qty}</strong></span>
+                      <span>เหลือ <strong className="text-[#2D1B17]">{formatInventoryQuantity(batch.qty)}</strong></span>
                     </div>
                   </div>
 
@@ -240,32 +236,31 @@ export default function StaffDashboardPage() {
         <div className="flex flex-col gap-7">
 
           {/* Stock mix (Brown theme) */}
-          <article className="anim-up d-4 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#DBC8B8] shadow-[6px_6px_0_#2D1B17] transition-all hover:shadow-[8px_8px_0_#2D1B17]">
-            <div className="flex items-center justify-between border-b-2 border-[#2D1B17]/20 bg-[#CDB9A8] px-6 py-5">
+          <article className="anim-up d-4 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-white shadow-[6px_6px_0_#2D1B17] transition-all hover:shadow-[8px_8px_0_#2D1B17]">
+            <div className="flex items-center justify-between border-b-2 border-[#2D1B17] bg-gradient-to-r from-[#38251F] to-[#513931] px-6 py-5">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-[#6F554D]">Breakdown</p>
-                <h2 className="mt-1 text-lg font-black text-[#2D1B17]">Stock mix</h2>
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#D9B99A]">Breakdown</p>
+                <h2 className="mt-1 text-lg font-black text-[#FFF8EF]">Stock mix</h2>
               </div>
-              <span className="text-2xl">◒</span>
+              <span className="text-2xl text-[#D9B99A]">◒</span>
             </div>
 
             <div className="space-y-5 p-6">
-              {categoryCount.map(({ cat, label, count }, i) => {
-                const pct = usable.length ? Math.max(8, (count / usable.length) * 100) : 0
-                const barColors = ['#B97861', '#CFAE91', '#E8D8CA']
+              {categoryCount.map(({ cat, label, count }) => {
+                const pct = usable.length && count ? Math.max(8, (count / usable.length) * 100) : 0
                 return (
                   <div key={cat}>
                     <div className="mb-2 flex items-center justify-between">
                       <span className="text-sm font-black text-[#2D1B17]">{label}</span>
                       <span className="flex items-center gap-1.5">
                         <span className="text-lg font-black text-[#2D1B17]">{count}</span>
-                        <span className="text-[10px] font-bold text-[#6F554D]">LOT</span>
+                        <span className="text-[10px] font-bold text-[#7A5544]">LOT</span>
                       </span>
                     </div>
-                    <div className="relative h-4 overflow-hidden rounded-full border-2 border-[#2D1B17] bg-white/60">
+                    <div className="relative h-4 overflow-hidden rounded-full border-2 border-[#2D1B17] bg-[#F1E2CF]">
                       <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{ width: `${pct}%`, background: barColors[i] }}
+                        className="h-full rounded-full bg-[#93AF54] transition-all duration-700"
+                        style={{ width: `${pct}%` }}
                       />
                       <div className="absolute inset-0 rounded-full shadow-[inset_2px_2px_4px_rgba(0,0,0,.12)]" />
                     </div>
@@ -276,14 +271,14 @@ export default function StaffDashboardPage() {
           </article>
 
           {/* Operational Status Checklist (Red for expired, Orange for expiring) */}
-          <article className="anim-up d-5 relative overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#E7C7B8] shadow-[6px_6px_0_#2D1B17] transition-all hover:shadow-[8px_8px_0_#2D1B17]">
-            <span className="absolute -top-px right-6 rounded-b-xl border-x-2 border-b-2 border-[#2D1B17] bg-[#2D1B17] px-4 py-1.5 text-[9px] font-black text-white tracking-widest">
+          <article className="anim-up d-5 relative overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-white shadow-[6px_6px_0_#2D1B17] transition-all hover:shadow-[8px_8px_0_#2D1B17]">
+            <span className="absolute -top-px right-6 rounded-b-xl border-x-2 border-b-2 border-[#FFF8EF]/30 bg-[#2D1B17] px-4 py-1.5 text-[9px] font-black text-white tracking-widest">
               CHECKLIST
             </span>
 
-            <div className="border-b-2 border-[#2D1B17]/20 px-6 py-5">
-              <h2 className="text-lg font-black text-[#2D1B17]">ก่อนเปิดรอบ ✦</h2>
-              <p className="mt-0.5 text-xs font-semibold text-[#8C6655]">ตรวจสอบสถานะวัตถุดิบสำคัญ</p>
+            <div className="border-b-2 border-[#2D1B17] bg-gradient-to-r from-[#38251F] to-[#513931] px-6 py-5">
+              <h2 className="text-lg font-black text-[#FFF8EF]">ก่อนเปิดรอบ ✦</h2>
+              <p className="mt-0.5 text-xs font-semibold text-[#D9B99A]">ตรวจสอบสถานะวัตถุดิบสำคัญ</p>
             </div>
 
             <div className="space-y-3 p-6">
@@ -292,7 +287,6 @@ export default function StaffDashboardPage() {
                 count={expired.length}
                 label="ล็อตหมดอายุ"
                 sublabel="ห้ามใช้เด็ดขาด ต้องแยกออก"
-                icon="✕"
                 priority="danger"
                 onClick={() => navigate('/staff/freezer-stock')}
               />
@@ -302,7 +296,6 @@ export default function StaffDashboardPage() {
                 count={expiring.length}
                 label="ล็อตใกล้หมดอายุ"
                 sublabel="ต้องหยิบใช้ก่อนภายใน 3 วัน"
-                icon="!"
                 priority="warning"
                 onClick={() => navigate('/staff/freezer-stock')}
               />
@@ -312,7 +305,6 @@ export default function StaffDashboardPage() {
                 count={usable.length}
                 label="ล็อตพร้อมใช้งาน"
                 sublabel="สภาพปกติ เบิกใช้ได้ตามปกติ"
-                icon="✓"
                 priority="normal"
                 onClick={() => navigate('/staff/freezer-stock')}
               />
@@ -321,8 +313,8 @@ export default function StaffDashboardPage() {
 
           {/* Quick Actions (Cohesive Brown Theme) */}
           <article className="anim-up d-5 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-white shadow-[6px_6px_0_#2D1B17]">
-            <div className="border-b-2 border-[#2D1B17]/10 bg-[#FFF8EF] px-6 py-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-[#7A5544]">Quick Actions</p>
+            <div className="border-b-2 border-[#2D1B17] bg-gradient-to-r from-[#38251F] to-[#513931] px-6 py-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#F1E2CF]">Quick Actions</p>
             </div>
             <div className="grid grid-cols-2 divide-x-2 divide-y-2 divide-[#2D1B17]/10">
               <QuickAction
@@ -360,9 +352,9 @@ export default function StaffDashboardPage() {
 // ── Sub-components ───────────────────────────────────────────────────────────
 
 function StatCard({
-  label, value, detail, icon, accent, accentDark, badgeColor, statusBadge, isWarning, isDanger, delay,
+  label, value, detail, accent, accentDark, badgeColor, statusBadge, isWarning, isDanger, delay,
 }: {
-  label: string; value: number; detail: string; icon: string
+  label: string; value: number; detail: string
   accent: string; accentDark: string; badgeColor?: string; statusBadge?: string; isWarning?: boolean; isDanger?: boolean; delay: string
 }) {
   return (
@@ -380,14 +372,11 @@ function StatCard({
 
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: accentDark }}>{label}</p>
-        <div className="flex items-center gap-2">
-          {statusBadge && (
-            <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black ${badgeColor}`}>
-              {statusBadge}
-            </span>
-          )}
-          <span aria-hidden="true" className="text-lg font-black" style={{ color: accentDark }}>{icon}</span>
-        </div>
+        {statusBadge && (
+          <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black ${badgeColor}`}>
+            {statusBadge}
+          </span>
+        )}
       </div>
 
       <p className="count-anim mt-3 text-5xl font-black tracking-tight text-[#2D1B17]">
@@ -407,9 +396,9 @@ function StatCard({
 }
 
 function TodoItem({
-  count, label, sublabel, icon, priority, onClick,
+  count, label, sublabel, priority, onClick,
 }: {
-  count: number; label: string; sublabel: string; icon: string
+  count: number; label: string; sublabel: string
   priority: 'danger' | 'warning' | 'normal'; onClick: () => void
 }) {
   const isDanger = priority === 'danger'
@@ -433,7 +422,6 @@ function TodoItem({
       onClick={onClick}
       className={`w-full flex items-center gap-4 rounded-2xl p-4 text-left transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 ${borderClass}`}
     >
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-[#2D1B17] bg-white text-sm font-black text-[#2D1B17] shadow-[2px_2px_0_#2D1B17]">{icon}</span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className={`text-2xl font-black leading-none ${countColor}`}>

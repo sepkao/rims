@@ -10,6 +10,7 @@ export type InventoryBatch = {
   receiveDate: string
   expireDate: string
   receivedAt?: string
+  supplierReference?: string
   expiryAt?: string
   status: InventoryStatus
   unitValue: number

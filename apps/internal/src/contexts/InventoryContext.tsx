@@ -34,6 +34,7 @@ type ApiLot = {
   quantity: number
   unit: string
   receivedAt: string
+  supplierReference?: string
   expiryDate: string
   status: InventoryBatch['status']
   unitValue: number
@@ -53,6 +54,7 @@ function toBatch(lot: ApiLot): InventoryBatch {
     receiveDate: lot.receivedAt.slice(0, 10),
     expireDate: lot.expiryDate.slice(0, 10),
     receivedAt: lot.receivedAt,
+    supplierReference: lot.supplierReference,
     expiryAt: lot.expiryDate,
     status: lot.status,
     unitValue: lot.unitValue,

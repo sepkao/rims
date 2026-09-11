@@ -14,7 +14,11 @@ test('cash payment rejects insufficient tender', () => {
 
 test('manual payment requires verified reference', () => {
   assert.throws(() => parseCheckoutPayment({ paymentMethod: 'promptpay' }, 100), CashierPaymentError)
-  assert.deepEqual(parseCheckoutPayment({ paymentMethod: 'card', paymentReference: 'EDC-1234' }, 100), {
-    paymentMethod: 'card', cashReceived: null, changeAmount: 0, paymentReference: 'EDC-1234',
+  assert.deepEqual(parseCheckoutPayment({ paymentMethod: 'promptpay', paymentReference: 'PP-1234' }, 100), {
+    paymentMethod: 'promptpay', cashReceived: null, changeAmount: 0, paymentReference: 'PP-1234',
   })
+})
+
+test('card payment is no longer accepted', () => {
+  assert.throws(() => parseCheckoutPayment({ paymentMethod: 'card', paymentReference: 'EDC-1234' }, 100), CashierPaymentError)
 })

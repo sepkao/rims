@@ -37,7 +37,7 @@ export default function MenuItemsTab({ ingredients, onError }: { ingredients: In
   const loadMenuItems = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true)
     try {
-      const data = await apiFetch<{ menuItems: MenuItem[] }>('/menu-items')
+      const data = await apiFetch<{ menuItems: MenuItem[] }>('/owner/menu-items')
       setMenuItems(data.menuItems)
       onError('')
     } catch (caught) {
@@ -140,11 +140,10 @@ export default function MenuItemsTab({ ingredients, onError }: { ingredients: In
     if (!editName.trim() || editLines.length === 0 || editLines.some((line) => !line.ingredientId || !Number.isSafeInteger(line.quantityRequiredPlates) || line.quantityRequiredPlates < 1)) return
     setProcessingId(item.id)
     try {
-      await apiFetch(`/owner/menu-items/${item.id}`, { method: 'PUT', body: JSON.stringify({ name: editName.trim(), description: editDescription.trim(), category: editCategory }) })
-      const original = new Set(item.ingredients.map((ingredient) => ingredient.id))
-      const next = new Set(editLines.map((line) => line.ingredientId))
-      await Promise.all(editLines.map((line) => apiFetch(`/owner/menu-items/${item.id}/ingredients`, { method: 'POST', body: JSON.stringify(line) })))
-      await Promise.all([...original].filter((ingredientId) => !next.has(ingredientId)).map((ingredientId) => apiFetch(`/owner/menu-items/${item.id}/ingredients/${ingredientId}`, { method: 'DELETE' })))
+      await apiFetch(`/owner/menu-items/${item.id}/full`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: editName.trim(), description: editDescription.trim(), category: editCategory, ingredients: editLines }),
+      })
       setEditingId(null)
       await loadMenuItems()
     } catch (caught) {

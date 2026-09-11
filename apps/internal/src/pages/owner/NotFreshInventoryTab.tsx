@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useInventory } from '../../contexts/InventoryContext'
+import { formatInventoryQuantity } from '../../lib/format-quantity'
 import { apiFetch } from '../../lib/api'
 
 const CATEGORY_OPTIONS = ['All', 'Meat', 'Vegetable', 'Others'] as const
@@ -173,7 +174,7 @@ export default function NotFreshInventoryTab() {
                     <td className="px-6 py-4"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-50 text-red-700">!</span><div><p className="text-sm font-medium text-[#302221]">{item.item}</p><p className="text-xs text-[#7B726B]">{item.category} · {item.location}</p></div></div></td>
                     <td className="px-6 py-4 font-mono text-xs text-[#7B726B]">{item.batch}</td>
                     <td className="px-6 py-4 text-sm text-[#555]">{item.expireDate}</td>
-                    <td className="px-6 py-4 text-sm font-bold text-red-700">{item.qty}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-red-700">{formatInventoryQuantity(item.qty)}</td>
                     <td className="px-6 py-4 text-sm font-bold text-[#302221]">{formatCurrency(item.unitValue)}</td>
                     <td className="px-6 py-4"><button type="button" onClick={() => { setSelectedId(item.id); setActionError('') }} className="rounded-lg bg-red-700 px-3 py-2 text-xs font-bold text-white hover:bg-red-800">ยืนยันแยกทิ้ง</button></td>
                   </tr>
@@ -189,7 +190,7 @@ export default function NotFreshInventoryTab() {
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) setSelectedId(null) }}>
           <section role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl border-2 border-[#302221] bg-white p-6 shadow-[7px_7px_0_#302221]">
             <h2 className="text-xl font-black text-[#302221]">ยืนยันแยกทิ้ง {selected.item}</h2>
-            <p className="mt-2 text-sm text-[#7B726B]">ระบบจะตัดยอดคงเหลือทั้งหมด {selected.qty} และบันทึกผู้ดำเนินการ เวลา มูลค่าของเสีย และเหตุผล การดำเนินการนี้ย้อนกลับจากหน้านี้ไม่ได้</p>
+            <p className="mt-2 text-sm text-[#7B726B]">ระบบจะตัดยอดคงเหลือทั้งหมด {formatInventoryQuantity(selected.qty)} และบันทึกผู้ดำเนินการ เวลา มูลค่าของเสีย และเหตุผล การดำเนินการนี้ย้อนกลับจากหน้านี้ไม่ได้</p>
             <label className="mt-5 block text-sm font-bold text-[#302221]">เหตุผล<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} className="mt-2 w-full rounded-lg border border-[#cfc2b8] p-3 font-normal outline-none focus:border-[#8b5e55]" /></label>
             {actionError && <p className="mt-3 text-sm font-bold text-red-700">{actionError}</p>}
             <div className="mt-5 flex justify-end gap-3">

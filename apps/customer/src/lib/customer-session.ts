@@ -8,6 +8,11 @@ export type CustomerSession = {
 }
 
 const QR_STORAGE_KEY = 'rims.qr-session'
+export const ORDERING_CUTOFF_MS = 10 * 60 * 1000
+
+export function isOrderingClosed(expiresAt: string, now = Date.now()) {
+  return new Date(expiresAt).getTime() - now <= ORDERING_CUTOFF_MS
+}
 
 export function getQrCode() {
   return sessionStorage.getItem(QR_STORAGE_KEY)

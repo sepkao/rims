@@ -5,7 +5,7 @@ import CallStaffButton from '../components/CallStaffButton';
 import DevTimeTools from '../components/DevTimeTools';
 import BuffetTimer from '../components/BuffetTimer';
 import QrExpiryBanner from '../components/QrExpiryBanner';
-import { clearCustomerSession, customerQuery, type CustomerSession } from '../lib/customer-session';
+import { clearCustomerSession, customerQuery, isOrderingClosed, type CustomerSession } from '../lib/customer-session';
 import { useCart } from '../lib/CartContext';
 import { Clock, Minus, Plus, Search, ShoppingBag, UtensilsCrossed } from 'lucide-react';
 
@@ -28,14 +28,14 @@ export default function Menu() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [session, setSession] = useState<CustomerSession | null>(null);
-  const [isExpired, setIsExpired] = useState(false);
+  const [orderingClosed, setOrderingClosed] = useState(false);
 
   useEffect(() => {
     if (!session) return;
     const interval = setInterval(() => {
-      setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+      setOrderingClosed(isOrderingClosed(session.expiresAt));
     }, 1000);
-    setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+    setOrderingClosed(isOrderingClosed(session.expiresAt));
     return () => clearInterval(interval);
   }, [session]);
 
@@ -57,7 +57,7 @@ export default function Menu() {
       .then(([menuData, sessionData]) => {
         setItems(menuData.menuItems);
         setSession(sessionData.session);
-        setIsExpired(sessionData.session.status === 'expired' || new Date(sessionData.session.expiresAt).getTime() <= Date.now());
+        setOrderingClosed(isOrderingClosed(sessionData.session.expiresAt));
       })
       .catch((caught) => {
         // 410 = QR code ใน sessionStorage ใช้ไม่ได้แล้ว (โต๊ะถูก Check Out, session หมดอายุ ฯลฯ)
@@ -88,7 +88,7 @@ export default function Menu() {
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   const handleAdd = (item: MenuItem) => {
-    if (isExpired || item.availableServings < 1) return;
+    if (orderingClosed || item.availableServings < 1) return;
     if (item.ingredients.length > 0) {
       navigate(`/build/${item.id}`);
     } else {
@@ -97,7 +97,7 @@ export default function Menu() {
   };
 
   const handleQuickAdd = (item: MenuItem) => {
-    if (isExpired || item.availableServings <= getItemQuantity(item.id)) return;
+    if (orderingClosed || item.availableServings <= getItemQuantity(item.id)) return;
     addItem({ menuItem: item, quantity: 1, removedIngredients: [] });
   };
 
@@ -229,12 +229,6 @@ export default function Menu() {
                     </span>
                   </div>
 
-                  <div className="text-center z-10">
-                    <p className="font-black text-sm text-[#2D1B17] tracking-tight drop-shadow-xs leading-snug px-1">
-                      {item.name}
-                    </p>
-                  </div>
-
                   {/* Decorative Shabu Steam Glyphs */}
                   <div className="pointer-events-none absolute inset-0 opacity-15 flex items-center justify-center font-serif text-5xl select-none">
                     鍋
@@ -263,7 +257,6 @@ export default function Menu() {
                     <div className="flex items-center justify-between rounded-xl border-2 border-[#2D1B17] bg-[#FFF8EF] p-1 shadow-[2px_2px_0_#2D1B17]">
                       <button 
                         type="button"
-                        disabled={isExpired} 
                         onClick={() => handleRemoveOne(item)} 
                         className="w-6 h-6 bg-white border border-[#2D1B17] rounded-lg flex items-center justify-center text-[#2D1B17] font-black shadow-xs active:translate-y-0.5"
                       >
@@ -272,7 +265,7 @@ export default function Menu() {
                       <span className="font-black text-[#2D1B17] text-xs count-anim">{getItemQuantity(item.id)}</span>
                       <button 
                         type="button"
-                        disabled={isExpired || getItemQuantity(item.id) >= item.availableServings} 
+                        disabled={orderingClosed || getItemQuantity(item.id) >= item.availableServings}
                         onClick={() => handleQuickAdd(item)} 
                         className="w-6 h-6 rounded-lg bg-[#B97861] border border-[#2D1B17] flex items-center justify-center text-white font-black shadow-xs active:translate-y-0.5 disabled:opacity-50"
                       >
@@ -282,15 +275,15 @@ export default function Menu() {
                   ) : (
                     <button 
                       type="button"
-                      disabled={isExpired} 
+                      disabled={orderingClosed}
                       onClick={() => handleAdd(item)} 
                       className={`w-full py-1.5 rounded-xl border-2 border-[#2D1B17] font-black text-xs transition-all shadow-[2px_2px_0_#2D1B17] active:translate-y-0.5 ${
-                        isExpired 
+                        orderingClosed
                           ? 'bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed shadow-none' 
                           : 'bg-[#FFF8EF] hover:bg-white text-[#2D1B17]'
                       }`}
                     >
-                      {isExpired ? 'หมดเวลา' : '+ สั่งเลย'}
+                      {orderingClosed ? 'ปิดรับออเดอร์' : '+ สั่งเลย'}
                     </button>
                   )}
                 </div>

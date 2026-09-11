@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { Download, ExternalLink, Printer, QrCode, RefreshCw, Sparkles, Users, X } from 'lucide-react'
 import { QRCodeCanvas } from 'qrcode.react'
 import { apiFetch } from '../../lib/api'
@@ -85,7 +86,7 @@ export default function CheckInDialog({ table, sessionId, onClose, onChanged }: 
     link.click()
   }
 
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px] print:absolute print:bg-white" onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) onClose() }}>
+  return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px] print:absolute print:bg-white" onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) onClose() }}>
     <section role="dialog" aria-modal="true" aria-labelledby="check-in-title" className="anim-up max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[28px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[9px_9px_0_#2D1B17] print:max-h-none print:border-none print:shadow-none">
       <header className="flex items-start justify-between gap-4 border-b-2 border-[#2D1B17] bg-[#DBC8B8] px-6 py-5 print:hidden">
         <div><span className="inline-flex items-center gap-1.5 rounded-full border-2 border-[#2D1B17] bg-white px-3 py-1 text-[10px] font-black shadow-[2px_2px_0_#2D1B17]"><Sparkles size={12} /> TABLE CHECK IN</span><h2 id="check-in-title" className="mt-3 text-3xl font-black">โต๊ะ {sessionInfo?.tableNumber || table.tableNumber}</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">{sessionInfo ? 'QR พร้อมสำหรับให้ลูกค้าสแกน' : 'ระบุจำนวนลูกค้าเพื่อเปิดโต๊ะ'}</p></div>
@@ -109,7 +110,7 @@ export default function CheckInDialog({ table, sessionId, onClose, onChanged }: 
           <footer className="flex justify-end gap-3 border-t-2 border-[#2D1B17] bg-[#E7C7B8] px-6 py-5"><button type="button" disabled={submitting} onClick={onClose} className="rounded-xl border-2 border-[#2D1B17] bg-white px-5 py-2.5 text-sm font-black">ยกเลิก</button><button disabled={submitting || formTotal === 0} className="inline-flex items-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-5 py-2.5 text-sm font-black text-white shadow-[4px_4px_0_#B97861] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40"><QrCode size={16} />{submitting ? 'กำลังเปิดโต๊ะ…' : 'เปิดโต๊ะและสร้าง QR'}</button></footer>
         </form>}
     </section>
-  </div>
+  </div>, document.body)
 }
 
 function HeadcountField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {

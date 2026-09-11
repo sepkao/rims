@@ -19,6 +19,7 @@ export default function GracePeriodCountdown() {
   const [remaining, setRemaining] = useState(60)
   const [error, setError] = useState('')
   const [cancelling, setCancelling] = useState(false)
+  const [finalizing, setFinalizing] = useState(false)
   const [session, setSession] = useState<CustomerSession | null>(null)
 
   const refresh = useCallback(async () => {
@@ -31,13 +32,26 @@ export default function GracePeriodCountdown() {
         setStatus('cancelled')
         return
       }
+      const secondsRemaining = Math.max(0, Math.ceil((new Date(item.confirmAt).getTime() - Date.now()) / 1000))
       setStatus(item.status)
-      setRemaining(Math.max(0, Math.ceil((new Date(item.confirmAt).getTime() - Date.now()) / 1000)))
+      setRemaining(secondsRemaining)
+      if (item.status === 'pending' && secondsRemaining === 0 && !finalizing) {
+        setFinalizing(true)
+        try {
+          const finalized = await apiFetch<{ status: 'pending' | 'confirmed' | 'cancelled' }>(`/customer/orders/${orderId}/finalize`, {
+            method: 'POST',
+            body: JSON.stringify({ qrCode: requireQrCode() }),
+          })
+          setStatus(finalized.status === 'confirmed' ? 'cooking' : finalized.status)
+        } finally {
+          setFinalizing(false)
+        }
+      }
       setError('')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'ตรวจสอบสถานะออเดอร์ไม่สำเร็จ')
     }
-  }, [orderId])
+  }, [orderId, finalizing])
 
   useEffect(() => {
     refresh()
@@ -139,7 +153,7 @@ export default function GracePeriodCountdown() {
             >
               <span className="inline-flex items-center gap-1.5">
                 <RotateCcw size={13} strokeWidth={2.5} />
-                <span>{cancelling ? 'กำลังยกเลิก…' : 'ยกเลิกออเดอร์นี้'}</span>
+                <span>{cancelling ? 'กำลังยกเลิก…' : finalizing ? 'กำลังยืนยันออเดอร์…' : 'ยกเลิกออเดอร์นี้'}</span>
               </span>
             </button>
 

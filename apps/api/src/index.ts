@@ -116,6 +116,13 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Unexpected server error'
 }
 
+function isValidIsoDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
 function sessionSecret() {
   const secret = process.env.SESSION_SECRET
   if (!secret) throw new Error('SESSION_SECRET is not configured')
@@ -264,7 +271,9 @@ app.post('/auth/logout', async (c) => {
 app.use('/owner/*', (c, next) => requireRoles(c, next, ['owner']))
 app.use('/inventory/*', (c, next) => requireRoles(c, next, ['owner', 'staff']))
 app.use('/cashier/*', (c, next) => requireRoles(c, next, ['cashier']))
-app.use('/staff/*', (c, next) => requireRoles(c, next, ['staff']))
+// Owners can supervise the staff workflow from the same internal screens.
+// Individual handlers still enforce ownership/assignment rules where needed.
+app.use('/staff/*', (c, next) => requireRoles(c, next, ['owner', 'staff']))
 app.use('/dev/*', async (c, next) => {
   if (process.env.NODE_ENV === 'production') return c.json({ error: 'Development tools are disabled' }, 404)
   await next()
@@ -278,17 +287,23 @@ app.get('/staff/orders', async (c) => {
              o.created_at AS "createdAt",
              o.confirmed_at AS "confirmedAt",
              o.acknowledged_at AS "acknowledgedAt",
+             o.acknowledged_by::text AS "acknowledgedById",
+             au.name AS "acknowledgedByName",
              json_agg(
                json_build_object(
                  'id', oi.id::text,
                  'name', mi.name,
                  'quantity', oi.quantity,
+                 'servedQuantity', oi.served_quantity,
+                 'returnedQuantity', oi.quantity_returned,
+                 'remainingQuantity', oi.quantity - oi.served_quantity - oi.quantity_returned,
                  'removedIngredients', COALESCE(customizations.names, '[]'::json)
                ) ORDER BY oi.id
              ) AS items
       FROM orders o
       JOIN table_sessions ts ON ts.id = o.table_session_id
       JOIN dining_tables dt ON dt.id = ts.dining_table_id
+      LEFT JOIN users au ON au.id = o.acknowledged_by
       JOIN order_items oi ON oi.order_id = o.id
       JOIN menu_items mi ON mi.id = oi.menu_item_id
       LEFT JOIN LATERAL (
@@ -298,7 +313,7 @@ app.get('/staff/orders', async (c) => {
         WHERE oic.order_item_id = oi.id
       ) customizations ON true
       WHERE o.status = 'confirmed' AND o.served_at IS NULL
-      GROUP BY o.id, dt.table_number
+      GROUP BY o.id, dt.table_number, au.name
       ORDER BY o.confirmed_at ASC, o.id ASC
     `)
     return c.json({ orders: result.rows })
@@ -309,91 +324,438 @@ app.get('/staff/orders', async (c) => {
 })
 
 app.put('/staff/orders/:id/acknowledge', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
   try {
     const actor = await getSessionUser(c)
     if (!actor) return c.json({ error: 'Unauthorized' }, 401)
-    const result = await pool.query(
+    await client.query('BEGIN')
+    transactionStarted = true
+    const result = await client.query(
       `UPDATE orders
-       SET acknowledged_at = now()
-       WHERE id = $1 AND status = 'confirmed' AND served_at IS NULL
-       RETURNING id::text, acknowledged_at AS "acknowledgedAt"`,
-      [c.req.param('id')],
+       SET acknowledged_at = now(), acknowledged_by = $2
+       WHERE id = $1 AND status = 'confirmed' AND served_at IS NULL AND acknowledged_at IS NULL
+       RETURNING id::text, acknowledged_at AS "acknowledgedAt", acknowledged_by::text AS "acknowledgedById"`,
+      [c.req.param('id'), actor.id],
     )
-    if (!result.rows[0]) return c.json({ error: 'Active kitchen order not found' }, 404)
-    await pool.query(
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Order was already accepted by another staff member or is no longer active' }, 409)
+    }
+    await client.query(
       `INSERT INTO system_logs (actor_id, action, details)
        VALUES ($1, 'staff.order_acknowledged', jsonb_build_object('orderId', $2::bigint))`,
       [actor.id, c.req.param('id')],
     )
+    await client.query('COMMIT')
+    transactionStarted = false
     return c.json({ order: result.rows[0] })
   } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
     console.error(error)
     return c.json({ error: 'Unable to acknowledge order' }, 500)
+  } finally {
+    client.release()
   }
 })
 
 app.put('/staff/orders/:id/unacknowledge', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
   try {
     const actor = await getSessionUser(c)
     if (!actor) return c.json({ error: 'Unauthorized' }, 401)
-    const result = await pool.query(
+    await client.query('BEGIN')
+    transactionStarted = true
+    const result = await client.query(
       `UPDATE orders
-       SET acknowledged_at = NULL
-       WHERE id = $1 AND status = 'confirmed' AND served_at IS NULL
+       SET acknowledged_at = NULL, acknowledged_by = NULL
+       WHERE id = $1 AND status = 'confirmed' AND served_at IS NULL AND acknowledged_by = $2
        RETURNING id::text, acknowledged_at AS "acknowledgedAt"`,
-      [c.req.param('id')],
+      [c.req.param('id'), actor.id],
     )
-    if (!result.rows[0]) return c.json({ error: 'Active kitchen order not found' }, 404)
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Only the staff member handling this order can return it to unread' }, 409)
+    }
+    await client.query(
+      `INSERT INTO system_logs (actor_id, action, details)
+       VALUES ($1, 'staff.order_unacknowledged', jsonb_build_object('orderId', $2::bigint))`,
+      [actor.id, c.req.param('id')],
+    )
+    await client.query('COMMIT')
+    transactionStarted = false
     return c.json({ order: result.rows[0] })
   } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
     console.error(error)
     return c.json({ error: 'Unable to revert order acknowledgement' }, 500)
+  } finally {
+    client.release()
   }
 })
 
-app.put('/staff/orders/acknowledge-all', async (c) => {
+app.put('/staff/orders/:id/reassign', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
   try {
     const actor = await getSessionUser(c)
     if (!actor) return c.json({ error: 'Unauthorized' }, 401)
-    const result = await pool.query(
+    const orderId = c.req.param('id')
+    await client.query('BEGIN')
+    transactionStarted = true
+    const session = await client.query<{ table_session_id: string }>(
+      'SELECT table_session_id FROM orders WHERE id = $1',
+      [orderId],
+    )
+    if (!session.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Order not found' }, 404)
+    }
+    await client.query('SELECT id FROM table_sessions WHERE id = $1 FOR UPDATE', [session.rows[0].table_session_id])
+    const current = await client.query<{ acknowledged_by: string | null }>(
+      `SELECT acknowledged_by::text FROM orders
+       WHERE id = $1 AND status = 'confirmed' AND served_at IS NULL
+       FOR UPDATE`,
+      [orderId],
+    )
+    if (!current.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Order is no longer active', code: 'ORDER_NOT_ACTIVE' }, 409)
+    }
+    const result = await client.query<{
+      id: string
+      acknowledgedAt: string
+      acknowledgedById: string
+    }>(
       `UPDATE orders
-       SET acknowledged_at = now()
-       WHERE status = 'confirmed' AND served_at IS NULL AND acknowledged_at IS NULL
-       RETURNING id::text`,
+       SET acknowledged_at = COALESCE(acknowledged_at, now()), acknowledged_by = $2
+       WHERE id = $1 AND status = 'confirmed' AND served_at IS NULL
+       RETURNING id::text, acknowledged_at AS "acknowledgedAt",
+                 acknowledged_by::text AS "acknowledgedById"`,
+      [orderId, actor.id],
     )
-    await pool.query(
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Order is no longer active', code: 'ORDER_NOT_ACTIVE' }, 409)
+    }
+    await client.query(
       `INSERT INTO system_logs (actor_id, action, details)
-       VALUES ($1, 'staff.orders_acknowledged_all', jsonb_build_object('count', $2))`,
-      [actor.id, result.rowCount],
+       VALUES ($1, 'staff.order_reassigned', jsonb_build_object(
+         'orderId', $2::bigint, 'fromActorId', $3::bigint, 'toActorId', $1::bigint
+       ))`,
+      [actor.id, orderId, current.rows[0].acknowledged_by],
     )
-    return c.json({ updatedCount: result.rowCount })
+    await client.query('COMMIT')
+    transactionStarted = false
+    return c.json({ order: result.rows[0] })
   } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
     console.error(error)
-    return c.json({ error: 'Unable to acknowledge all orders' }, 500)
+    return c.json({ error: 'Unable to take over order' }, 500)
+  } finally {
+    client.release()
+  }
+})
+
+app.put('/staff/order-items/:id/serve', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json<{ quantity?: number; requestId?: string }>().catch((): { quantity?: number; requestId?: string } => ({}))
+    const quantity = Number(body.quantity)
+    const requestId = typeof body.requestId === 'string' ? body.requestId.trim() : ''
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      return c.json({ error: 'จำนวนที่เสิร์ฟต้องเป็นจำนวนเต็มอย่างน้อย 1' }, 400)
+    }
+    if (!requestId || requestId.length > 100) {
+      return c.json({ error: 'Missing or invalid serving request ID' }, 400)
+    }
+    const orderItemId = c.req.param('id')
+    await client.query('BEGIN')
+    transactionStarted = true
+    const context = await client.query<{ table_session_id: string }>(
+      `SELECT o.table_session_id
+       FROM order_items oi JOIN orders o ON o.id = oi.order_id
+       WHERE oi.id = $1`,
+      [orderItemId],
+    )
+    if (!context.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Order item not found' }, 404)
+    }
+    await client.query('SELECT id FROM table_sessions WHERE id = $1 FOR UPDATE', [context.rows[0].table_session_id])
+    const previousRequest = await client.query<{ order_item_id: string }>(
+      'SELECT order_item_id::text FROM order_item_serving_events WHERE request_id = $1',
+      [requestId],
+    )
+    if (previousRequest.rows[0]) {
+      if (previousRequest.rows[0].order_item_id !== orderItemId) {
+        await client.query('ROLLBACK')
+        transactionStarted = false
+        return c.json({ error: 'Serving request ID was already used for another item' }, 409)
+      }
+      const existing = await client.query(
+        `SELECT oi.id::text, oi.served_quantity AS "servedQuantity",
+                oi.quantity_returned AS "returnedQuantity",
+                (oi.quantity - oi.served_quantity - oi.quantity_returned)::int AS "remainingQuantity",
+                (o.served_at IS NOT NULL) AS "orderComplete"
+         FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE oi.id = $1`,
+        [orderItemId],
+      )
+      await client.query('COMMIT')
+      transactionStarted = false
+      const { orderComplete, ...existingItem } = existing.rows[0]
+      return c.json({ item: existingItem, orderComplete, duplicate: true })
+    }
+    const item = await client.query<{
+      id: string
+      order_id: string
+      quantity: number
+      quantity_returned: number
+      served_quantity: number
+      acknowledged_by: string | null
+    }>(
+      `SELECT oi.id::text, oi.order_id::text, oi.quantity, oi.quantity_returned,
+              oi.served_quantity, o.acknowledged_by::text
+       FROM order_items oi JOIN orders o ON o.id = oi.order_id
+       WHERE oi.id = $1 AND o.status = 'confirmed' AND o.served_at IS NULL
+         AND o.acknowledged_at IS NOT NULL
+       FOR UPDATE OF oi, o`,
+      [orderItemId],
+    )
+    if (!item.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Order must be active and acknowledged before serving', code: 'ORDER_NOT_ACTIVE' }, 409)
+    }
+    const row = item.rows[0]
+    const remaining = Number(row.quantity) - Number(row.quantity_returned) - Number(row.served_quantity)
+    if (quantity > remaining) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: `เหลือให้เสิร์ฟได้อีก ${remaining} หน่วย`, code: 'INVALID_SERVE_QUANTITY' }, 409)
+    }
+    const updated = await client.query(
+      `UPDATE order_items
+       SET served_quantity = served_quantity + $2,
+           last_served_at = now(), last_served_by = $3
+       WHERE id = $1
+       RETURNING id::text, served_quantity AS "servedQuantity",
+                 quantity_returned AS "returnedQuantity",
+                 (quantity - served_quantity - quantity_returned)::int AS "remainingQuantity"`,
+      [orderItemId, quantity, actor.id],
+    )
+    const isDelegate = row.acknowledged_by !== actor.id
+    await client.query(
+      `INSERT INTO order_item_serving_events (
+         order_item_id, quantity, served_by, acknowledged_by, is_delegate, request_id
+       ) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [orderItemId, quantity, actor.id, row.acknowledged_by, isDelegate, requestId],
+    )
+    await client.query(
+      `INSERT INTO system_logs (actor_id, action, details)
+       VALUES ($1, 'staff.order_item_served', jsonb_build_object(
+         'orderId', $2::bigint, 'orderItemId', $3::bigint, 'quantity', $4::int,
+         'acknowledgedById', $5::bigint, 'isDelegate', $6::boolean
+       ))`,
+      [actor.id, row.order_id, orderItemId, quantity, row.acknowledged_by, isDelegate],
+    )
+    const completed = await client.query<{ servedAt: string }>(
+      `UPDATE orders o SET served_at = now()
+       WHERE o.id = $1 AND o.status = 'confirmed' AND o.served_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM order_items oi
+           WHERE oi.order_id = o.id
+             AND oi.served_quantity + oi.quantity_returned < oi.quantity
+         )
+       RETURNING served_at AS "servedAt"`,
+      [row.order_id],
+    )
+    await client.query('COMMIT')
+    transactionStarted = false
+    return c.json({ item: updated.rows[0], orderComplete: Boolean(completed.rows[0]), servedById: actor.id, isDelegate })
+  } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
+    console.error(error)
+    return c.json({ error: 'Unable to serve order item' }, 500)
+  } finally {
+    client.release()
   }
 })
 
 app.put('/staff/orders/:id/serve', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
   try {
     const actor = await getSessionUser(c)
     if (!actor) return c.json({ error: 'Unauthorized' }, 401)
-    const result = await pool.query(
-      `UPDATE orders
-       SET served_at = now()
+    await client.query('BEGIN')
+    transactionStarted = true
+    const orderId = c.req.param('id')
+    const context = await client.query<{ table_session_id: string }>('SELECT table_session_id FROM orders WHERE id = $1', [orderId])
+    if (!context.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Order not found' }, 404)
+    }
+    await client.query('SELECT id FROM table_sessions WHERE id = $1 FOR UPDATE', [context.rows[0].table_session_id])
+    const order = await client.query<{ acknowledged_by: string | null }>(
+      `SELECT acknowledged_by::text FROM orders
+       WHERE id = $1 AND status = 'confirmed' AND served_at IS NULL AND acknowledged_at IS NOT NULL
+       FOR UPDATE`,
+      [orderId],
+    )
+    if (!order.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Order must be active and acknowledged before serving', code: 'ORDER_NOT_ACTIVE' }, 409)
+    }
+    const items = await client.query<{ id: string; remaining: number }>(
+      `SELECT id::text, (quantity - served_quantity - quantity_returned)::int AS remaining
+       FROM order_items WHERE order_id = $1 ORDER BY id FOR UPDATE`,
+      [orderId],
+    )
+    const isDelegate = order.rows[0].acknowledged_by !== actor.id
+    let servedQuantity = 0
+    for (const item of items.rows) {
+      const remaining = Number(item.remaining)
+      if (remaining <= 0) continue
+      servedQuantity += remaining
+      await client.query(
+        `UPDATE order_items SET served_quantity = served_quantity + $2,
+             last_served_at = now(), last_served_by = $3 WHERE id = $1`,
+        [item.id, remaining, actor.id],
+      )
+      await client.query(
+        `INSERT INTO order_item_serving_events (
+           order_item_id, quantity, served_by, acknowledged_by, is_delegate, request_id
+         ) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [item.id, remaining, actor.id, order.rows[0].acknowledged_by, isDelegate, `order:${orderId}:${item.id}:${randomBytes(12).toString('hex')}`],
+      )
+    }
+    const result = await client.query(
+      `UPDATE orders SET served_at = now()
        WHERE id = $1 AND status = 'confirmed' AND served_at IS NULL
        RETURNING id::text, served_at AS "servedAt"`,
-      [c.req.param('id')],
+      [orderId],
     )
-    if (!result.rows[0]) return c.json({ error: 'Active kitchen order not found' }, 404)
-    await pool.query(
+    await client.query(
       `INSERT INTO system_logs (actor_id, action, details)
-       VALUES ($1, 'staff.order_served', jsonb_build_object('orderId', $2::bigint))`,
-      [actor.id, c.req.param('id')],
+       VALUES ($1, 'staff.order_served', jsonb_build_object(
+         'orderId', $2::bigint, 'quantity', $3::int,
+         'acknowledgedById', $4::bigint, 'isDelegate', $5::boolean
+       ))`,
+      [actor.id, orderId, servedQuantity, order.rows[0].acknowledged_by, isDelegate],
     )
+    await client.query('COMMIT')
+    transactionStarted = false
     return c.json({ order: result.rows[0] })
   } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
     console.error(error)
     return c.json({ error: 'Unable to mark order as served' }, 500)
+  } finally {
+    client.release()
+  }
+})
+
+app.put('/staff/orders/:id/return', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
+  try {
+    const actor = await getSessionUser(c)
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json<{ reason?: string }>().catch((): { reason?: string } => ({}))
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+    if (!reason || reason.length > 300) return c.json({ error: 'กรุณาระบุเหตุผลการคืนออเดอร์ 1–300 ตัวอักษร' }, 400)
+    const orderId = c.req.param('id')
+    await client.query('BEGIN')
+    transactionStarted = true
+    const context = await client.query<{ table_session_id: string }>('SELECT table_session_id FROM orders WHERE id = $1', [orderId])
+    if (!context.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Order not found' }, 404)
+    }
+    await client.query('SELECT id FROM table_sessions WHERE id = $1 FOR UPDATE', [context.rows[0].table_session_id])
+
+    // ตรวจสอบสถานะของออเดอร์อย่างละเอียด เพื่อแจ้ง Error ให้ตรงจุด
+    const orderCheck = await client.query<{
+      status: string
+      served_at: string | null
+      acknowledged_by: string | null
+    }>(
+      `SELECT status, served_at, acknowledged_by::text FROM orders WHERE id = $1 FOR UPDATE`,
+      [orderId],
+    )
+    const currentOrder = orderCheck.rows[0]
+    if (!currentOrder) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'ไม่พบออเดอร์นี้ในระบบ' }, 404)
+    }
+    if (currentOrder.status === 'cancelled') {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'ออเดอร์นี้ถูกยกเลิกไปแล้ว ไม่สามารถคืนสต็อกซ้ำได้', code: 'ORDER_CANCELLED' }, 409)
+    }
+    if (currentOrder.status !== 'confirmed') {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'ออเดอร์ยังไม่ได้รับการยืนยัน จึงยังไม่มีการตัดสต็อก', code: 'ORDER_NOT_CONFIRMED' }, 409)
+    }
+    if (currentOrder.served_at !== null) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'ออเดอร์นี้จัดเสิร์ฟครบเรียบร้อยแล้ว ไม่สามารถคืนสต็อกได้', code: 'ORDER_ALREADY_SERVED' }, 409)
+    }
+    if (actor.role !== 'owner' && currentOrder.acknowledged_by !== actor.id) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'เฉพาะพนักงานที่รับออเดอร์นี้ (หรือเจ้าของร้าน) เท่านั้นที่คืนออเดอร์ได้', code: 'ORDER_NOT_OWNED' }, 409)
+    }
+    const items = await client.query<{ id: string; remaining: number }>(
+      `SELECT id::text, (quantity - served_quantity - quantity_returned)::int AS remaining
+       FROM order_items WHERE order_id = $1 ORDER BY id FOR UPDATE`,
+      [orderId],
+    )
+    for (const item of items.rows) {
+      if (Number(item.remaining) > 0) {
+        await client.query('SELECT return_order_item_to_stock($1, $2, $3)', [item.id, item.remaining, actor.id])
+      }
+    }
+    await client.query(
+      `UPDATE orders
+       SET status = 'cancelled', cancelled_at = now(), acknowledged_at = NULL, acknowledged_by = NULL
+       WHERE id = $1`,
+      [orderId],
+    )
+    await client.query(
+      `INSERT INTO system_logs (actor_id, action, details)
+       VALUES ($1, 'staff.order_returned', jsonb_build_object(
+         'orderId', $2::bigint, 'itemCount', $3::int, 'returnedQuantity', $4::int, 'reason', $5::text
+       ))`,
+      [actor.id, orderId, items.rowCount, items.rows.reduce((sum, item) => sum + Math.max(0, Number(item.remaining)), 0), reason],
+    )
+    await client.query('COMMIT')
+    transactionStarted = false
+    return c.json({ message: 'Order cancelled and stock returned', returnedItemCount: items.rowCount })
+  } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
+    console.error(error)
+    const message = error instanceof Error ? error.message : 'Unable to return order stock'
+    return c.json({ error: message }, 500)
+  } finally {
+    client.release()
   }
 })
 
@@ -601,13 +963,17 @@ app.get('/cashier/table-sessions/:id/bill', async (c) => {
       Number(session.disabledCount) * Number(session.pricePerDisabled)
 
     const orderItemsRes = await pool.query(
-      `SELECT mi.name, SUM(oi.quantity) AS quantity, o.status
+      `SELECT mi.name, SUM(oi.quantity)::int AS quantity,
+              SUM(oi.served_quantity)::int AS "servedQuantity",
+              SUM(oi.quantity_returned)::int AS "returnedQuantity",
+              SUM(oi.quantity - oi.served_quantity - oi.quantity_returned)::int AS "remainingQuantity",
+              o.status, o.served_at AS "servedAt"
        FROM orders o
        JOIN order_items oi ON oi.order_id = o.id
        JOIN menu_items mi ON mi.id = oi.menu_item_id
        WHERE o.table_session_id = $1
-       GROUP BY mi.id, mi.name, o.status
-       ORDER BY o.status, mi.name`,
+       GROUP BY mi.id, mi.name, o.status, o.served_at
+       ORDER BY o.status, o.served_at NULLS FIRST, mi.name`,
       [sessionId]
     )
 
@@ -693,6 +1059,34 @@ app.post('/cashier/table-sessions/:id/checkout', async (c) => {
       return c.json({ error: 'Session not found or already closed' }, 409)
     }
     const session = sessionRes.rows[0]
+    const unresolved = await client.query<{ order_id: string; remaining: number }>(
+      `SELECT o.id::text AS order_id,
+              (oi.quantity - oi.served_quantity - oi.quantity_returned)::int AS remaining
+       FROM orders o
+       JOIN order_items oi ON oi.order_id = o.id
+       WHERE o.table_session_id = $1 AND o.status = 'confirmed'
+         AND oi.served_quantity + oi.quantity_returned < oi.quantity
+       FOR UPDATE OF o, oi`,
+      [sessionId],
+    )
+    const unservedOrderCount = new Set(unresolved.rows.map((row) => row.order_id)).size
+    const unservedItemCount = unresolved.rows.reduce((sum, row) => sum + Number(row.remaining), 0)
+    if (unservedOrderCount > 0) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({
+        error: `ยังมี ${unservedItemCount} รายการใน ${unservedOrderCount} ออเดอร์ที่ยังไม่เสิร์ฟ กรุณาเสิร์ฟหรือคืนออเดอร์ก่อนปิดโต๊ะ`,
+        code: 'UNSERVED_ORDERS',
+        unservedOrderCount,
+        unservedItemCount,
+      }, 409)
+    }
+    const existingPayment = await client.query('SELECT id FROM cashier_payments WHERE table_session_id = $1', [sessionId])
+    if (existingPayment.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'โต๊ะนี้มีรายการชำระเงินแล้ว', code: 'ALREADY_PAID' }, 409)
+    }
     const total =
       Number(session.adult_count) * Number(session.price_per_adult) +
       Number(session.child_count) * Number(session.price_per_child) +
@@ -775,6 +1169,7 @@ app.post('/owner/users', async (c) => {
     if (!body.name?.trim() || !body.email?.trim() || !body.password) {
       return c.json({ error: 'Name, email and password are required' }, 400)
     }
+    if (body.password.length < 8) return c.json({ error: 'Password must be at least 8 characters' }, 400)
     if (body.role !== 'staff' && body.role !== 'cashier') {
       return c.json({ error: 'Role must be staff or cashier' }, 400)
     }
@@ -818,6 +1213,7 @@ app.put('/owner/users/:id', async (c) => {
       return c.json({ error: 'Owner accounts cannot be edited from this endpoint' }, 403)
     }
 
+    if (body.password && body.password.length < 8) return c.json({ error: 'Password must be at least 8 characters' }, 400)
     const passwordHash = body.password ? await bcrypt.hash(body.password, 10) : null
     const result = await pool.query(
       `UPDATE users
@@ -931,28 +1327,51 @@ app.put('/owner/waste-records/:id', async (c) => {
     }
 
     await client.query('BEGIN')
-    // WHERE status='pending_review' กันไม่ให้ตรวจซ้ำแถวที่ถูกตัดสินไปแล้ว (กด confirm/reject ซ้ำ)
-    const updated = await client.query<{ stockLotId: string; quantity: string }>(
-      `UPDATE waste_records
-       SET status = $1, reviewed_by = $2
-       WHERE id = $3 AND status = 'pending_review'
-       RETURNING stock_lot_id AS "stockLotId", quantity`,
-      [body.status, actor.id, id],
+    const candidate = await client.query<{ stockLotId: string; quantity: string; unitCost: string }>(
+      `SELECT wr.stock_lot_id AS "stockLotId",
+              sl.quantity_remaining AS quantity,
+              sl.unit_cost AS "unitCost"
+       FROM waste_records wr
+       JOIN stock_lots sl ON sl.id = wr.stock_lot_id
+       WHERE wr.id = $1 AND wr.status = 'pending_review'
+       FOR UPDATE OF wr, sl`,
+      [id],
     )
-    if (!updated.rows[0]) {
+    if (!candidate.rows[0]) {
+      await client.query('ROLLBACK')
+      return c.json({ error: 'Waste record not found or already reviewed' }, 409)
+    }
+
+    const currentQuantity = Number(candidate.rows[0].quantity)
+    const unitCost = Number(candidate.rows[0].unitCost)
+    if (body.status === 'confirmed' && (!Number.isFinite(currentQuantity) || currentQuantity <= 0)) {
+      await client.query('ROLLBACK')
+      return c.json({ error: 'Stock lot has no remaining quantity to dispose' }, 409)
+    }
+
+    const updated = await client.query(
+      `UPDATE waste_records
+       SET status = $1,
+           reviewed_by = $2,
+           quantity = CASE WHEN $1 = 'confirmed' THEN $4 ELSE quantity END,
+           unit_cost_snapshot = CASE WHEN $1 = 'confirmed' THEN $5 ELSE unit_cost_snapshot END,
+           waste_cost = CASE WHEN $1 = 'confirmed' THEN $4 * $5 ELSE waste_cost END
+       WHERE id = $3 AND status = 'pending_review'`,
+      [body.status, actor.id, id, currentQuantity, unitCost],
+    )
+    if (updated.rowCount !== 1) {
       await client.query('ROLLBACK')
       return c.json({ error: 'Waste record not found or already reviewed' }, 409)
     }
 
     if (body.status === 'confirmed') {
-      const { stockLotId, quantity } = updated.rows[0]
-      // ยืนยันว่าเป็นของเสียแล้ว = ทิ้งทั้งล็อต ตัด quantity_remaining เหลือ 0 ทันที
-      await client.query(`UPDATE stock_lots SET quantity_remaining = 0 WHERE id = $1`, [stockLotId])
+      const { stockLotId } = candidate.rows[0]
+      await client.query(`UPDATE stock_lots SET quantity_remaining = 0, is_not_fresh = true WHERE id = $1`, [stockLotId])
       // movement_type ใช้ 'adjustment' (ไม่ใช่ 'deduction') เพราะ 'deduction' ผูกกับการตัดสต็อกจากออเดอร์ลูกค้าเท่านั้น
       // (ใช้คำนวณ COGS ใน get_weekly_cost_profit_report()) — ของเสียไม่ใช่ยอดขาย ต้องแยกกันไม่ให้ปนกัน
       await client.query(
         `INSERT INTO stock_movements (stock_lot_id, movement_type, quantity, actor_id) VALUES ($1, 'adjustment', $2, $3)`,
-        [stockLotId, -Number(quantity), actor.id],
+        [stockLotId, -currentQuantity, actor.id],
       )
     }
 
@@ -1047,6 +1466,8 @@ app.get('/owner/settings/buffet-prices', async (c) => {
 })
 
 app.put('/owner/settings/buffet-prices', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
   try {
     const body = await c.req.json<{ adult?: number; child?: number; senior?: number; disabled?: number }>()
     const entries: Array<[string, number]> = [
@@ -1061,20 +1482,28 @@ app.put('/owner/settings/buffet-prices', async (c) => {
       }
     }
 
+    await client.query('BEGIN')
+    transactionStarted = true
     for (const [key, value] of entries) {
-      await pool.query(
+      const updated = await client.query(
         `UPDATE settings SET value = $1, updated_at = now() WHERE key = $2`,
         [String(value), key],
       )
+      if (updated.rowCount !== 1) throw new Error(`Missing required setting: ${key}`)
     }
+    await client.query('COMMIT')
+    transactionStarted = false
     return c.json({ adult: entries[0][1], child: entries[1][1], senior: entries[2][1], disabled: entries[3][1] })
   } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
     console.error(error)
     return c.json({ error: errorMessage(error) }, 400)
+  } finally {
+    client.release()
   }
 })
 
-app.get('/menu-items', async (c) => {
+app.get('/owner/menu-items', async (c) => {
   try {
     const result = await pool.query(
       `SELECT mi.id::text,
@@ -1335,6 +1764,87 @@ app.get('/menu-images/:filename', async (c) => {
   } catch (error) {
     console.error(error)
     return c.json({ error: 'Image not found' }, 404)
+  }
+})
+
+app.put('/owner/menu-items/:id/full', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
+  try {
+    const id = c.req.param('id')
+    const body = await c.req.json<{
+      name?: string
+      description?: string
+      category?: string
+      ingredients?: Array<{ ingredientId?: string; quantityRequiredPlates?: number; removable?: boolean }>
+    }>()
+    const name = body.name?.trim()
+    const category = body.category?.trim()
+    if (!name) return c.json({ error: 'Name is required' }, 400)
+    if (!category || category.length > 80) return c.json({ error: 'A valid category is required' }, 400)
+    if (!Array.isArray(body.ingredients) || body.ingredients.length === 0) return c.json({ error: 'At least one Prep ingredient is required' }, 400)
+
+    const seen = new Set<string>()
+    const ingredients = body.ingredients.map((line, index) => {
+      const ingredientId = line.ingredientId?.trim()
+      const quantity = Number(line.quantityRequiredPlates)
+      if (!ingredientId || !/^\d+$/.test(ingredientId) || !Number.isSafeInteger(quantity) || quantity <= 0) {
+        throw new Error(`Ingredient line ${index + 1} is invalid`)
+      }
+      if (seen.has(ingredientId)) throw new Error('The same ingredient cannot be selected more than once')
+      seen.add(ingredientId)
+      return { ingredientId, quantity, removable: Boolean(line.removable) }
+    })
+
+    await client.query('BEGIN')
+    transactionStarted = true
+    const menuItem = await client.query(
+      'SELECT id FROM menu_items WHERE id = $1 AND is_deleted = false FOR UPDATE',
+      [id],
+    )
+    if (!menuItem.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Menu item not found' }, 404)
+    }
+    if (!(await client.query('SELECT id FROM menu_categories WHERE name = $1', [category])).rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'Menu category is not registered' }, 400)
+    }
+    const existingIngredients = await client.query(
+      'SELECT id FROM ingredients WHERE id = ANY($1::bigint[]) AND is_active = true',
+      [[...seen]],
+    )
+    if (existingIngredients.rows.length !== ingredients.length) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'One or more ingredients do not exist or are inactive' }, 400)
+    }
+
+    const updated = await client.query(
+      `UPDATE menu_items SET name = $1, description = $2, category = $3
+       WHERE id = $4
+       RETURNING id::text, name, description, category, is_active AS "isActive"`,
+      [name, body.description?.trim() || null, category, id],
+    )
+    await client.query('DELETE FROM menu_item_ingredients WHERE menu_item_id = $1', [id])
+    for (const line of ingredients) {
+      await client.query(
+        `INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, quantity_required_plates, removable)
+         VALUES ($1, $2, $3, $4)`,
+        [id, line.ingredientId, line.quantity, line.removable],
+      )
+    }
+    await client.query('COMMIT')
+    transactionStarted = false
+    return c.json({ menuItem: updated.rows[0] })
+  } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
+    console.error(error)
+    return c.json({ error: errorMessage(error) }, 400)
+  } finally {
+    client.release()
   }
 })
 
@@ -1778,6 +2288,7 @@ async function loadFreezerExpiryAlerts() {
      WHERE loc.name = 'Freezer'
        AND sl.is_not_fresh = false
        AND sl.quantity_remaining > 0
+       AND sl.expiry_date > now()
        AND sl.expiry_date <= now() + (i.freezer_expiry_warning_days || ' days')::INTERVAL
      ORDER BY sl.expiry_date ASC`,
   )
@@ -1830,6 +2341,7 @@ async function loadLowStockAlerts() {
          FROM stock_lots sl
          JOIN storage_locations loc ON loc.id = sl.storage_location_id
          WHERE sl.ingredient_id = i.id AND loc.name = 'Freezer' AND sl.is_not_fresh = false
+           AND sl.quantity_remaining > 0 AND sl.expiry_date > now()
        ) freezer ON true
        WHERE i.is_active = true AND i.category = 'meat'
          AND i.reorder_threshold_kg IS NOT NULL
@@ -1849,6 +2361,7 @@ async function loadLowStockAlerts() {
          FROM stock_lots sl
          JOIN storage_locations loc ON loc.id = sl.storage_location_id
          WHERE sl.ingredient_id = i.id AND loc.name = 'ตู้พักละลาย' AND sl.is_not_fresh = false
+           AND sl.quantity_remaining > 0 AND sl.expiry_date > now()
        ) prep ON true
        WHERE i.is_active = true AND i.category = 'vegetable'
          AND i.thaw_prep_threshold_plates IS NOT NULL
@@ -1881,6 +2394,7 @@ app.get('/inventory/lots', async (c) => {
             sl.quantity_remaining::float8 AS quantity,
             loc.unit_type AS unit,
             lh.received_at AS "receivedAt",
+            lh.supplier_reference AS "supplierReference",
             sl.expiry_date AS "expiryDate",
             sl.unit_cost::float8 AS "unitCost",
             (sl.quantity_remaining * sl.unit_cost)::float8 AS "unitValue",
@@ -2024,8 +2538,15 @@ app.post('/inventory/lots', async (c) => {
       }>
     }>()
     const requestedItems = body.items ?? []
+    const reference = body.reference?.trim()
+    const todayInBangkok = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const receivedAt = body.receivedAt?.trim() || todayInBangkok
 
     if (!requestedItems.length) return c.json({ error: 'At least one ingredient is required' }, 400)
+    if (!reference || reference.length > 120) return c.json({ error: 'Supplier reference is required and must not exceed 120 characters' }, 400)
+    if (!isValidIsoDate(receivedAt) || receivedAt > todayInBangkok) {
+      return c.json({ error: 'Received date must be valid and cannot be in the future' }, 400)
+    }
 
     const lines = requestedItems.map((requestedItem, index) => {
       const ingredientId = requestedItem.ingredientId?.trim()
@@ -2036,6 +2557,9 @@ app.post('/inventory/lots', async (c) => {
       }
       if (!Number.isFinite(unitCost) || unitCost < 0) {
         throw new Error(`Unit cost for ingredient line ${index + 1} must be zero or greater`)
+      }
+      if (!isValidIsoDate(requestedItem.expiryDate) || requestedItem.expiryDate <= receivedAt) {
+        throw new Error(`Expiry date for ingredient line ${index + 1} must be after the received date`)
       }
 
       const normalizedUnit = requestedItem.unit?.trim().toLowerCase()
@@ -2051,10 +2575,10 @@ app.post('/inventory/lots', async (c) => {
     await client.query('BEGIN')
     transactionStarted = true
     const headerResult = await client.query(
-      `INSERT INTO lot_headers (received_at, received_by)
-       VALUES (COALESCE($1::timestamptz, now()), $2)
+      `INSERT INTO lot_headers (received_at, received_by, supplier_reference)
+       VALUES ($1::timestamptz, $2, $3)
        RETURNING id`,
-      [body.receivedAt || null, actor.id],
+      [receivedAt, actor.id, reference],
     )
 
     const lotIds: string[] = []
@@ -2074,7 +2598,7 @@ app.post('/inventory/lots', async (c) => {
         `SELECT id::text, name, category,
                 default_portion_size_kg::float8 AS "defaultPortionSizeKg"
          FROM ingredients
-         WHERE id = $1`,
+         WHERE id = $1 AND is_active = true`,
         [line.ingredientId],
       )
       const ingredient = ingredientResult.rows[0]
@@ -2329,12 +2853,18 @@ app.get('/customer/orders', async (c) => {
           o.id AS "orderId",
           mi.name AS "name",
           oi.quantity AS "qty",
+          oi.served_quantity AS "servedQuantity",
+          oi.quantity_returned AS "returnedQuantity",
           CASE
-              WHEN o.served_at IS NOT NULL THEN 'served'
+              -- A ticket can be cancelled after some dishes were already served.
+              -- Keep fully served lines green; only lines with an unserved
+              -- quantity should appear cancelled.
+              WHEN oi.served_quantity >= oi.quantity THEN 'served'
+              WHEN o.status = 'cancelled' THEN 'cancelled'
+              WHEN oi.served_quantity > 0 THEN 'serving'
               WHEN o.acknowledged_at IS NOT NULL THEN 'serving'
               WHEN o.status = 'confirmed' THEN 'cooking'
               WHEN o.status = 'pending' THEN 'pending'
-              WHEN o.status = 'cancelled' THEN 'cancelled'
               ELSE 'unknown'
           END AS "status",
           TO_CHAR(o.created_at, 'HH24:MI') AS "time",
@@ -2378,13 +2908,16 @@ app.post('/customer/orders', async (c) => {
     transactionStarted = true
     const sessionRes = await client.query<{ id: string }>(
       `SELECT id::text FROM table_sessions
-       WHERE qr_code = $1 AND ended_at IS NULL AND expires_at > now() FOR UPDATE`,
+       WHERE qr_code = $1
+         AND ended_at IS NULL
+         AND expires_at > now() + INTERVAL '10 minutes'
+       FOR UPDATE`,
       [body.qrCode.trim()],
     )
     if (!sessionRes.rows[0]) {
       await client.query('ROLLBACK')
       transactionStarted = false
-      return c.json({ error: 'QR Code หมดอายุ ปิดใช้งาน หรือไม่ถูกต้อง' }, 410)
+      return c.json({ error: 'ปิดรับออเดอร์ใหม่ในช่วง 10 นาทีสุดท้ายของรอบบุฟเฟต์' }, 409)
     }
     const tableSessionId = sessionRes.rows[0].id
 
@@ -2544,6 +3077,53 @@ app.post('/customer/orders/:id/cancel', async (c) => {
   }
 })
 
+app.post('/customer/orders/:id/finalize', async (c) => {
+  const client = await pool.connect()
+  let transactionStarted = false
+  try {
+    const orderId = c.req.param('id')
+    const body = await c.req.json<{ qrCode?: string }>().catch((): { qrCode?: string } => ({}))
+    if (typeof body.qrCode !== 'string' || !body.qrCode.trim()) {
+      return c.json({ error: 'ต้องมี QR Code' }, 400)
+    }
+    await client.query('BEGIN')
+    transactionStarted = true
+    const ownedOrder = await client.query<{ status: string; grace_active: boolean }>(
+      `SELECT o.status, (o.confirm_at > now()) AS grace_active
+       FROM orders o
+       JOIN table_sessions ts ON ts.id = o.table_session_id
+       WHERE o.id = $1 AND ts.qr_code = $2 AND ts.ended_at IS NULL`,
+      [orderId, body.qrCode.trim()],
+    )
+    if (!ownedOrder.rows[0]) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'ไม่พบออเดอร์ของโต๊ะนี้' }, 404)
+    }
+    if (ownedOrder.rows[0].status === 'pending' && ownedOrder.rows[0].grace_active) {
+      await client.query('ROLLBACK')
+      transactionStarted = false
+      return c.json({ error: 'ออเดอร์ยังอยู่ในช่วงยกเลิก 60 วินาที', code: 'GRACE_PERIOD_ACTIVE' }, 409)
+    }
+    if (ownedOrder.rows[0].status === 'pending') {
+      await client.query('SELECT auto_confirm_order($1)', [orderId])
+    }
+    const result = await client.query<{ status: string }>(
+      'SELECT status FROM orders WHERE id = $1',
+      [orderId],
+    )
+    await client.query('COMMIT')
+    transactionStarted = false
+    return c.json({ status: result.rows[0].status })
+  } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK')
+    console.error(error)
+    return c.json({ error: 'ยืนยันออเดอร์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง' }, 500)
+  } finally {
+    client.release()
+  }
+})
+
 // === DEV TOOLS API ===
 app.post('/dev/time-shift', async (c) => {
   try {
@@ -2631,47 +3211,7 @@ async function runDevelopmentWorker() {
 
   try {
     // Check table expirations for notifications
-    const activeSessions = await pool.query(`
-      SELECT ts.id, dt.table_number,
-             EXTRACT(EPOCH FROM (ts.expires_at - now())) / 60 AS mins_left
-      FROM table_sessions ts
-      JOIN dining_tables dt ON ts.dining_table_id = dt.id
-      WHERE ts.ended_at IS NULL AND ts.expires_at IS NOT NULL
-    `);
-    
-    for (const session of activeSessions.rows) {
-      const mins = parseFloat(session.mins_left);
-      
-      if (mins <= 30) {
-        const check30 = await pool.query(`SELECT id FROM cashier_notifications WHERE table_session_id = $1 AND message LIKE 'เหลือเวลา 30 นาที%'`, [session.id]);
-        if (check30.rows.length === 0) {
-          await pool.query(
-            `INSERT INTO cashier_notifications (table_session_id, table_number, message) VALUES ($1, $2, 'เหลือเวลา 30 นาที')`,
-            [session.id, session.table_number]
-          );
-        }
-      }
-      
-      if (mins <= 5) {
-        const check5 = await pool.query(`SELECT id FROM cashier_notifications WHERE table_session_id = $1 AND message LIKE 'เหลือเวลา 5 นาที%'`, [session.id]);
-        if (check5.rows.length === 0) {
-          await pool.query(
-            `INSERT INTO cashier_notifications (table_session_id, table_number, message) VALUES ($1, $2, 'เหลือเวลา 5 นาที (ใกล้หมดเวลา)')`,
-            [session.id, session.table_number]
-          );
-        }
-      }
-
-      if (mins <= 0) {
-        const check0 = await pool.query(`SELECT id FROM cashier_notifications WHERE table_session_id = $1 AND message LIKE 'หมดเวลา%'`, [session.id]);
-        if (check0.rows.length === 0) {
-          await pool.query(
-            `INSERT INTO cashier_notifications (table_session_id, table_number, message) VALUES ($1, $2, 'หมดเวลาทานบุฟเฟต์!')`,
-            [session.id, session.table_number]
-          );
-        }
-      }
-    }
+    await pool.query('SELECT generate_cashier_time_notifications()')
   } catch (e) {
     console.error("Table expiration notification error:", e);
   }

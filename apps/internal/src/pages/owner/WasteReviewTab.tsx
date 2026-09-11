@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
+import { formatInventoryQuantity } from '../../lib/format-quantity'
 
 type WasteRecord = {
   id: string
@@ -117,7 +118,7 @@ export default function WasteReviewTab() {
                   <tr key={record.id}>
                     <td className="px-6 py-4 text-sm font-medium text-[#302221]">{record.ingredientName}</td>
                     <td className="px-6 py-4 text-sm text-[#555]">{record.storageName}</td>
-                    <td className="px-6 py-4 text-sm text-[#555]">{record.quantity} {record.unit}</td>
+                    <td className="px-6 py-4 text-sm text-[#555]">{formatInventoryQuantity(record.quantity, record.unit)}</td>
                     <td className="px-6 py-4 text-sm text-[#555]">{record.expiryDate.slice(0, 10)}</td>
                     <td className="px-6 py-4 text-sm font-bold text-red-700">{formatCurrency(record.wasteCost)}</td>
                     <td className="px-6 py-4 text-xs text-[#7B726B]">{record.aiReason ?? '—'}</td>

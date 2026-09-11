@@ -15,7 +15,6 @@ import OwnerFreezerStockPage from './pages/owner/FreezerStock'
 import OwnerPrepFridgeStockPage from './pages/owner/PrepFridgeStock'
 import UserManagementPage from './pages/owner/UserManagement'
 import IngredientSettings from './pages/owner/IngredientSettings'
-import OwnerNotifications from './pages/owner/Notifications'
 import AddLotPage from './pages/staff/ReceiveLot'
 import KitchenStockPage from './pages/staff/KitchenStock'
 import StaffDashboardPage from './pages/staff/StaffDashboard'
@@ -65,7 +64,7 @@ export function AppRoutes() {
             <Route path="/owner/system-logs" element={<RequireRole role="owner"><SystemLogsPage /></RequireRole>} />
             <Route path="/owner/settings" element={<RequireRole role="owner"><BuffetPricesPage /></RequireRole>} />
             <Route path="/owner/ingredient-settings" element={<RequireRole role="owner"><IngredientSettings /></RequireRole>} />
-            <Route path="/owner/notifications" element={<RequireRole role="owner"><OwnerNotifications /></RequireRole>} />
+            <Route path="/owner/notifications" element={<Navigate to="/owner/dashboard" replace />} />
 
             <Route path="/staff/dashboard" element={<RequireRole role="staff"><StaffDashboardPage /></RequireRole>} />
             <Route path="/staff/freezer-stock" element={<RequireRole role="staff"><KitchenStockPage area="Freezer Stock" /></RequireRole>} />

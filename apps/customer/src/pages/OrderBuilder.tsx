@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiFetch, ApiError } from '../lib/api';
 import { useCart, type MenuItem } from '../lib/CartContext';
-import { clearCustomerSession, customerQuery, type CustomerSession } from '../lib/customer-session';
+import { clearCustomerSession, customerQuery, isOrderingClosed, type CustomerSession } from '../lib/customer-session';
 import QrExpiryBanner from '../components/QrExpiryBanner';
 import { AlertCircle, ArrowLeft, Check, Minus, Plus, UtensilsCrossed } from 'lucide-react';
 
@@ -22,14 +22,14 @@ export default function OrderBuilder() {
   
   const [removedIngredients, setRemovedIngredients] = useState<string[]>([]);
   const [session, setSession] = useState<CustomerSession | null>(null);
-  const [isExpired, setIsExpired] = useState(false);
+  const [orderingClosed, setOrderingClosed] = useState(false);
 
   useEffect(() => {
     if (!session) return;
     const interval = setInterval(() => {
-      setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+      setOrderingClosed(isOrderingClosed(session.expiresAt));
     }, 1000);
-    setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+    setOrderingClosed(isOrderingClosed(session.expiresAt));
     return () => clearInterval(interval);
   }, [session]);
 
@@ -51,7 +51,7 @@ export default function OrderBuilder() {
       .then(([itemData, sessionData]) => {
         setItem(itemData.menuItem);
         setSession(sessionData.session);
-        setIsExpired(sessionData.session.status === 'expired' || new Date(sessionData.session.expiresAt).getTime() <= Date.now());
+        setOrderingClosed(isOrderingClosed(sessionData.session.expiresAt));
       })
       .catch((caught) => {
         // 410 = QR code ใน sessionStorage ใช้ไม่ได้แล้ว — เคลียร์ทิ้งแล้วพากลับหน้า scan ใหม่
@@ -78,7 +78,7 @@ export default function OrderBuilder() {
   };
 
   const handleConfirmOrder = () => {
-    if (!item) return;
+    if (!item || orderingClosed) return;
     addItem({
       menuItem: item,
       quantity: qty,
@@ -186,7 +186,7 @@ export default function OrderBuilder() {
               <span className="font-black text-[#2D1B17] text-base px-3.5 count-anim">{qty}</span>
               <button 
                 type="button"
-                disabled={qty >= remainingServings || isExpired}
+                disabled={qty >= remainingServings || orderingClosed}
                 onClick={() => setQty(qty + 1)}
                 className="w-8 h-8 rounded-lg bg-[#B97861] border border-[#2D1B17] flex items-center justify-center text-white font-black shadow-xs active:translate-y-0.5 disabled:opacity-50"
               >
@@ -249,14 +249,14 @@ export default function OrderBuilder() {
         <div className="absolute bottom-0 left-0 w-full bg-[#FFF8EF] border-t-2 border-[#2D1B17] p-3 shadow-[0_-6px_20px_rgba(45,27,23,0.12)] z-30">
           <button 
             type="button"
-            disabled={isExpired || remainingServings < 1}
+            disabled={orderingClosed || remainingServings < 1}
             onClick={() => setShowConfirm(true)}
             className={`shabu-btn-primary w-full py-3 text-sm shadow-[3px_3px_0_#B97861] ${
-              isExpired || remainingServings < 1 ? 'opacity-50 cursor-not-allowed' : ''
+              orderingClosed || remainingServings < 1 ? 'opacity-50 cursor-not-allowed' : ''
             }`}
           >
-            {isExpired 
-              ? 'หมดเวลาสั่งอาหาร' 
+            {orderingClosed
+              ? 'ปิดรับออเดอร์ใน 10 นาทีสุดท้าย'
               : remainingServings < 1 
               ? 'อาหารหมดในรอบนี้' 
               : `+ เพิ่มลงตะกร้า • ${qty} จาน`}
@@ -286,9 +286,10 @@ export default function OrderBuilder() {
                 <button 
                   type="button"
                   onClick={handleConfirmOrder}
-                  className="shabu-btn-primary flex-1 py-2.5 text-xs shadow-[2px_2px_0_#B97861]"
+                  disabled={orderingClosed}
+                  className="shabu-btn-primary flex-1 py-2.5 text-xs shadow-[2px_2px_0_#B97861] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  ตกลงเพิ่ม
+                  {orderingClosed ? 'ปิดรับออเดอร์แล้ว' : 'ตกลงเพิ่ม'}
                 </button>
               </div>
             </div>

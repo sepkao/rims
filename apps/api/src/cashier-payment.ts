@@ -1,4 +1,4 @@
-export type PaymentMethod = 'cash' | 'promptpay' | 'card'
+export type PaymentMethod = 'cash' | 'promptpay'
 
 export type CheckoutPayment = {
   paymentMethod: PaymentMethod
@@ -19,8 +19,8 @@ export function parseCheckoutPayment(body: unknown, total: number): CheckoutPaym
 
   const input = body as { paymentMethod?: unknown; cashReceived?: unknown; paymentReference?: unknown }
   const paymentMethod = input.paymentMethod
-  if (paymentMethod !== 'cash' && paymentMethod !== 'promptpay' && paymentMethod !== 'card') {
-    throw new CashierPaymentError('Payment method must be cash, promptpay or card')
+  if (paymentMethod !== 'cash' && paymentMethod !== 'promptpay') {
+    throw new CashierPaymentError('Payment method must be cash or promptpay')
   }
 
   const paymentReference = typeof input.paymentReference === 'string' && input.paymentReference.trim()

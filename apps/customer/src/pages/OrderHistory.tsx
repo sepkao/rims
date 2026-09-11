@@ -1,23 +1,43 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useCart } from '../lib/CartContext';
 import CallStaffButton from '../components/CallStaffButton';
 import BuffetTimer from '../components/BuffetTimer';
 import QrExpiryBanner from '../components/QrExpiryBanner';
 import { apiFetch } from '../lib/api';
-import { customerQuery, requireQrCode, type CustomerSession } from '../lib/customer-session';
+import { customerQuery, isOrderingClosed, requireQrCode, type CustomerSession } from '../lib/customer-session';
 import DevTimeTools from '../components/DevTimeTools';
-import { ArrowLeft, Check, ChefHat, Clock, Minus, Plus, RefreshCw, Trash2, Utensils, UtensilsCrossed, XCircle } from 'lucide-react';
+import { ArrowLeft, Check, ChefHat, ChevronDown, Clock, Minus, Plus, RefreshCw, Trash2, Utensils, UtensilsCrossed, XCircle } from 'lucide-react';
 
 type OrderedItem = {
   id: string;
   orderId: string;
   name: string;
   qty: number;
+  servedQuantity: number;
+  returnedQuantity: number;
   status: 'pending' | 'cooking' | 'serving' | 'served' | 'cancelled' | 'unknown';
   time: string;
   confirmAt: string;
 };
+
+type OrderGroup = {
+  orderId: string;
+  time: string;
+  confirmAt: string;
+  items: OrderedItem[];
+};
+
+function orderGroupStatus(items: OrderedItem[]) {
+  if (items.some((item) => item.status === 'pending')) return { label: 'รอครัวยืนยัน', tone: 'border-[#7B726B] bg-[#F4EFEA] text-[#2D1B17]' };
+  if (items.some((item) => item.status === 'cooking')) return { label: 'กำลังเตรียม', tone: 'border-[#D97706] bg-amber-100 text-[#92400E]' };
+  if (items.some((item) => item.status === 'serving')) return { label: 'กำลังจัดเสิร์ฟ', tone: 'border-[#2563EB] bg-blue-100 text-[#1E40AF]' };
+  const hasServed = items.some((item) => item.servedQuantity > 0);
+  const hasReturned = items.some((item) => item.returnedQuantity > 0 || item.status === 'cancelled');
+  if (hasServed && hasReturned) return { label: 'เสร็จสิ้นบางส่วน', tone: 'border-red-300 bg-red-100 text-[#991B1B]' };
+  if (hasReturned) return { label: 'ยกเลิกแล้ว', tone: 'border-red-300 bg-red-100 text-[#991B1B]' };
+  return { label: 'เสิร์ฟครบแล้ว', tone: 'border-emerald-600 bg-emerald-100 text-[#166534]' };
+}
 
 function EmptyCard({ 
   message, 
@@ -62,10 +82,12 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
 
   const { items: cartItems, updateQuantity, removeItem, clearCart } = useCart();
   const [orderedItems, setOrderedItems] = useState<OrderedItem[]>([]);
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(() => new Set());
+  const initializedOrderIdsRef = useRef<Set<string>>(new Set());
   const [session, setSession] = useState<CustomerSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isExpired, setIsExpired] = useState(false);
+  const [orderingClosed, setOrderingClosed] = useState(false);
   const [error, setError] = useState('');
   const [now, setNow] = useState(() => Date.now());
 
@@ -80,9 +102,9 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
   useEffect(() => {
     if (!session) return;
     const interval = setInterval(() => {
-      setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+      setOrderingClosed(isOrderingClosed(session.expiresAt));
     }, 1000);
-    setIsExpired(new Date(session.expiresAt).getTime() <= Date.now());
+    setOrderingClosed(isOrderingClosed(session.expiresAt));
     return () => clearInterval(interval);
   }, [session]);
 
@@ -99,7 +121,7 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
       const data = await apiFetch<{ items: OrderedItem[]; session: CustomerSession }>(`/customer/orders${customerQuery()}`);
       setOrderedItems(data.items || []);
       setSession(data.session);
-      setIsExpired(data.session.status === 'expired' || new Date(data.session.expiresAt).getTime() <= Date.now());
+      setOrderingClosed(isOrderingClosed(data.session.expiresAt));
       setError('');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'โหลดประวัติออเดอร์ไม่สำเร็จ');
@@ -115,7 +137,7 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
   }, []);
   
   const handleCheckout = async () => {
-    if (cartItems.length === 0 || isSubmitting) return;
+    if (cartItems.length === 0 || isSubmitting || orderingClosed) return;
     setIsSubmitting(true);
     try {
       const payload = {
@@ -155,6 +177,29 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
   };
 
   const totalCartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+  const orderGroups = useMemo<OrderGroup[]>(() => {
+    const groups = new Map<string, OrderGroup>();
+    for (const item of orderedItems) {
+      const group = groups.get(item.orderId);
+      if (group) group.items.push(item);
+      else groups.set(item.orderId, { orderId: item.orderId, time: item.time, confirmAt: item.confirmAt, items: [item] });
+    }
+    return [...groups.values()];
+  }, [orderedItems]);
+
+  useEffect(() => {
+    const newlyExpanded: string[] = [];
+    orderGroups.forEach((group, index) => {
+      if (initializedOrderIdsRef.current.has(group.orderId)) return;
+      initializedOrderIdsRef.current.add(group.orderId);
+      if (index === 0 || group.items.some((item) => ['pending', 'cooking', 'serving'].includes(item.status))) {
+        newlyExpanded.push(group.orderId);
+      }
+    });
+    if (newlyExpanded.length > 0) {
+      setExpandedOrderIds((current) => new Set([...current, ...newlyExpanded]));
+    }
+  }, [orderGroups]);
 
   return (
     <div className="min-h-screen bg-[#F2ECE4] flex justify-center">
@@ -216,11 +261,11 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
             }`}
           >
             <span>📋 ประวัติ & สถานะ</span>
-            {orderedItems.length > 0 && (
+            {orderGroups.length > 0 && (
               <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
                 activeTab === 'history' ? 'bg-[#B97861] text-white' : 'bg-[#EAE5DF] text-[#2D1B17]'
               }`}>
-                {orderedItems.length}
+                {orderGroups.length}
               </span>
             )}
           </button>
@@ -331,7 +376,7 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
             <div className="space-y-3.5">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-black text-[#2D1B17] uppercase tracking-wider">
-                  คิวออเดอร์ของโต๊ะนี้ ({orderedItems.length} รายการ)
+                  รอบออเดอร์ของโต๊ะนี้ ({orderGroups.length} รอบ)
                 </span>
                 <button 
                   type="button"
@@ -347,74 +392,75 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
                 <div className="text-center py-16 text-xs text-[#7B726B] font-black animate-pulse">
                   กำลังโหลดข้อมูลสถานะออเดอร์…
                 </div>
-              ) : orderedItems.length > 0 ? (
+              ) : orderGroups.length > 0 ? (
                 <div className="space-y-2.5">
-                  {orderedItems.map((item, idx) => (
-                    <div 
-                      key={item.id} 
-                      className={`rounded-2xl border-2 p-3 flex justify-between items-center transition-all anim-up d-${(idx % 4) + 1} ${
-                        item.status === 'pending'
-                          ? 'border-[#7B726B] bg-white shadow-[3px_3px_0_#9CA3AF]'
-                          : item.status === 'cooking'
-                          ? 'border-[#D97706] bg-[#FFFBEB] shadow-[3px_3px_0_#D97706]'
-                          : item.status === 'serving'
-                          ? 'border-[#2563EB] bg-[#EFF6FF] shadow-[3px_3px_0_#2563EB] ring-2 ring-blue-300'
-                          : item.status === 'cancelled'
-                          ? 'border-red-300 bg-red-50 text-red-700 shadow-[2px_2px_0_#DC2626]'
-                          : 'border-emerald-600 bg-[#F0FDF4] shadow-[3px_3px_0_#059669]'
-                      }`}
-                    >
-                      <div className="flex-1 pr-2">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-black bg-[#2D1B17] text-white px-2 py-0.5 rounded-md">
-                            {item.qty}×
-                          </span>
-                          <h3 className="text-xs font-black text-[#2D1B17]">{item.name}</h3>
-                        </div>
-                        <p className="text-[10px] text-[#7B726B] font-semibold ml-7">สั่งเมื่อ {item.time}</p>
-                      </div>
-                      
-                      <div className="shrink-0 flex flex-col items-end gap-1">
-                        {item.status === 'pending' ? (
-                          <>
-                            <div className="inline-flex items-center gap-1 bg-[#F4EFEA] text-[#2D1B17] border border-[#7B726B] px-2.5 py-0.8 rounded-full text-[10px] font-black">
-                              <Clock size={11} strokeWidth={2.5} />
-                              <span>รอครัวยืนยัน</span>
+                  {orderGroups.map((group, groupIndex) => {
+                    const totalQuantity = group.items.reduce((sum, item) => sum + item.qty, 0);
+                    const servedQuantity = group.items.reduce((sum, item) => sum + item.servedQuantity, 0);
+                    const returnedQuantity = group.items.reduce((sum, item) => sum + item.returnedQuantity, 0);
+                    const status = orderGroupStatus(group.items);
+                    const canCancel = group.items.every((item) => item.status === 'pending') && new Date(group.confirmAt).getTime() > now;
+
+                    return (
+                      <details
+                        key={group.orderId}
+                        open={expandedOrderIds.has(group.orderId)}
+                        onToggle={(event) => {
+                          const isOpen = event.currentTarget.open;
+                          setExpandedOrderIds((current) => {
+                            const next = new Set(current);
+                            if (isOpen) next.add(group.orderId);
+                            else next.delete(group.orderId);
+                            return next;
+                          });
+                        }}
+                        className={`group overflow-hidden rounded-2xl border-2 bg-white shadow-[3px_3px_0_#2D1B17] anim-up d-${(groupIndex % 4) + 1}`}
+                      >
+                        <summary className="flex cursor-pointer list-none items-center gap-2.5 p-3 [&::-webkit-details-marker]:hidden">
+                          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 border-[#2D1B17] bg-[#FFF8EF] text-xs font-black">
+                            #{group.orderId}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-xs font-black text-[#2D1B17]">รอบออเดอร์ {group.time}</h3>
+                              <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black ${status.tone}`}>{status.label}</span>
                             </div>
-                            {new Date(item.confirmAt).getTime() > now && (
-                              <button
-                                type="button"
-                                onClick={() => handleCancelOrder(item.orderId)}
-                                className="text-[10px] text-red-600 font-bold underline hover:text-red-800"
-                              >
-                                ยกเลิกออเดอร์
-                              </button>
-                            )}
-                          </>
-                        ) : item.status === 'cooking' ? (
-                          <div className="inline-flex items-center gap-1 bg-amber-100 text-[#92400E] border-2 border-[#D97706] px-2.5 py-0.8 rounded-full text-[10px] font-black animate-pulse">
-                            <ChefHat size={12} strokeWidth={2.5} />
-                            <span>กำลังเตรียม</span>
+                            <p className="mt-1 text-[10px] font-semibold text-[#7B726B]">
+                              {group.items.length} เมนู · {totalQuantity} จาน · เสิร์ฟ {servedQuantity}{returnedQuantity > 0 ? ` · ยกเลิก ${returnedQuantity}` : ''}
+                            </p>
                           </div>
-                        ) : item.status === 'serving' ? (
-                          <div className="inline-flex items-center gap-1 bg-blue-100 text-[#1E40AF] border-2 border-[#2563EB] px-2.5 py-0.8 rounded-full text-[10px] font-black animate-bounce">
-                            <Utensils size={12} strokeWidth={2.5} />
-                            <span>🍽️ กำลังจัดเสิร์ฟ</span>
-                          </div>
-                        ) : item.status === 'cancelled' ? (
-                          <div className="inline-flex items-center gap-1 bg-red-100 text-[#991B1B] border border-red-300 px-2 py-0.8 rounded-full text-[10px] font-black">
-                            <XCircle size={11} strokeWidth={2.5} />
-                            <span>ยกเลิก/ของหมด</span>
-                          </div>
-                        ) : (
-                          <div className="inline-flex items-center gap-1 bg-emerald-100 text-[#166534] border-2 border-emerald-600 px-2.5 py-0.8 rounded-full text-[10px] font-black">
-                            <Check size={12} strokeWidth={3} />
-                            <span>เสิร์ฟแล้ว</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                          <ChevronDown size={18} className="shrink-0 text-[#7B726B] transition-transform group-open:rotate-180" />
+                        </summary>
+
+                        <div className="border-t-2 border-[#2D1B17]/10 bg-[#FFFDF9] px-3 py-1">
+                          {group.items.map((item) => (
+                            <div key={item.id} className="flex items-center justify-between gap-2 border-b border-[#EAE5DF] py-2.5 last:border-b-0">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="shrink-0 rounded-md bg-[#2D1B17] px-2 py-0.5 text-[10px] font-black text-white">{item.qty}×</span>
+                                <span className="truncate text-xs font-black text-[#2D1B17]">{item.name}</span>
+                              </div>
+                              {item.status === 'pending' ? (
+                                <span className="shrink-0 text-[10px] font-black text-[#7B726B]"><Clock size={10} className="mr-1 inline" />รอยืนยัน</span>
+                              ) : item.status === 'cooking' ? (
+                                <span className="shrink-0 text-[10px] font-black text-[#92400E]"><ChefHat size={10} className="mr-1 inline" />กำลังเตรียม</span>
+                              ) : item.status === 'serving' ? (
+                                <span className="shrink-0 text-[10px] font-black text-[#1E40AF]"><Utensils size={10} className="mr-1 inline" />เสิร์ฟ {item.servedQuantity}/{item.qty - item.returnedQuantity}</span>
+                              ) : item.status === 'cancelled' ? (
+                                <span className="shrink-0 text-[10px] font-black text-[#991B1B]"><XCircle size={10} className="mr-1 inline" />{item.servedQuantity > 0 ? `เสิร์ฟ ${item.servedQuantity} · ยกเลิก ${item.returnedQuantity}` : `ยกเลิก ${item.returnedQuantity || item.qty}`}</span>
+                              ) : (
+                                <span className="shrink-0 text-[10px] font-black text-[#166534]"><Check size={10} className="mr-1 inline" />เสิร์ฟแล้ว {item.servedQuantity}/{item.qty - item.returnedQuantity}</span>
+                              )}
+                            </div>
+                          ))}
+                          {canCancel && (
+                            <button type="button" onClick={() => handleCancelOrder(group.orderId)} className="mb-2 mt-1 text-[10px] font-black text-red-600 underline hover:text-red-800">
+                              ยกเลิกรอบออเดอร์นี้
+                            </button>
+                          )}
+                        </div>
+                      </details>
+                    );
+                  })}
                 </div>
               ) : (
                 <EmptyCard 
@@ -437,13 +483,13 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
             cartItems.length > 0 ? (
               <button 
                 type="button"
-                disabled={isSubmitting || isExpired}
+                disabled={isSubmitting || orderingClosed}
                 onClick={handleCheckout} 
                 className={`shabu-btn-primary w-full py-3 text-sm transition-all shadow-[3px_3px_0_#B97861] ${
-                  isExpired ? 'opacity-50 cursor-not-allowed' : ''
+                  orderingClosed ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
-                {isExpired ? 'หมดเวลาสั่งอาหาร' : (isSubmitting ? 'กำลังส่งออเดอร์…' : `ส่งออเดอร์เข้าครัว (${totalCartCount} จาน)`)}
+                {orderingClosed ? 'ปิดรับออเดอร์ใน 10 นาทีสุดท้าย' : (isSubmitting ? 'กำลังส่งออเดอร์…' : `ส่งออเดอร์เข้าครัว (${totalCartCount} จาน)`)}
               </button>
             ) : (
               <button 
