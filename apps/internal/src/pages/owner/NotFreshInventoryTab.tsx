@@ -187,7 +187,7 @@ export default function NotFreshInventoryTab() {
       </div>
 
       {selected && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) setSelectedId(null) }}>
+        <div role="presentation" className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) setSelectedId(null) }}>
           <section role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl border-2 border-[#302221] bg-white p-6 shadow-[7px_7px_0_#302221]">
             <h2 className="text-xl font-black text-[#302221]">ยืนยันแยกทิ้ง {selected.item}</h2>
             <p className="mt-2 text-sm text-[#7B726B]">ระบบจะตัดยอดคงเหลือทั้งหมด {formatInventoryQuantity(selected.qty)} และบันทึกผู้ดำเนินการ เวลา มูลค่าของเสีย และเหตุผล การดำเนินการนี้ย้อนกลับจากหน้านี้ไม่ได้</p>

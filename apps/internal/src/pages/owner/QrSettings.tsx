@@ -70,7 +70,7 @@ export default function QrSettings() {
             <PriceField label="ผู้สูงอายุ" value={prices.senior} onChange={(v) => updateField('senior', v)} />
             <PriceField label="ผู้พิการ (ปกติ = 0, ฟรี)" value={prices.disabled} onChange={(v) => updateField('disabled', v)} />
           </div>
-          <button disabled={saving} className="mt-6 rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-5 py-2.5 text-sm font-black text-white disabled:opacity-50">
+          <button type="submit" disabled={saving} className="mt-6 rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-5 py-2.5 text-sm font-black text-white disabled:opacity-50">
             {saving ? 'กำลังบันทึก…' : 'บันทึกราคา'}
           </button>
         </form>

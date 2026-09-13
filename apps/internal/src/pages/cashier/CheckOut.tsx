@@ -176,6 +176,7 @@ function CheckoutConfirmDialog({ bill, paymentMethod, cashReceived, paymentRefer
 
   return createPortal(
     <div
+      role="presentation"
       className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]"
       onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) onClose() }}
     >
