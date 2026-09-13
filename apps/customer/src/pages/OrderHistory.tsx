@@ -6,7 +6,6 @@ import BuffetTimer from '../components/BuffetTimer';
 import QrExpiryBanner from '../components/QrExpiryBanner';
 import { apiFetch } from '../lib/api';
 import { customerQuery, isOrderingClosed, requireQrCode, type CustomerSession } from '../lib/customer-session';
-import DevTimeTools from '../components/DevTimeTools';
 import { ArrowLeft, Check, ChefHat, ChevronDown, Clock, Minus, Plus, RefreshCw, Trash2, Utensils, UtensilsCrossed, XCircle } from 'lucide-react';
 
 type OrderedItem = {
@@ -513,7 +512,6 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
 
       </div>
       
-      {import.meta.env.DEV && <DevTimeTools onTriggerFetch={fetchOrders} />}
     </div>
   );
 }
