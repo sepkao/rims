@@ -45,14 +45,14 @@ export default function CheckInDialog({ table, sessionId, onClose, onChanged }: 
       .finally(() => setLoading(false))
   }, [sessionId])
 
-  const formTotal = [adultCount, childCount, seniorCount, disabledCount].reduce((sum, value) => sum + (parseInt(value, 10) || 0), 0)
+  const formTotal = [adultCount, childCount, seniorCount, disabledCount].reduce((sum, value) => sum + (Number.parseInt(value, 10) || 0), 0)
   const sessionTotal = sessionInfo ? Number(sessionInfo.adultCount || 0) + Number(sessionInfo.childCount || 0) + Number(sessionInfo.seniorCount || 0) + Number(sessionInfo.disabledCount || 0) : 0
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError('')
     const values = [adultCount, childCount, seniorCount, disabledCount]
-    if (values.some((value) => !/^\d+$/.test(value) || parseInt(value, 10) < 0)) return setError('กรุณากรอกจำนวนลูกค้าเป็นเลขจำนวนเต็มตั้งแต่ 0 ขึ้นไป')
+    if (values.some((value) => !/^\d+$/.test(value) || Number.parseInt(value, 10) < 0)) return setError('กรุณากรอกจำนวนลูกค้าเป็นเลขจำนวนเต็มตั้งแต่ 0 ขึ้นไป')
     if (formTotal <= 0) return setError('ต้องมีลูกค้าอย่างน้อย 1 คน')
     setSubmitting(true)
     try {
@@ -86,7 +86,7 @@ export default function CheckInDialog({ table, sessionId, onClose, onChanged }: 
     link.click()
   }
 
-  return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px] print:absolute print:bg-white" onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) onClose() }}>
+  return createPortal(<div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px] print:absolute print:bg-white" onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) onClose() }}>
     <section role="dialog" aria-modal="true" aria-labelledby="check-in-title" className="anim-up max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[28px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[9px_9px_0_#2D1B17] print:max-h-none print:border-none print:shadow-none">
       <header className="flex items-start justify-between gap-4 border-b-2 border-[#2D1B17] bg-[#DBC8B8] px-6 py-5 print:hidden">
         <div><span className="inline-flex items-center gap-1.5 rounded-full border-2 border-[#2D1B17] bg-white px-3 py-1 text-[10px] font-black shadow-[2px_2px_0_#2D1B17]"><Sparkles size={12} /> TABLE CHECK IN</span><h2 id="check-in-title" className="mt-3 text-3xl font-black">โต๊ะ {sessionInfo?.tableNumber || table.tableNumber}</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">{sessionInfo ? 'QR พร้อมสำหรับให้ลูกค้าสแกน' : 'ระบุจำนวนลูกค้าเพื่อเปิดโต๊ะ'}</p></div>
@@ -107,7 +107,7 @@ export default function CheckInDialog({ table, sessionId, onClose, onChanged }: 
             <div className="mt-5 flex items-center justify-between rounded-2xl border-2 border-[#2D1B17] bg-[#F1E2CF] px-5 py-4 shadow-[3px_3px_0_#2D1B17]"><span className="text-sm font-black">ลูกค้ารวมทั้งหมด</span><strong className="text-3xl font-black">{formTotal}</strong></div>
             {error && <p role="alert" className="mt-5 rounded-xl border-2 border-red-700 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</p>}
           </div>
-          <footer className="flex justify-end gap-3 border-t-2 border-[#2D1B17] bg-[#E7C7B8] px-6 py-5"><button type="button" disabled={submitting} onClick={onClose} className="rounded-xl border-2 border-[#2D1B17] bg-white px-5 py-2.5 text-sm font-black">ยกเลิก</button><button disabled={submitting || formTotal === 0} className="inline-flex items-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-5 py-2.5 text-sm font-black text-white shadow-[4px_4px_0_#B97861] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40"><QrCode size={16} />{submitting ? 'กำลังเปิดโต๊ะ…' : 'เปิดโต๊ะและสร้าง QR'}</button></footer>
+          <footer className="flex justify-end gap-3 border-t-2 border-[#2D1B17] bg-[#E7C7B8] px-6 py-5"><button type="button" disabled={submitting} onClick={onClose} className="rounded-xl border-2 border-[#2D1B17] bg-white px-5 py-2.5 text-sm font-black">ยกเลิก</button><button type="submit" disabled={submitting || formTotal === 0} className="inline-flex items-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-5 py-2.5 text-sm font-black text-white shadow-[4px_4px_0_#B97861] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40"><QrCode size={16} />{submitting ? 'กำลังเปิดโต๊ะ…' : 'เปิดโต๊ะและสร้าง QR'}</button></footer>
         </form>}
     </section>
   </div>, document.body)

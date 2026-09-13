@@ -23,6 +23,9 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (!path.startsWith('/') || path.startsWith('//') || path.includes('://')) {
+    throw new Error('apiFetch: path must be a same-origin relative path')
+  }
   const headers = new Headers(init.headers)
   if (!(init.body instanceof FormData) && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const response = await fetch(`${API_BASE_URL}${path}`, {

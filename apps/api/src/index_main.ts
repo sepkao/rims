@@ -1,4 +1,5 @@
 import { serve } from '@hono/node-server'
+import { randomBytes } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { Hono, type Context, type Next } from 'hono'
 import { cors } from 'hono/cors'
@@ -226,7 +227,7 @@ app.post('/cashier/table-sessions', async (c) => {
     const byKey = Object.fromEntries(settingsResult.rows.map((row) => [row.key, row.value]))
     const qrDurationMinutes = Number(byKey.qr_duration_minutes ?? 120)
 
-    const qrCode = `${diningTableId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const qrCode = `${diningTableId}-${Date.now()}-${randomBytes(6).toString('hex')}`
 
     const result = await pool.query(
       `INSERT INTO table_sessions (

@@ -299,7 +299,15 @@ export default function KitchenStockPage({ area, canTransfer = true }: { area: '
                                     {group.lots.map((lot, lotIdx) => (
                                       <div
                                         key={lot.id}
+                                        role="button"
+                                        tabIndex={0}
                                         onClick={(e) => { e.stopPropagation(); setSelectedBatch(lot) }}
+                                        onKeyDown={(e) => {
+                                          if (e.key !== 'Enter' && e.key !== ' ') return
+                                          e.preventDefault()
+                                          e.stopPropagation()
+                                          setSelectedBatch(lot)
+                                        }}
                                         className="flex flex-wrap items-center justify-between gap-2 py-2 px-2 transition hover:bg-[#FFF8EF] rounded-lg cursor-pointer text-xs"
                                       >
                                         <div className="flex items-center gap-3">
@@ -401,7 +409,7 @@ function InventoryDetailsDialog({ batch, onClose, onTransfer }: { batch: Invento
     : '—'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D1B17]/70 px-4 py-6" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D1B17]/70 px-4 py-6" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <section role="dialog" aria-modal="true" aria-labelledby="inventory-detail-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]" onMouseDown={(event) => event.stopPropagation()}>
         <header className="flex items-start justify-between gap-4 border-b-2 border-[#2D1B17] bg-[#DBC8B8] px-6 py-5">
           <div><span className="text-[10px] font-black uppercase tracking-[.16em] text-[#8B5746]">Inventory detail</span><h2 id="inventory-detail-title" className="mt-1 text-2xl font-black text-[#2D1B17]">{batch.item}</h2><p className="mt-1 font-mono text-xs font-bold text-[#75584E]">ล็อต #{batch.batch}</p></div>

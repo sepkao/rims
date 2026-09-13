@@ -239,6 +239,7 @@ function Editor({
 
   return (
     <div
+      role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D1B17]/70 px-4 py-6"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()

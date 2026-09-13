@@ -13,7 +13,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run build
       - run: npm run lint --workspace internal
@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: docker build -t rims-test-db -f apps/api/tests/Dockerfile.postgres .
       - run: docker run -d --name rims-test-db -p 5432:5432 -e POSTGRES_PASSWORD=test -e POSTGRES_DB=rims_test rims-test-db
       - name: Wait for PostgreSQL

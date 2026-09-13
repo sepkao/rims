@@ -53,8 +53,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       const existingItemIndex = prev.findIndex(
         (i) =>
           i.menuItem.id === item.menuItem.id &&
-          JSON.stringify([...i.removedIngredients].sort()) ===
-            JSON.stringify([...item.removedIngredients].sort())
+          JSON.stringify([...i.removedIngredients].sort((a, b) => a.localeCompare(b))) ===
+            JSON.stringify([...item.removedIngredients].sort((a, b) => a.localeCompare(b)))
       );
 
       if (existingItemIndex !== -1) {

@@ -651,7 +651,7 @@ export default function StaffServingQueuePage() {
       )}
     </div>
       {returnTarget && createPortal(
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !processingId) setReturnTarget(null) }}>
+        <div role="presentation" className="fixed inset-0 z-[120] flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !processingId) setReturnTarget(null) }}>
           <section role="dialog" aria-modal="true" aria-labelledby="return-order-title" className="w-full max-w-md overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]">
             <header className="flex items-start justify-between border-b-2 border-[#2D1B17] bg-[#E7C7B8] px-5 py-4">
               <div><span className="inline-flex items-center gap-1 rounded-full border-2 border-[#2D1B17] bg-white px-2.5 py-1 text-[10px] font-black"><TriangleAlert size={12} /> RETURN ORDER</span><h2 id="return-order-title" className="mt-3 text-xl font-black">คืนออเดอร์ #{returnTarget.id}</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">โต๊ะ {returnTarget.tableNumber} · คืนเฉพาะจำนวนที่ยังไม่ถูกเสิร์ฟ</p></div>
@@ -663,7 +663,7 @@ export default function StaffServingQueuePage() {
         </div>, document.body,
       )}
       {handoffTarget && createPortal(
-        <div className="fixed inset-0 z-[121] flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !processingId) setHandoffTarget(null) }}>
+        <div role="presentation" className="fixed inset-0 z-[121] flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !processingId) setHandoffTarget(null) }}>
           <section role="dialog" aria-modal="true" aria-labelledby="handoff-order-title" className="w-full max-w-md overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]">
             <header className="flex items-start justify-between border-b-2 border-[#2D1B17] bg-[#DBC8B8] px-5 py-4">
               <div><span className="inline-flex items-center gap-1 rounded-full border-2 border-[#2D1B17] bg-white px-2.5 py-1 text-[10px] font-black"><UserRoundCheck size={12} /> TAKE OVER</span><h2 id="handoff-order-title" className="mt-3 text-xl font-black">รับช่วงต่อออเดอร์ #{handoffTarget.id}</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">คุณจะเป็นผู้ดูแลหลักแทน {handoffTarget.acknowledgedByName ?? 'พนักงานคนเดิม'} และการเปลี่ยนผู้ดูแลจะถูกบันทึก</p></div>
@@ -674,7 +674,7 @@ export default function StaffServingQueuePage() {
         </div>, document.body,
       )}
       {serveAllTarget && createPortal(
-        <div className="fixed inset-0 z-[122] flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !processingId) setServeAllTarget(null) }}>
+        <div role="presentation" className="fixed inset-0 z-[122] flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !processingId) setServeAllTarget(null) }}>
           <section role="dialog" aria-modal="true" aria-labelledby="serve-all-title" className="w-full max-w-md overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]">
             <header className="flex items-start justify-between border-b-2 border-[#2D1B17] bg-[#E7C7B8] px-5 py-4">
               <div><span className="inline-flex items-center gap-1 rounded-full border-2 border-[#2D1B17] bg-white px-2.5 py-1 text-[10px] font-black"><Check size={12} /> SERVE REMAINING</span><h2 id="serve-all-title" className="mt-3 text-xl font-black">ยืนยันเสิร์ฟส่วนที่เหลือ</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">โต๊ะ {serveAllTarget.tableNumber} · อีก {serveAllTarget.items.reduce((sum, item) => sum + item.remainingQuantity, 0)} จาน{serveAllTarget.acknowledgedById !== user?.id ? ` · เสิร์ฟแทนคุณ ${serveAllTarget.acknowledgedByName ?? 'พนักงาน'}` : ''}</p></div>

@@ -76,7 +76,7 @@ export default function RegisterPage() {
               ยืนยัน Password
               <input name="confirmPassword" type="password" minLength={8} required autoComplete="new-password" className="mt-2 h-12 w-full rounded-xl border-2 border-[#302221] bg-[#fffdf9] px-4 text-sm outline-none focus:shadow-[3px_3px_0_#d9b99a]" />
             </label>
-            <button disabled={submitting} className="mt-7 h-12 w-full rounded-xl border-2 border-[#302221] bg-[#694b49] font-black text-white shadow-[4px_4px_0_#302221] transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60">
+            <button type="submit" disabled={submitting} className="mt-7 h-12 w-full rounded-xl border-2 border-[#302221] bg-[#694b49] font-black text-white shadow-[4px_4px_0_#302221] transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60">
               {submitting ? 'กำลังสร้างบัญชี…' : 'สร้างบัญชี Owner →'}
             </button>
           </form>
