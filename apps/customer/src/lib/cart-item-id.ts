@@ -4,6 +4,8 @@
  * use the strongest available browser primitive and retain a compatibility
  * fallback for those devices.
  */
+let cartItemIdFallbackCounter = 0
+
 export function createCartItemId() {
   const webCrypto = globalThis.crypto
   if (typeof webCrypto?.randomUUID === 'function') return webCrypto.randomUUID()
@@ -14,5 +16,6 @@ export function createCartItemId() {
     return `cart-${Array.from(bytes, (value) => value.toString(36)).join('-')}`
   }
 
-  return `cart-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  cartItemIdFallbackCounter += 1
+  return `cart-${Date.now().toString(36)}-${cartItemIdFallbackCounter.toString(36)}`
 }

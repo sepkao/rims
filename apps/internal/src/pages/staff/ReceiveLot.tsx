@@ -29,7 +29,7 @@ function nextDate(value: string) {
 
 function createDraftLine(): DraftLine {
   return {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    id: crypto.randomUUID(),
     ingredientId: '',
     item: '',
     category: 'Meat',

@@ -30,9 +30,8 @@ body {
   color: #2D1B17; 
   font-family: 'Anuphan', ui-sans-serif, system-ui, sans-serif !important; 
 }
-button, input, select, textarea { 
-  font-family: inherit; 
-  font: inherit; 
+button, input, select, textarea {
+  font: inherit;
 }
 button { cursor: pointer; }
 
