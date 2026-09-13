@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL, apiFetch, ApiError } from '../lib/api';
 import CallStaffButton from '../components/CallStaffButton';
-import DevTimeTools from '../components/DevTimeTools';
 import BuffetTimer from '../components/BuffetTimer';
 import QrExpiryBanner from '../components/QrExpiryBanner';
 import { clearCustomerSession, customerQuery, isOrderingClosed, type CustomerSession } from '../lib/customer-session';
@@ -299,8 +298,6 @@ export default function Menu() {
         </div>
 
         <CallStaffButton />
-        {import.meta.env.DEV && <DevTimeTools onTriggerFetch={fetchItems} />}
-
         {/* ── Floating Bottom Action Bar (Neo-Brutalist) ─────────────── */}
         <div className="absolute bottom-0 left-0 w-full bg-[#FFF8EF] border-t-2 border-[#2D1B17] p-3 shadow-[0_-6px_20px_rgba(45,27,23,0.12)] z-30 flex gap-2.5">
           {/* Order Status Button */}
