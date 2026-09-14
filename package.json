@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "concurrently --kill-others-on-fail --names api,internal,customer --prefix-colors blue,green,yellow \"npm run dev --workspace api\" \"npm run dev --workspace internal\" \"npm run dev --workspace customer\"",
     "test": "npm test --workspaces --if-present",
+    "test:e2e": "playwright test",
     "build": "npm run build --workspaces --if-present"
   },
   "keywords": [],
@@ -20,10 +21,14 @@
     "bcryptjs": "^3.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/bcryptjs": "^2.4.6",
-    "concurrently": "^10.0.5"
+    "@types/pg": "^8.23.1",
+    "concurrently": "^10.0.5",
+    "pg": "^8.23.0"
   },
   "optionalDependencies": {
+    "@esbuild/linux-x64": "0.28.1",
     "@oxlint/binding-linux-x64-gnu": "^1.74.0",
     "@rolldown/binding-linux-x64-gnu": "^1.1.5",
     "@tailwindcss/oxide-linux-x64-gnu": "^4.3.3",

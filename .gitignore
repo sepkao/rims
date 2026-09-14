@@ -21,6 +21,11 @@ apps/api/uploads/
 # Supabase CLI local cache (contains live DB connection string)
 supabase/.temp/
 
+# Playwright E2E artifacts
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
 # Logs
 logs/
 *.log
