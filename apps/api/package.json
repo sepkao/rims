@@ -11,7 +11,7 @@
     "db:migrate:check": "node scripts/migrate.mjs --check",
     "db:migrate:bootstrap": "node scripts/migrate.mjs --bootstrap",
     "test": "tsc && node --test dist/inventory-transfer.test.js dist/inventory-intake.test.js dist/cashier-payment.test.js",
-    "test:integration": "tsc && node scripts/require-test-db.mjs && node --test --test-concurrency=1 scripts/user-management.test.mjs scripts/auth-rbac.test.mjs scripts/menu-bom.test.mjs scripts/pricing-qr.test.mjs scripts/intake-lots.test.mjs scripts/transfer-fifo.test.mjs scripts/session-locking.test.mjs scripts/order-flow.test.mjs",
+    "test:integration": "tsc && node scripts/require-test-db.mjs && node --test --test-concurrency=1 scripts/user-management.test.mjs scripts/auth-rbac.test.mjs scripts/menu-bom.test.mjs scripts/pricing-qr.test.mjs scripts/intake-lots.test.mjs scripts/transfer-fifo.test.mjs scripts/available-servings.test.mjs scripts/qr-lifecycle.test.mjs scripts/session-locking.test.mjs scripts/order-flow.test.mjs",
     "start": "node dist/index.js"
   },
   "dependencies": {
