@@ -1,0 +1,38 @@
+stages:
+  - test
+  - sonarqube
+
+.node_setup:
+  image: node:22
+  before_script:
+    - npm ci --ignore-scripts
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+
+verify:
+  extends: .node_setup
+  stage: test
+  script:
+    - npm test
+    - npm run build
+    - npm run lint --workspace internal
+    - npm run lint --workspace customer
+
+sonarqube-check:
+  stage: sonarqube
+  image:
+    name: sonarsource/sonar-scanner-cli:latest
+    entrypoint: [""]
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+    GIT_DEPTH: "0"
+  cache:
+    key: sonar-cache
+    paths:
+      - .sonar/cache
+  script:
+    - sonar-scanner
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
