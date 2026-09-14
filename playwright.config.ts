@@ -19,11 +19,15 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'npm run dev --workspace api',
+      // Runs the compiled server (like every other test in this repo), not
+      // `tsx watch`: tsx pulls in plain esbuild, whose optional platform
+      // binary a Windows-generated lockfile won't resolve on a Linux CI
+      // runner - this is the only path in the repo that would exercise it.
+      command: 'npm run build --workspace api && npm run start --workspace api',
       port: 3000,
       env: { DATABASE_URL, SESSION_SECRET, PORT: '3000' },
       reuseExistingServer: !process.env.CI,
-      timeout: 30_000,
+      timeout: 60_000,
     },
     {
       command: 'npm run dev --workspace customer',

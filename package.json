@@ -28,6 +28,7 @@
     "pg": "^8.23.0"
   },
   "optionalDependencies": {
+    "@esbuild/linux-x64": "0.28.1",
     "@oxlint/binding-linux-x64-gnu": "^1.74.0",
     "@rolldown/binding-linux-x64-gnu": "^1.1.5",
     "@tailwindcss/oxide-linux-x64-gnu": "^4.3.3",
