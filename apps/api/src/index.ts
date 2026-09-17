@@ -3196,6 +3196,12 @@ serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 3000) }, (info) => {
   console.log(`Server is running on http://localhost:${info.port}`)
 })
 
+// Explicit handlers so the process unwinds normally on a signal (default
+// Node behavior on SIGTERM/SIGINT skips the exit sequence entirely, which
+// among other things drops V8 coverage collected via NODE_V8_COVERAGE).
+process.on('SIGTERM', () => process.exit(0))
+process.on('SIGINT', () => process.exit(0))
+
 // === DEVELOPMENT BACKGROUND WORKER (PG_CRON FALLBACK) ===
 // Production uses supabase/migrations/0003_cashier_expiry_schedule.sql.
 async function runDevelopmentWorker() {
