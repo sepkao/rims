@@ -5,6 +5,7 @@ import type { IngredientPreset } from '../../types/ingredient'
 
 type Draft = {
   name: string
+  category: IngredientPreset['category']
   portionGrams: string
   thresholdPlates: string
   reorderThresholdKg: string
@@ -46,6 +47,7 @@ export default function IngredientSettings() {
     setSelected(ingredient)
     setDraft({
       name: ingredient.name,
+      category: ingredient.category,
       portionGrams: String(Math.round(ingredient.defaultPortionSizeKg * 1000)),
       thresholdPlates: String(ingredient.thawPrepThresholdPlates ?? 0),
       reorderThresholdKg: ingredient.reorderThresholdKg == null ? '' : String(ingredient.reorderThresholdKg),
@@ -72,7 +74,7 @@ export default function IngredientSettings() {
 
     // reorder_threshold_kg is meat-only (Freezer, kg) — blank means "no alert set".
     let reorderThresholdKg: number | null = null
-    if (selected.category === 'meat' && draft.reorderThresholdKg.trim() !== '') {
+    if (draft.category === 'meat' && draft.reorderThresholdKg.trim() !== '') {
       reorderThresholdKg = Number(draft.reorderThresholdKg)
       if (!Number.isFinite(reorderThresholdKg) || reorderThresholdKg < 0 || reorderThresholdKg > 99999.9 || Math.abs(reorderThresholdKg * 10 - Math.round(reorderThresholdKg * 10)) > 1e-7) {
         return setError('เกณฑ์แจ้งเตือนสต็อกต่ำต้องเป็นตัวเลข กก. ทศนิยมไม่เกิน 1 ตำแหน่ง หรือเว้นว่างไว้')
@@ -88,6 +90,7 @@ export default function IngredientSettings() {
         method: 'PUT',
         body: JSON.stringify({
           name,
+          category: draft.category,
           defaultPortionSizeKg: portionGrams / 1000,
           thawPrepThresholdPlates: threshold,
           reorderThresholdKg,
@@ -255,7 +258,7 @@ function Editor({
             <p className="text-[10px] font-black uppercase tracking-[.14em]">Ingredient #{ingredient.id}</p>
             <h2 className="mt-1 text-2xl font-black">แก้ไขวัตถุดิบ</h2>
             <p className="mt-1 text-xs font-bold text-[#75584E]">
-              ประเภท: {ingredient.category === 'meat' ? 'เนื้อสัตว์' : 'ผัก'} · ไม่อนุญาตให้เปลี่ยนหลังสร้าง
+              แก้ชื่อ หมวดหมู่ เกณฑ์แจ้งเตือน และสถานะการใช้งาน
             </p>
           </div>
           <button
@@ -277,6 +280,26 @@ function Editor({
               className={inputClass}
               maxLength={120}
             />
+          </Field>
+
+          <Field label="หมวดหมู่วัตถุดิบ" wide>
+            <select
+              value={draft.category}
+              onChange={(event) => onDraft({
+                ...draft,
+                category: event.target.value as IngredientPreset['category'],
+                reorderThresholdKg: event.target.value === 'meat' ? draft.reorderThresholdKg : '',
+              })}
+              className={inputClass}
+            >
+              <option value="meat">เนื้อสัตว์</option>
+              <option value="vegetable">ผัก</option>
+            </select>
+            {draft.category !== ingredient.category && (
+              <p className="mt-1.5 text-[11px] font-bold text-amber-800">
+                การเปลี่ยนหมวดหมู่มีผลกับขั้นตอนรับของ แปรรูป และการแจ้งเตือนครั้งถัดไป
+              </p>
+            )}
           </Field>
 
           <Field label="น้ำหนักต่อถาด (กรัม)">
@@ -303,7 +326,7 @@ function Editor({
             />
           </Field>
 
-          {ingredient.category === 'meat' && (
+          {draft.category === 'meat' && (
             <Field label="เกณฑ์แจ้งเตือนสต็อกต่ำใน Freezer (กก.)" wide>
               <input
                 type="number"
@@ -349,6 +372,7 @@ function Editor({
             onClick={() =>
               onDraft({
                 name: ingredient.name,
+                category: ingredient.category,
                 portionGrams: String(Math.round(ingredient.defaultPortionSizeKg * 1000)),
                 thresholdPlates: String(ingredient.thawPrepThresholdPlates ?? 0),
                 reorderThresholdKg: ingredient.reorderThresholdKg == null ? '' : String(ingredient.reorderThresholdKg),

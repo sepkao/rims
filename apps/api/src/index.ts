@@ -2007,15 +2007,18 @@ app.put('/owner/ingredients/:id', async (c) => {
 
     const body = await c.req.json<{
       name?: string
+      category?: 'meat' | 'vegetable'
       defaultPortionSizeKg?: number
       thawPrepThresholdPlates?: number
       reorderThresholdKg?: number | null
       isActive?: boolean
     }>()
     const name = body.name?.trim().replace(/\s+/g, ' ')
+    const category = body.category
     const portionSize = Number(body.defaultPortionSizeKg)
     const threshold = Number(body.thawPrepThresholdPlates)
     if (!name || name.length > 120) return c.json({ error: 'Ingredient name is required and must not exceed 120 characters' }, 400)
+    if (category !== 'meat' && category !== 'vegetable') return c.json({ error: 'Ingredient category must be meat or vegetable' }, 400)
     if (!Number.isFinite(portionSize) || portionSize < 0.001 || portionSize > 9.999) return c.json({ error: 'Portion size must be between 0.001 and 9.999 kg' }, 400)
     if (!Number.isSafeInteger(threshold) || threshold < 0 || threshold > 100000) return c.json({ error: 'Prep threshold must be a whole number between 0 and 100,000 plates' }, 400)
     if (typeof body.isActive !== 'boolean') return c.json({ error: 'Active status is required' }, 400)
@@ -2033,7 +2036,7 @@ app.put('/owner/ingredients/:id', async (c) => {
       [c.req.param('id')],
     )
     if (!current.rows[0]) return c.json({ error: 'Ingredient not found' }, 404)
-    if (reorderThresholdKg !== null && current.rows[0].category !== 'meat') {
+    if (reorderThresholdKg !== null && category !== 'meat') {
       return c.json({ error: 'Reorder threshold applies to meat (Freezer) ingredients only' }, 400)
     }
 
@@ -2059,17 +2062,18 @@ app.put('/owner/ingredients/:id', async (c) => {
     const result = await pool.query(
       `UPDATE ingredients
        SET name = $1,
-           default_portion_size_kg = $2,
-           thaw_prep_threshold_plates = $3,
-           reorder_threshold_kg = $4,
-           is_active = $5
-       WHERE id = $6
+           category = $2,
+           default_portion_size_kg = $3,
+           thaw_prep_threshold_plates = $4,
+           reorder_threshold_kg = $5,
+           is_active = $6
+       WHERE id = $7
        RETURNING id::text, name, category,
                  default_portion_size_kg::float8 AS "defaultPortionSizeKg",
                  thaw_prep_threshold_plates AS "thawPrepThresholdPlates",
                  reorder_threshold_kg::float8 AS "reorderThresholdKg",
                  is_active AS "isActive"`,
-      [name, portionSize, threshold, reorderThresholdKg, body.isActive, c.req.param('id')],
+      [name, category, portionSize, threshold, reorderThresholdKg, body.isActive, c.req.param('id')],
     )
     await pool.query(
       `INSERT INTO system_logs (actor_id, action, details)
@@ -2078,6 +2082,8 @@ app.put('/owner/ingredients/:id', async (c) => {
         ingredientId: c.req.param('id'),
         previousName: current.rows[0].name,
         name,
+        previousCategory: current.rows[0].category,
+        category,
         defaultPortionSizeKg: portionSize,
         thawPrepThresholdPlates: threshold,
         reorderThresholdKg,
