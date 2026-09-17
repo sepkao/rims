@@ -189,15 +189,9 @@ export default function AddLotPage() {
 
   return (
     <div className="max-w-6xl mx-auto pb-12">
-      <header className="anim-down d-1 relative mb-8 overflow-hidden rounded-[32px] border-2 border-[#2D1B17] bg-gradient-to-br from-[#D9B99A] to-[#E8D8CA] px-8 py-10 shadow-[8px_8px_0_#2D1B17] transition-all hover:shadow-[12px_12px_0_#2D1B17] group">
+      <header className="system-hero anim-down d-1 relative mb-8 overflow-hidden rounded-[32px] border-2 border-[#2D1B17] bg-gradient-to-br from-[#D9B99A] to-[#E8D8CA] px-8 py-10 shadow-[8px_8px_0_#2D1B17] transition-all hover:shadow-[12px_12px_0_#2D1B17] group">
         <div className="absolute -right-10 -top-10 h-64 w-64 rounded-full bg-white/20 blur-3xl transition-transform duration-700 group-hover:scale-150 group-hover:bg-white/30" />
-        <span className="relative z-10 inline-flex origin-bottom-left rotate-[-3deg] animate-[bounce_2s_infinite] items-center gap-1.5 rounded-full border-2 border-[#2D1B17] bg-white px-4 py-1.5 text-[11px] font-black tracking-wider text-[#2D1B17] shadow-[3px_3px_0_#2D1B17]">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#B97861] opacity-75"></span>
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-[#B97861]"></span>
-          </span>
-          DATABASE INTAKE ✦
-        </span>
+        <span className="relative z-10 inline-flex origin-bottom-left rotate-[-3deg] animate-[bounce_2s_infinite] items-center gap-1.5 rounded-full border-2 border-[#2D1B17] bg-white px-4 py-1.5 text-[11px] font-black tracking-wider text-[#2D1B17] shadow-[3px_3px_0_#2D1B17]">DATABASE INTAKE ✦</span>
         <h1 className="relative z-10 mt-6 text-5xl font-black tracking-tight text-[#2D1B17] drop-shadow-sm">รับของเข้าคลัง</h1>
         <p className="relative z-10 mt-3 max-w-2xl text-base font-bold text-[#73552E] opacity-90">หยิบวัตถุดิบหลายรายการใส่ LOT เดียว แล้วกดยืนยันเพื่อเพิ่มสต็อกพร้อมกัน</p>
       </header>
@@ -338,7 +332,6 @@ export default function AddLotPage() {
                       <p className="truncate text-base font-black text-white">{line.item}</p>
                       <div className="mt-1.5 flex items-center gap-2">
                         <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-bold text-[#D9B99A]">{categoryLabel[line.category]}</span>
-                        <span className="text-[10px] font-bold text-[#D9B99A]/60">•</span>
                         <span className="text-[10px] font-bold text-[#D9B99A]">{line.category === 'Meat' ? 'Freezer' : 'ตู้พักละลาย'}</span>
                       </div>
                     </div>

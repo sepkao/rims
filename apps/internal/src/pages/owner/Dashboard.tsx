@@ -94,7 +94,7 @@ export default function DashboardPage() {
   return (
     <div className="w-full max-w-[1240px]">
       {/* ─── Header Hero Banner ─── */}
-      <header className="anim-down d-1 group relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#E8D8CA] px-7 py-7 shadow-[8px_8px_0_#2D1B17] transition-all duration-300 hover:shadow-[11px_11px_0_#2D1B17]">
+      <header className="system-hero anim-down d-1 group relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#E8D8CA] px-7 py-7 shadow-[8px_8px_0_#2D1B17] transition-all duration-300 hover:shadow-[11px_11px_0_#2D1B17]">
         <div className="absolute -right-8 -top-12 h-48 w-48 rounded-full border-[24px] border-white/40 transition-transform duration-700 ease-out group-hover:scale-110" />
         <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -122,7 +122,7 @@ export default function DashboardPage() {
             </button>
             <Link
               to="/owner/history"
-              className="inline-flex items-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-5 py-2.5 text-xs font-black text-white shadow-[4px_4px_0_#B97861] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[#3E2621] hover:shadow-[6px_6px_0_#B97861] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_#B97861]"
+              className="inline-flex items-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-[#93AF54] px-5 py-2.5 text-xs font-black text-white shadow-[4px_4px_0_#2D1B17] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[#86A149] hover:shadow-[6px_6px_0_#2D1B17] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_#2D1B17]"
             >
               <History size={14} />
               ดูทุกล็อตสินค้า

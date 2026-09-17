@@ -128,7 +128,7 @@ export default function TableList() {
 
   return (
     <div className="w-full max-w-[1240px] pb-20 text-[#2D1B17]">
-      <header className="anim-down d-1 relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#DBC8B8] px-7 py-7 shadow-[8px_8px_0_#2D1B17]">
+      <header className="system-hero anim-down d-1 relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#DBC8B8] px-7 py-7 shadow-[8px_8px_0_#2D1B17]">
         <span className="absolute -right-8 -top-12 h-36 w-36 rounded-full border-2 border-[#2D1B17]/20 bg-[#E7C7B8]" />
         <div className="relative flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
           <div>

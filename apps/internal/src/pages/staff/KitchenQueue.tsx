@@ -129,7 +129,7 @@ export default function StaffKitchenQueuePage() {
               <div className="p-4">
                 <div className="grid grid-cols-3 gap-2 text-center"><Metric label="คงเหลือ" value={`${alert.prepPlates.toLocaleString('th-TH')} ถาด`} /><Metric label="ขั้นต่ำ" value={`${threshold.toLocaleString('th-TH')} ถาด`} /><Metric label="ควรเติมอย่างน้อย" value={`${alert.shortage.toLocaleString('th-TH')} ถาด`} accent /></div>
                 <p className={`mt-3 rounded-lg px-3 py-2 text-[11px] font-bold ${sourceEnough ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}>Freezer ทำได้ประมาณ {alert.freezerPlates.toLocaleString('th-TH')} ถาด ({alert.freezerKg.toFixed(1)} kg){!sourceEnough && ' — สต็อกต้นทางไม่พอ'}</p>
-                <button type="button" onClick={() => navigate('/staff/transfer-to-thaw-prep')} className="mt-4 w-full rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-4 py-2.5 text-xs font-black text-white transition hover:-translate-y-0.5">เติมจาก Freezer →</button>
+                <button type="button" onClick={() => navigate('/staff/transfer-to-thaw-prep')} className="mt-4 w-full rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-4 py-2.5 text-xs font-black text-white transition hover:-translate-y-0.5">เติมจาก Freezer</button>
               </div>
             </article>
           })}

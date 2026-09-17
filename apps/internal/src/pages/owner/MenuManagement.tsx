@@ -24,7 +24,7 @@ export default function MenuManagement() {
 
   return (
     <div className="w-full max-w-[1240px]">
-      <header className="relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#B97861] px-7 py-8 text-[#2D1B17] shadow-[8px_8px_0_#2D1B17] sm:px-9">
+      <header className="system-hero relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#B97861] px-7 py-8 text-[#2D1B17] shadow-[8px_8px_0_#2D1B17] sm:px-9">
         <div className="absolute -right-12 -top-16 h-56 w-56 rounded-full border-[28px] border-[#FFF8EF]/30" />
         <div className="relative max-w-3xl">
           <span className="inline-flex rotate-[-2deg] rounded-full border-2 border-[#2D1B17] bg-[#FFF8EF] px-3 py-1 text-[10px] font-black uppercase tracking-[.16em] shadow-[2px_2px_0_#2D1B17]">Owner settings ✦</span>

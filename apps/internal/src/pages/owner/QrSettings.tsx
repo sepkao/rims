@@ -49,7 +49,7 @@ export default function QrSettings() {
 
   return (
     <div className="w-full max-w-[720px]">
-      <header className="relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#B97861] px-7 py-8 text-[#2D1B17] shadow-[8px_8px_0_#2D1B17] sm:px-9">
+      <header className="system-hero relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#B97861] px-7 py-8 text-[#2D1B17] shadow-[8px_8px_0_#2D1B17] sm:px-9">
         <h1 className="text-4xl font-black tracking-[-.035em]">ราคาบุฟเฟ่ต์</h1>
         <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-[#563128]">
           ร้านนี้เป็นบุฟเฟ่ต์ ราคาคิดต่อหัวตามประเภทลูกค้า ไม่มีราคาต่อจาน — ราคาที่ตั้งไว้จะถูก snapshot ใส่โต๊ะทุกครั้งที่เช็คอิน

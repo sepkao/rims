@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ApiError, apiFetch } from '../../lib/api'
 import { useAuth } from '../../contexts/AuthContext'
-import { Bell, BellOff, Check, CheckCheck, Clock, Eye, LayoutGrid, Plus, RotateCcw, Search, TriangleAlert, UserRoundCheck, UtensilsCrossed, X } from 'lucide-react'
+import { Bell, BellOff, Check, CheckCheck, Clock, Eye, LayoutGrid, Plus, RotateCcw, Search, UserRoundCheck, UtensilsCrossed, X } from 'lucide-react'
 
 type KitchenOrderItem = {
   id: string
@@ -426,12 +426,12 @@ export default function StaffServingQueuePage() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-black text-[#302221]">Serving Queue</h1>
+            <h1 className="text-xl sm:text-2xl font-black text-[#302221]">Serving Queue</h1>
+            <p className="text-xs text-[#7B726B]">รับออเดอร์ลูกค้า จัดคิว และยืนยันเมื่อเสิร์ฟแล้ว</p>
               <span className="rounded-full bg-[#EAE5DF] px-2 py-0.5 text-[10px] font-bold text-[#7B726B]">
                 Live 3s
               </span>
             </div>
-            <p className="text-xs text-[#7B726B]">รับออเดอร์ลูกค้า จัดคิว และยืนยันเมื่อเสิร์ฟแล้ว</p>
           </div>
         </div>
 
@@ -654,7 +654,7 @@ export default function StaffServingQueuePage() {
         <div role="presentation" className="fixed inset-0 z-[120] flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !processingId) setReturnTarget(null) }}>
           <section role="dialog" aria-modal="true" aria-labelledby="return-order-title" className="w-full max-w-md overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]">
             <header className="flex items-start justify-between border-b-2 border-[#2D1B17] bg-[#E7C7B8] px-5 py-4">
-              <div><span className="inline-flex items-center gap-1 rounded-full border-2 border-[#2D1B17] bg-white px-2.5 py-1 text-[10px] font-black"><TriangleAlert size={12} /> RETURN ORDER</span><h2 id="return-order-title" className="mt-3 text-xl font-black">คืนออเดอร์ #{returnTarget.id}</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">โต๊ะ {returnTarget.tableNumber} · คืนเฉพาะจำนวนที่ยังไม่ถูกเสิร์ฟ</p></div>
+              <div><h2 id="return-order-title" className="text-xl font-black">คืนออเดอร์ #{returnTarget.id}</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">โต๊ะ {returnTarget.tableNumber} | เฉพาะรายการที่ยังไม่เสิร์ฟ</p></div>
               <button type="button" aria-label="ปิด" disabled={!!processingId} onClick={() => setReturnTarget(null)} className="rounded-full border-2 border-[#2D1B17] bg-white p-2"><X size={16} /></button>
             </header>
             <div className="p-5"><label className="text-xs font-black text-[#573D35]">เหตุผลการคืนออเดอร์ (จำเป็น)<textarea autoFocus maxLength={300} value={returnReason} onChange={(event) => setReturnReason(event.target.value)} rows={4} className="mt-2 w-full resize-none rounded-xl border-2 border-[#2D1B17] bg-white p-3 text-sm font-semibold outline-none focus:shadow-[3px_3px_0_#B97861]" placeholder="เช่น ลูกค้าไม่รับรายการนี้แล้ว" /></label><p className="mt-1 text-right text-[10px] font-bold text-[#80675F]">{returnReason.length}/300</p></div>
@@ -666,7 +666,7 @@ export default function StaffServingQueuePage() {
         <div role="presentation" className="fixed inset-0 z-[121] flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !processingId) setHandoffTarget(null) }}>
           <section role="dialog" aria-modal="true" aria-labelledby="handoff-order-title" className="w-full max-w-md overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]">
             <header className="flex items-start justify-between border-b-2 border-[#2D1B17] bg-[#DBC8B8] px-5 py-4">
-              <div><span className="inline-flex items-center gap-1 rounded-full border-2 border-[#2D1B17] bg-white px-2.5 py-1 text-[10px] font-black"><UserRoundCheck size={12} /> TAKE OVER</span><h2 id="handoff-order-title" className="mt-3 text-xl font-black">รับช่วงต่อออเดอร์ #{handoffTarget.id}</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">คุณจะเป็นผู้ดูแลหลักแทน {handoffTarget.acknowledgedByName ?? 'พนักงานคนเดิม'} และการเปลี่ยนผู้ดูแลจะถูกบันทึก</p></div>
+              <div><h2 id="handoff-order-title" className="text-xl font-black">รับช่วงต่อออเดอร์ #{handoffTarget.id}</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">แทน {handoffTarget.acknowledgedByName ?? 'พนักงานคนเดิม'}</p></div>
               <button type="button" aria-label="ปิด" disabled={!!processingId} onClick={() => setHandoffTarget(null)} className="rounded-full border-2 border-[#2D1B17] bg-white p-2"><X size={16} /></button>
             </header>
             <footer className="flex justify-end gap-2 bg-[#FFF8EF] px-5 py-4"><button type="button" disabled={!!processingId} onClick={() => setHandoffTarget(null)} className="rounded-xl border-2 border-[#2D1B17] bg-white px-4 py-2 text-xs font-black">ยกเลิก</button><button type="button" disabled={!!processingId} onClick={() => void takeOverOrder()} className="rounded-xl border-2 border-[#2D1B17] bg-[#7A4939] px-4 py-2 text-xs font-black text-white shadow-[3px_3px_0_#2D1B17]">{processingId ? 'กำลังรับช่วงต่อ…' : 'ยืนยันรับช่วงต่อ'}</button></footer>
@@ -677,7 +677,7 @@ export default function StaffServingQueuePage() {
         <div role="presentation" className="fixed inset-0 z-[122] flex items-center justify-center bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !processingId) setServeAllTarget(null) }}>
           <section role="dialog" aria-modal="true" aria-labelledby="serve-all-title" className="w-full max-w-md overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]">
             <header className="flex items-start justify-between border-b-2 border-[#2D1B17] bg-[#E7C7B8] px-5 py-4">
-              <div><span className="inline-flex items-center gap-1 rounded-full border-2 border-[#2D1B17] bg-white px-2.5 py-1 text-[10px] font-black"><Check size={12} /> SERVE REMAINING</span><h2 id="serve-all-title" className="mt-3 text-xl font-black">ยืนยันเสิร์ฟส่วนที่เหลือ</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">โต๊ะ {serveAllTarget.tableNumber} · อีก {serveAllTarget.items.reduce((sum, item) => sum + item.remainingQuantity, 0)} จาน{serveAllTarget.acknowledgedById !== user?.id ? ` · เสิร์ฟแทนคุณ ${serveAllTarget.acknowledgedByName ?? 'พนักงาน'}` : ''}</p></div>
+              <div><h2 id="serve-all-title" className="text-xl font-black">ยืนยันเสิร์ฟส่วนที่เหลือ</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">โต๊ะ {serveAllTarget.tableNumber} | {serveAllTarget.items.reduce((sum, item) => sum + item.remainingQuantity, 0)} จาน{serveAllTarget.acknowledgedById !== user?.id ? ` | แทน ${serveAllTarget.acknowledgedByName ?? 'พนักงาน'}` : ''}</p></div>
               <button type="button" aria-label="ปิด" disabled={!!processingId} onClick={() => setServeAllTarget(null)} className="rounded-full border-2 border-[#2D1B17] bg-white p-2"><X size={16} /></button>
             </header>
             <div className="p-5 text-xs font-semibold text-[#6D5147]">ระบบจะบันทึกจำนวนที่ยังเหลือทั้งหมดว่าเสิร์ฟแล้ว พร้อมชื่อพนักงานผู้ดำเนินการจริง</div>

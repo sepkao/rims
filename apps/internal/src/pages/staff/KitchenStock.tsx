@@ -131,15 +131,18 @@ export default function KitchenStockPage({ area, canTransfer = true }: { area: '
   return (
     <>
       <div className="w-full max-w-[1240px]">
-        <header className="anim-down d-1 relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#DBC8B8] px-7 py-7 shadow-[8px_8px_0_#2D1B17]">
-          <div className="absolute -right-8 -top-14 h-48 w-48 rounded-full border-[24px] border-white/30" />
-          <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+        <header className="anim-down d-1 group relative mb-8 overflow-hidden rounded-[32px] border-2 border-[#2D1B17] bg-gradient-to-br from-[#38251F] via-[#4A332B] to-[#65483D] px-7 py-9 text-white shadow-[8px_8px_0_#2D1B17] transition-all hover:shadow-[12px_12px_0_#2D1B17] sm:px-10">
+          <div className="pointer-events-none absolute -right-14 -top-20 h-64 w-64 rounded-full border-[32px] border-white/10 transition-transform duration-700 group-hover:scale-110" />
+          <div className="pointer-events-none absolute -bottom-20 right-48 h-44 w-44 rounded-full border-[22px] border-[#B97861]/25" />
+          <div className="relative flex flex-col gap-7 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <span className="rotate-[-2deg] rounded-full border-2 border-[#2D1B17] bg-[#F1E2CF] px-3 py-1 text-[10px] font-black shadow-[2px_2px_0_#2D1B17]">{area === 'Freezer Stock' ? 'FREEZER' : 'PREP FRIDGE'}</span>
-              <h1 className="mt-4 text-4xl font-black tracking-[-.035em] text-[#2D1B17]">{area === 'Freezer Stock' ? 'คลังแช่แข็ง' : 'ตู้เตรียมครัว'}</h1>
-              <p className="mt-2 text-sm font-semibold text-[#7A6057]">เช็กล็อต · สรุปยอดรวมวัตถุดิบ · หยิบแบบ FIFO</p>
+              <span className="inline-flex rounded-full border border-[#F1E2CF]/30 bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[.16em] text-[#E7C7B8]">
+                {area === 'Freezer Stock' ? 'Freezer stock' : 'Prep fridge'}
+              </span>
+              <h1 className="mt-4 text-4xl font-black tracking-[-.035em] text-[#FFF8EF] sm:text-5xl">{area === 'Freezer Stock' ? 'คลังแช่แข็ง' : 'ตู้เตรียมครัว'}</h1>
+              <p className="mt-2 text-sm font-semibold text-[#E7C7B8]">เช็กล็อต · สรุปยอดรวมวัตถุดิบ · หยิบแบบ FIFO</p>
             </div>
-            <label className="flex w-full max-w-xs items-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-white px-3.5 py-3 text-[#7A665F] shadow-[4px_4px_0_#2D1B17]">
+            <label className="flex w-full max-w-xs items-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-[#FFF8EF] px-3.5 py-3 text-[#6D5147] shadow-[4px_4px_0_#B97861] transition-transform focus-within:-translate-y-0.5">
               <SearchIcon />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาของ หรือ batch..." className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" />
             </label>
@@ -167,7 +170,7 @@ export default function KitchenStockPage({ area, canTransfer = true }: { area: '
             <div>
               <h2 className="text-xl font-black">Stock shelf</h2>
               <p className="mt-1 text-xs font-semibold text-[#8A7067]">
-                {viewMode === 'grouped' ? 'แสดงยอดรวมของแต่ละวัตถุดิบ (คลิกแถวเพื่อคลี่ดูล็อตย่อย)' : 'แสดงแยกล็อตทั้งหมดตามลำดับ FIFO'}
+                {viewMode === 'grouped' ? 'แสดงยอดรวมของแต่ละวัตถุดิบ (คลิกแถวเพื่อขยายดูล็อตย่อย)' : 'แสดงแยกล็อตทั้งหมดตามลำดับ FIFO'}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2.5">
@@ -277,13 +280,13 @@ export default function KitchenStockPage({ area, canTransfer = true }: { area: '
                                 type="button"
                                 className="inline-flex items-center gap-1 rounded-lg border border-[#D9B99A] bg-white px-2.5 py-1 text-xs font-black text-[#6D5147] transition hover:bg-[#F4EFEA]"
                               >
-                                <span>{isExpanded ? 'ย่อ' : 'คลี่ดู'}</span>
+                                <span>{isExpanded ? 'ย่อ' : 'ขยายดู'}</span>
                                 {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                               </button>
                             </td>
                           </tr>
 
-                          {/* คลี่แสดงรายละเอียดย่อยของทุกล็อตภายใต้วัตถุดิบนี้ */}
+                          {/* ขยายแสดงรายละเอียดย่อยของทุกล็อตภายใต้วัตถุดิบนี้ */}
                           {isExpanded && (
                             <tr className="bg-[#FAF6F0] border-b-2 border-[#2D1B17]/20">
                               <td colSpan={6} className="px-6 py-3">
@@ -387,7 +390,7 @@ export default function KitchenStockPage({ area, canTransfer = true }: { area: '
                   ? `แสดง ${visibleGrouped.length}/${groupedItems.length} วัตถุดิบ (รวม ${items.length} ล็อต)`
                   : `แสดง ${visible.length}/${items.length} รายการ`}
             </span>
-            <span>{viewMode === 'grouped' ? 'SUMMARIZED TOTALS ✦' : 'FIFO SORTED ✦'}</span>
+            <span>{viewMode === 'grouped' ? 'ยอดรวม' : 'เรียง FIFO'}</span>
           </footer>
         </section>
       </div>
@@ -412,7 +415,7 @@ function InventoryDetailsDialog({ batch, onClose, onTransfer }: { batch: Invento
     <div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D1B17]/70 px-4 py-6" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <section role="dialog" aria-modal="true" aria-labelledby="inventory-detail-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[8px_8px_0_#2D1B17]" onMouseDown={(event) => event.stopPropagation()}>
         <header className="flex items-start justify-between gap-4 border-b-2 border-[#2D1B17] bg-[#DBC8B8] px-6 py-5">
-          <div><span className="text-[10px] font-black uppercase tracking-[.16em] text-[#8B5746]">Inventory detail</span><h2 id="inventory-detail-title" className="mt-1 text-2xl font-black text-[#2D1B17]">{batch.item}</h2><p className="mt-1 font-mono text-xs font-bold text-[#75584E]">ล็อต #{batch.batch}</p></div>
+          <div><h2 id="inventory-detail-title" className="text-2xl font-black text-[#2D1B17]">{batch.item}</h2><p className="mt-1 font-mono text-xs font-bold text-[#75584E]">ล็อต #{batch.batch}</p></div>
           <button type="button" aria-label="ปิดรายละเอียด" onClick={onClose} className="rounded-full border-2 border-[#2D1B17] bg-white px-3 py-1 text-xl font-black leading-none shadow-[2px_2px_0_#2D1B17] transition hover:-translate-y-0.5">×</button>
         </header>
         <div className="grid gap-4 p-6 sm:grid-cols-2">
@@ -429,7 +432,7 @@ function InventoryDetailsDialog({ batch, onClose, onTransfer }: { batch: Invento
         <div className="mx-6 rounded-2xl border-2 border-[#2D1B17] bg-[#F1E2CF] px-4 py-3 text-xs font-bold leading-5 text-[#60483F]">ตรวจสอบล็อตนี้ก่อนหยิบใช้ หากต้องเตรียมวัตถุดิบต่อ ให้ไปที่หน้าการโอนย้ายเพื่อดำเนินการ</div>
         <footer className="mt-6 flex flex-col-reverse gap-3 border-t-2 border-[#2D1B17] bg-[#E7C7B8] px-6 py-5 sm:flex-row sm:justify-end">
           <button type="button" onClick={onClose} className="rounded-xl border-2 border-[#2D1B17] bg-white px-5 py-2.5 text-sm font-black">ปิด</button>
-          {onTransfer && <button type="button" onClick={onTransfer} className="rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-5 py-2.5 text-sm font-black text-white shadow-[4px_4px_0_#B97861] transition hover:-translate-y-0.5">ไปหน้าโอนย้าย →</button>}
+          {onTransfer && <button type="button" onClick={onTransfer} className="rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] px-5 py-2.5 text-sm font-black text-white shadow-[4px_4px_0_#B97861] transition hover:-translate-y-0.5">โอนย้าย</button>}
         </footer>
       </section>
     </div>

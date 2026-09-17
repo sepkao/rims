@@ -30,10 +30,6 @@ export default function StaffDashboardPage() {
         <div className="pointer-events-none absolute -right-16 -top-16 h-72 w-72 rounded-full border-[36px] border-white/10 transition-transform duration-700 group-hover:scale-110" />
         <div className="pointer-events-none absolute -bottom-8 right-32 h-40 w-40 rounded-full border-[20px] border-white/10" />
 
-        <span className="absolute bottom-6 right-8 hidden rotate-3 rounded-full border-2 border-[#2D1B17] bg-[#FFF8EF] px-4 py-2 text-[10px] font-black shadow-[3px_3px_0_#2D1B17] lg:inline-flex">
-          FIFO FIRST! ✦
-        </span>
-
         <div className="relative z-10 max-w-2xl">
           <span className="inline-flex rotate-[-2deg] items-center gap-2 rounded-full border-2 border-[#2D1B17] bg-white px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-[#2D1B17] shadow-[2px_2px_0_#2D1B17]">
             <span className="relative flex h-2 w-2">
@@ -47,18 +43,13 @@ export default function StaffDashboardPage() {
             คลังพร้อม ครัวพร้อม<br />
             <span className="text-[#FFF8EF] drop-shadow-[2px_2px_0_#2D1B17]">ทุกกะก็พร้อมลุย.</span>
           </h1>
-          <p className="mt-4 max-w-lg text-sm font-semibold leading-6 text-[#F1E2CF]/90">
-            เช็กล็อตคงเหลือ จัด FIFO และเคลียร์วัตถุดิบเสี่ยงก่อนเริ่มรอบ
-          </p>
+          <p className="mt-4 max-w-lg text-sm font-semibold leading-6 text-[#F1E2CF]/90">เช็กล็อตคงเหลือ จัด FIFO และเคลียร์วัตถุดิบเสี่ยงก่อนเริ่มรอบ</p>
 
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <button
               onClick={() => navigate('/staff/receive-lot')}
               className="group/btn relative flex items-center gap-2 overflow-hidden rounded-xl border-2 border-[#2D1B17] bg-[#93AF54] px-6 py-3 text-sm font-black text-white shadow-[4px_4px_0_#2D1B17] transition-all hover:-translate-y-0.5 hover:bg-[#86A149] hover:shadow-[6px_6px_0_#2D1B17] active:translate-y-0.5"
             >
-              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-white/20 text-xs font-black transition-transform group-hover/btn:rotate-90">
-                +
-              </span>
               <span>รับของเข้าคลัง</span>
             </button>
 
@@ -67,7 +58,6 @@ export default function StaffDashboardPage() {
               className="group/btn flex items-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-[#FFF8EF] px-6 py-3 text-sm font-black text-[#2D1B17] shadow-[4px_4px_0_#2D1B17] transition-all hover:-translate-y-0.5 hover:bg-white hover:shadow-[6px_6px_0_#2D1B17] active:translate-y-0.5"
             >
               <span>โอนย้ายสต็อก</span>
-              <span className="transition-transform group-hover/btn:translate-x-1">→</span>
             </button>
           </div>
         </div>
@@ -198,7 +188,6 @@ export default function StaffDashboardPage() {
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs font-medium text-[#80665D]">
                       <span>รับ {batch.receiveDate}</span>
-                      <span className="text-[#2D1B17]/20">·</span>
                       <span>เหลือ <strong className="text-[#2D1B17]">{formatInventoryQuantity(batch.qty)}</strong></span>
                     </div>
                   </div>
@@ -228,7 +217,6 @@ export default function StaffDashboardPage() {
             className="group flex w-full items-center justify-center gap-2 border-t-2 border-[#2D1B17] bg-[#2D1B17] px-6 py-4 text-sm font-black text-white transition-all hover:bg-[#3D2821] active:bg-[#1a0f0d]"
           >
             <span>เปิดคลังทั้งหมด</span>
-            <span className="transition-transform group-hover:translate-x-1">→</span>
           </button>
         </div>
 
@@ -242,7 +230,6 @@ export default function StaffDashboardPage() {
                 <p className="text-[10px] font-black uppercase tracking-widest text-[#D9B99A]">Breakdown</p>
                 <h2 className="mt-1 text-lg font-black text-[#FFF8EF]">Stock mix</h2>
               </div>
-              <span className="text-2xl text-[#D9B99A]">◒</span>
             </div>
 
             <div className="space-y-5 p-6">
@@ -273,7 +260,7 @@ export default function StaffDashboardPage() {
           {/* Operational Status Checklist (Red for expired, Orange for expiring) */}
           <article className="anim-up d-5 relative overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-white shadow-[6px_6px_0_#2D1B17] transition-all hover:shadow-[8px_8px_0_#2D1B17]">
             <span className="absolute -top-px right-6 rounded-b-xl border-x-2 border-b-2 border-[#FFF8EF]/30 bg-[#2D1B17] px-4 py-1.5 text-[9px] font-black text-white tracking-widest">
-              CHECKLIST
+              สถานะ
             </span>
 
             <div className="border-b-2 border-[#2D1B17] bg-gradient-to-r from-[#38251F] to-[#513931] px-6 py-5">
@@ -314,7 +301,7 @@ export default function StaffDashboardPage() {
           {/* Quick Actions (Cohesive Brown Theme) */}
           <article className="anim-up d-5 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-white shadow-[6px_6px_0_#2D1B17]">
             <div className="border-b-2 border-[#2D1B17] bg-gradient-to-r from-[#38251F] to-[#513931] px-6 py-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-[#F1E2CF]">Quick Actions</p>
+              <p className="text-sm font-black text-[#F1E2CF]">เมนูลัด</p>
             </div>
             <div className="grid grid-cols-2 divide-x-2 divide-y-2 divide-[#2D1B17]/10">
               <QuickAction

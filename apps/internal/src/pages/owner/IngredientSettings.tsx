@@ -116,7 +116,7 @@ export default function IngredientSettings() {
 
   return (
     <div className="w-full max-w-[1240px]">
-      <header className="anim-down d-1 relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#E8D8CA] px-7 py-7 shadow-[8px_8px_0_#2D1B17]">
+      <header className="system-hero anim-down d-1 relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#E8D8CA] px-7 py-7 shadow-[8px_8px_0_#2D1B17]">
         <div className="absolute -right-8 -top-12 h-44 w-44 rounded-full border-[24px] border-white/40" />
         <span className="relative inline-flex rounded-full border-2 border-[#2D1B17] bg-[#DBC8B8] px-3 py-1 text-[10px] font-black shadow-[2px_2px_0_#2D1B17]">INGREDIENT & NOTIFICATION SETTINGS ✦</span>
         <h1 className="relative mt-4 text-4xl font-black tracking-[-.035em]">จัดการวัตถุดิบ & การแจ้งเตือน</h1>

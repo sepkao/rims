@@ -387,6 +387,15 @@ button { cursor: pointer; }
 .d-4 { animation-delay: 240ms; }
 .d-5 { animation-delay: 320ms; }
 
+/* ─── Shared system hero ──────────────────────────────── */
+.system-hero {
+  background: linear-gradient(135deg, #38251f 0%, #4a332b 58%, #65483d 100%) !important;
+  color: #fff8ef !important;
+}
+.system-hero h1 { color: #fff8ef !important; }
+.system-hero p { color: #e7c7b8 !important; }
+
+
 /* ─── Responsive ──────────────────────────────────────── */
 @media (max-width: 800px) {
   .sidebar { position: static; width: 100%; flex-direction: row; flex-wrap: wrap; }

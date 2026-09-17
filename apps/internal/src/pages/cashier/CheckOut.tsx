@@ -114,7 +114,7 @@ export default function CheckOut() {
   const submitDisabled = !bill || submitting || (paymentMethod === 'cash' && !cashIsEnough) || (needsReference && !paymentReference.trim())
 
   return <div className="w-full max-w-[1180px] pb-20 text-[#2D1B17]">
-    <header className="anim-down d-1 relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#DBC8B8] px-7 py-7 shadow-[8px_8px_0_#2D1B17]">
+    <header className="system-hero anim-down d-1 relative mb-7 overflow-hidden rounded-[28px] border-2 border-[#2D1B17] bg-[#DBC8B8] px-7 py-7 shadow-[8px_8px_0_#2D1B17]">
       <span className="absolute -right-8 -top-12 h-36 w-36 rounded-full border-2 border-[#2D1B17]/20 bg-[#E7C7B8]" />
       <div className="relative flex items-start gap-4"><button onClick={() => navigate('/cashier/tables')} aria-label="กลับหน้ารายการโต๊ะ" className="mt-1 rounded-full border-2 border-[#2D1B17] bg-white p-2.5 shadow-[2px_2px_0_#2D1B17] transition hover:-translate-y-0.5"><ArrowLeft size={18} /></button><div><span className="inline-flex rotate-[-2deg] items-center gap-1.5 rounded-full border-2 border-[#2D1B17] bg-[#FFF8EF] px-3 py-1 text-[10px] font-black tracking-[.14em] shadow-[2px_2px_0_#2D1B17]"><Sparkles size={12} /> CASHIER PAYMENT</span><h1 className="mt-4 text-4xl font-black tracking-[-.035em]">ชำระเงิน {bill?.session.tableNumber ? `· โต๊ะ ${bill.session.tableNumber}` : ''}</h1><p className="mt-2 text-sm font-bold text-[#6D5147]">ตรวจสอบยอด รับชำระ และปิดโต๊ะ</p></div></div>
     </header>
