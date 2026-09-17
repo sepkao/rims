@@ -16,7 +16,7 @@ const bootstrap = args.includes('--bootstrap')
 const through = args.find(arg => arg.startsWith('--through='))?.slice('--through='.length)
 
 async function main() {
-  const files = (await readdir(directory)).filter(name => name.endsWith('.sql')).sort()
+  const files = (await readdir(directory)).filter(name => name.endsWith('.sql')).sort((a, b) => a.localeCompare(b))
   if (through && !files.includes(through)) throw new Error('Unknown --through migration filename')
   if (bootstrap && !through) throw new Error('Bootstrap requires --through=EXACT_FILENAME.sql for the last manually verified migration')
   const client = await pool.connect()
