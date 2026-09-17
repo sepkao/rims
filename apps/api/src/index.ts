@@ -143,10 +143,14 @@ async function getSessionUser(c: Context): Promise<SessionUser | null> {
 }
 
 async function createSession(c: Context, userId: string) {
+  const isProduction = process.env.NODE_ENV === 'production'
   await setSignedCookie(c, 'session', userId, sessionSecret(), {
     httpOnly: true,
-    sameSite: 'Lax',
-    secure: process.env.NODE_ENV === 'production',
+    // Frontend (Vercel) and API (Render) are different sites in production, so the
+    // cookie must be SameSite=None to be sent on cross-site fetch() calls at all.
+    // Lax works locally where everything is same-site (localhost) and is safer there.
+    sameSite: isProduction ? 'None' : 'Lax',
+    secure: isProduction,
     path: '/',
   })
 }
