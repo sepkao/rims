@@ -1,0 +1,261 @@
+erDiagram
+    users ||--o{ lot_headers : "received_by"
+    users ||--o{ table_sessions : "opened_by / ended_by"
+    users ||--o{ orders : "acknowledged_by"
+    users ||--o{ order_items : "last_served_by"
+    users ||--o{ order_item_serving_events : "served_by"
+    users ||--o{ stock_movements : "actor_id"
+    users ||--o{ waste_records : "reviewed_by"
+    users ||--o{ cashier_payments : "cashier_id"
+    users ||--o{ system_logs : "actor_id"
+    users ||--o{ users : "created_by"
+
+    ingredients ||--o{ stock_lots : "มีล็อต"
+    ingredients ||--o{ menu_item_ingredients : "อยู่ในสูตร"
+    ingredients ||--o{ order_item_bom : "สูตรที่ freeze"
+    ingredients ||--o{ order_item_customizations : "ถูกตัดออก"
+
+    storage_locations ||--o{ stock_lots : "เก็บที่"
+    lot_headers ||--o{ stock_lots : "รอบรับของ"
+    stock_lots ||--o{ stock_lots : "source_lot_id"
+    stock_lots ||--o{ stock_movements : "audit trail"
+    stock_lots ||--o{ waste_records : "ของเสีย"
+
+    menu_items ||--o{ menu_item_ingredients : "BOM"
+    menu_items ||--o{ order_items : "ถูกสั่ง"
+
+    dining_tables ||--o{ table_sessions : "รอบใช้โต๊ะ"
+    table_sessions ||--o{ orders : "ออเดอร์ในรอบ"
+    table_sessions ||--o| cashier_payments : "ชำระเงิน 1:1"
+    table_sessions ||--o{ cashier_notifications : "แจ้งเตือนเวลา"
+
+    orders ||--o{ order_items : "รายการในออเดอร์"
+    orders ||--o{ stock_movements : "การตัดสต็อก"
+
+    order_items ||--o{ order_item_bom : "สูตร ณ เวลาสั่ง"
+    order_items ||--o{ order_item_customizations : "ตัดวัตถุดิบออก"
+    order_items ||--o{ order_item_serving_events : "ประวัติการเสิร์ฟ"
+    order_items ||--o{ stock_movements : "ตัด/คืนรายจาน"
+
+    users {
+        bigserial id PK
+        text name
+        text email UK
+        text password_hash
+        text role "owner|staff|cashier"
+        bigint created_by FK
+        boolean is_active
+        timestamptz created_at
+    }
+
+    ingredients {
+        bigserial id PK
+        text name UK
+        text category "meat|vegetable"
+        decimal default_portion_size_kg
+        decimal reorder_threshold_kg "NULL สำหรับผัก"
+        int thaw_prep_threshold_plates
+        int freezer_expiry_warning_days
+        decimal buffer_percentage
+        decimal supplier_pack_size_kg
+        boolean is_active
+        timestamptz created_at
+    }
+
+    storage_locations {
+        bigserial id PK
+        text name UK "Freezer, ตู้พักละลาย"
+        text unit_type "kg|plate"
+        text accepts_category "meat|vegetable|both"
+    }
+
+    lot_headers {
+        bigserial id PK
+        timestamptz received_at
+        bigint received_by FK
+        text supplier_reference
+    }
+
+    stock_lots {
+        bigserial id PK
+        bigint lot_header_id FK
+        bigint ingredient_id FK
+        bigint storage_location_id FK
+        decimal quantity_original
+        decimal quantity_remaining
+        decimal unit_cost
+        timestamptz expiry_date "ตัวเรียง FIFO"
+        bigint source_lot_id FK
+        boolean is_not_fresh
+        timestamptz created_at
+    }
+
+    stock_movements {
+        bigserial id PK
+        bigint stock_lot_id FK
+        text movement_type "intake|adjustment|deduction|return"
+        decimal quantity "บวกเข้า ลบออก"
+        bigint actor_id FK "NULL = ระบบ"
+        bigint order_id FK
+        bigint order_item_id FK
+        timestamptz created_at
+    }
+
+    waste_records {
+        bigserial id PK
+        bigint stock_lot_id FK
+        decimal quantity
+        decimal unit_cost_snapshot
+        decimal waste_cost
+        text ai_reason "ข้อความสำเร็จรูป"
+        decimal ai_confidence "NULL เสมอ"
+        text status "pending_review|confirmed|rejected"
+        bigint reviewed_by FK
+        timestamptz created_at
+    }
+
+    menu_items {
+        bigserial id PK
+        text name
+        text description
+        text category
+        text image_path
+        text image_alt
+        int sort_order
+        boolean is_active
+        boolean is_deleted
+        timestamptz created_at
+    }
+
+    menu_categories {
+        bigserial id PK
+        text name UK
+        int sort_order
+        timestamptz created_at
+    }
+
+    menu_item_ingredients {
+        bigserial id PK
+        bigint menu_item_id FK
+        bigint ingredient_id FK
+        int quantity_required_plates
+        boolean removable
+    }
+
+    dining_tables {
+        bigserial id PK
+        text table_number UK
+        text status "empty|occupied|near_expiry|expired|pending_cleanup"
+        boolean is_hidden
+        boolean is_deleted
+    }
+
+    table_sessions {
+        bigserial id PK
+        bigint dining_table_id FK
+        text qr_code
+        bigint opened_by FK
+        timestamptz started_at
+        timestamptz expires_at
+        timestamptz ended_at
+        bigint ended_by FK
+        int adult_count
+        int child_count
+        int senior_count
+        int disabled_count
+        decimal price_per_adult "snapshot ตอนเช็คอิน"
+        decimal price_per_child
+        decimal price_per_senior
+        decimal price_per_disabled
+    }
+
+    orders {
+        bigserial id PK
+        bigint table_session_id FK
+        text status "pending|confirmed|cancelled"
+        timestamptz created_at
+        timestamptz confirm_at "created_at + 60 วินาที"
+        timestamptz confirmed_at
+        timestamptz cancelled_at
+        timestamptz served_at
+        timestamptz acknowledged_at
+        bigint acknowledged_by FK
+    }
+
+    order_items {
+        bigserial id PK
+        bigint order_id FK
+        bigint menu_item_id FK
+        int quantity
+        int quantity_returned
+        int served_quantity
+        timestamptz last_served_at
+        bigint last_served_by FK
+    }
+
+    order_item_bom {
+        bigint order_item_id "PK, FK"
+        bigint ingredient_id "PK, FK"
+        int quantity_required_plates
+        boolean removable
+    }
+
+    order_item_customizations {
+        bigserial id PK
+        bigint order_item_id FK
+        bigint ingredient_id FK
+    }
+
+    order_item_serving_events {
+        bigserial id PK
+        bigint order_item_id FK
+        int quantity
+        bigint served_by FK
+        bigint acknowledged_by FK
+        boolean is_delegate
+        text request_id UK "กันกดซ้ำ"
+        timestamptz created_at
+    }
+
+    cashier_payments {
+        bigserial id PK
+        text receipt_number UK
+        bigint table_session_id FK "UNIQUE"
+        bigint cashier_id FK
+        text payment_method "cash|promptpay"
+        decimal subtotal
+        decimal cash_received
+        decimal change_amount
+        text payment_reference
+        text payment_status
+        timestamptz created_at
+    }
+
+    cashier_notifications {
+        bigserial id PK
+        bigint table_session_id FK
+        text table_number
+        text message
+        text notification_type "30_min|5_min|expired"
+        boolean is_read
+        timestamptz created_at
+    }
+
+    settings {
+        text key PK
+        text value
+        timestamptz updated_at
+    }
+
+    system_logs {
+        bigserial id PK
+        bigint actor_id FK
+        text action
+        jsonb details
+        timestamptz created_at
+    }
+
+    schema_migrations {
+        text filename PK
+        timestamptz applied_at
+    }
