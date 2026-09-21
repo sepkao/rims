@@ -77,6 +77,33 @@ test('Bill total and checkout write a real receipt and close the table', { skip:
     await t.test('checking out an already-closed session is rejected', async () => {
       assert.equal((await checkout({ paymentMethod: 'cash', cashReceived: 300 })).status, 409)
     })
+
+    // Deltas, not absolute totals: the report sums the whole week across every
+    // session in the database, so a fixed expected figure would depend on
+    // whatever else ran first.
+    await t.test('the weekly report counts a session only once it has been paid', async () => {
+      const revenue = async () => Number((await one('SELECT revenue::float8 AS revenue FROM get_weekly_cost_profit_report()')).revenue)
+      const before = await revenue()
+
+      const walkoutTable = (await one('INSERT INTO dining_tables(table_number) VALUES($1) RETURNING id', [prefix + '-walkout'])).id
+      ids.tables.push(walkoutTable)
+      const walkout = (await one(
+        `INSERT INTO table_sessions(dining_table_id,qr_code,opened_by,expires_at,adult_count,price_per_adult)
+         VALUES($1,$2,$3,now()+interval '1 hour',3,100) RETURNING id`,
+        [walkoutTable, prefix + '-walkout', ids.users[0]],
+      )).id
+      ids.sessions.push(walkout)
+
+      assert.equal(await revenue(), before, 'an unpaid session must not be booked as revenue')
+
+      await one(
+        `INSERT INTO cashier_payments(table_session_id,cashier_id,payment_method,subtotal,cash_received,change_amount)
+         VALUES($1,$2,'cash',300,300,0) RETURNING id`,
+        [walkout, ids.users[0]],
+      )
+
+      assert.equal(await revenue() - before, 300, 'paying the session must add exactly its billed subtotal')
+    })
   } finally {
     if (server && server.exitCode === null) { const stopped = once(server, 'exit'); server.kill(); await stopped }
     await pool.query('DELETE FROM system_logs WHERE actor_id = ANY($1::bigint[])', [ids.users])
