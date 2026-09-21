@@ -1,0 +1,34 @@
+erDiagram
+    users ||--o{ lot_headers : "รับของเข้า"
+    users ||--o{ table_sessions : "เปิด/ปิดโต๊ะ"
+    users ||--o{ stock_movements : "ผู้ทำรายการ"
+    users ||--o{ waste_records : "อนุมัติของเสีย"
+    users ||--o{ cashier_payments : "รับชำระเงิน"
+    users ||--o{ order_item_serving_events : "เสิร์ฟ"
+    users ||--o{ system_logs : "ผู้กระทำ"
+
+    ingredients ||--o{ stock_lots : "มีล็อต"
+    ingredients ||--o{ menu_item_ingredients : "อยู่ในสูตร"
+    ingredients ||--o{ order_item_bom : "สูตรที่ freeze"
+    ingredients ||--o{ order_item_customizations : "ถูกตัดออก"
+
+    storage_locations ||--o{ stock_lots : "เก็บที่"
+    lot_headers ||--o{ stock_lots : "รอบรับของ"
+    stock_lots ||--o{ stock_lots : "แตกล็อตย่อย"
+    stock_lots ||--o{ stock_movements : "audit trail"
+    stock_lots ||--o{ waste_records : "ของเสีย"
+
+    menu_items ||--o{ menu_item_ingredients : "BOM"
+    menu_items ||--o{ order_items : "ถูกสั่ง"
+
+    dining_tables ||--o{ table_sessions : "รอบใช้โต๊ะ"
+    table_sessions ||--o{ orders : "ออเดอร์"
+    table_sessions ||--o| cashier_payments : "ชำระ 1:1"
+    table_sessions ||--o{ cashier_notifications : "แจ้งเตือนเวลา"
+
+    orders ||--o{ order_items : "รายการ"
+    orders ||--o{ stock_movements : "การตัดสต็อก"
+
+    order_items ||--o{ order_item_bom : "สูตร ณ เวลาสั่ง"
+    order_items ||--o{ order_item_customizations : "ตัดวัตถุดิบ"
+    order_items ||--o{ order_item_serving_events : "ประวัติเสิร์ฟ"

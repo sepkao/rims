@@ -1,10 +1,16 @@
 # RIMS — Database Schema & ER Diagram
 
-ฐานข้อมูล PostgreSQL (Supabase) ของระบบ RIMS — สรุปจากไฟล์ migration จริงทั้ง 24 ไฟล์
+ฐานข้อมูล PostgreSQL (Supabase) ของระบบ RIMS — สรุปจากไฟล์ migration จริงทั้ง 25 ไฟล์
 ใน `supabase/migrations/` (สถานะ ณ commit ล่าสุดบน `main`)
 
 **หมายเหตุสำคัญ**: ไฟล์นี้เป็นเอกสารสรุปสถานะ *ปัจจุบัน* หลัง apply migration ครบทุกไฟล์
 ไม่ใช่ไฟล์ที่ใช้สร้างฐานข้อมูล — ถ้าจะแก้ schema ต้องเขียน migration ใหม่เสมอ
+
+**รูปภาพ ER diagram** (PNG/SVG พร้อมใช้ในรายงาน) อยู่ที่ [`docs/er/`](er/):
+- [`rims-er-overview.svg`](er/rims-er-overview.svg) / [`.png`](er/rims-er-overview.png) — ภาพรวมความสัมพันธ์ ไม่มีคอลัมน์ เหมาะใส่ในเนื้อเรื่อง
+- [`rims-er-full.svg`](er/rims-er-full.svg) / [`.png`](er/rims-er-full.png) — ฉบับเต็มมีทุกคอลัมน์ เหมาะใส่ภาคผนวก
+- [`rims-er-chen.svg`](er/rims-er-chen.svg) / [`.png`](er/rims-er-chen.png) — แบบจำลองเชิงแนวคิด (Chen notation: entity/relationship/attribute) พร้อม [สคริปต์สร้างใหม่](er/chen-er-generator.mjs) ถ้าต้องแก้ตำแหน่งหรือเนื้อหา
+- [`er-overview.mmd`](er/er-overview.mmd) / [`er-full.mmd`](er/er-full.mmd) — ซอร์ส Mermaid ของ 2 แบบแรก แก้แล้ววางที่ mermaid.live ได้เลย
 
 ---
 
@@ -229,8 +235,8 @@ erDiagram
     }
 
     order_item_bom {
-        bigint order_item_id PK_FK
-        bigint ingredient_id PK_FK
+        bigint order_item_id "PK, FK"
+        bigint ingredient_id "PK, FK"
         int quantity_required_plates
         boolean removable
     }
@@ -255,7 +261,7 @@ erDiagram
     cashier_payments {
         bigserial id PK
         text receipt_number UK
-        bigint table_session_id FK_UK
+        bigint table_session_id FK "UNIQUE"
         bigint cashier_id FK
         text payment_method "cash|promptpay"
         decimal subtotal
