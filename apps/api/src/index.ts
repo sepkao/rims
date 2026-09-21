@@ -3005,12 +3005,20 @@ app.post('/customer/orders', async (c) => {
       )
       const orderItemId = oiRes.rows[0].id
 
+      // Snapshot the exact rows this order was validated against, not a fresh
+      // read: under READ COMMITTED a menu edit committing between the two
+      // statements would freeze a BOM the stock check never saw.
+      const bomRows = bomByMenu.get(item.menuItemId) ?? []
       await client.query(
         `INSERT INTO order_item_bom (order_item_id, ingredient_id, quantity_required_plates, removable)
-         SELECT $1, ingredient_id, quantity_required_plates, removable
-         FROM menu_item_ingredients
-         WHERE menu_item_id = $2`,
-        [orderItemId, item.menuItemId],
+         SELECT $1::bigint, ingredient_id, plates, removable
+         FROM unnest($2::bigint[], $3::int[], $4::boolean[]) AS t(ingredient_id, plates, removable)`,
+        [
+          orderItemId,
+          bomRows.map((row) => row.ingredient_id),
+          bomRows.map((row) => Number(row.quantity_required_plates)),
+          bomRows.map((row) => row.removable),
+        ],
       )
 
       if (item.removedIngredients.length > 0) {
