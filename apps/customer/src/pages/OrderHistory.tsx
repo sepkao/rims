@@ -108,7 +108,7 @@ export default function OrderHistory({ defaultTab = 'cart' }: { defaultTab?: 'ca
   }, [session]);
 
   // Ticks every second so the "ยกเลิกออเดอร์" button in the History tab disappears exactly
-  // at the real 60s cancel deadline (order.confirmAt), instead of only ever checking
+  // at the real 30s cancel deadline (order.confirmAt), instead of only ever checking
   // order.status === 'pending' — see [B12].
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);

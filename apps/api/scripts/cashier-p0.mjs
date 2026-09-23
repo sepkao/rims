@@ -45,7 +45,7 @@ async function status() {
       to_regprocedure('public.expire_table_sessions()') IS NOT NULL AS expiry_function,
       to_regprocedure('public.deduct_stock_fifo(bigint,integer,bigint,bigint)') IS NOT NULL AS fifo_signature,
       pg_get_functiondef('public.deduct_stock_fifo(bigint,integer,bigint,bigint)'::regprocedure)
-        ILIKE '%expiry_date > now()%' AS fifo_expiry_guard,
+        ~* 'expiry_date[[:space:]]*>[[:space:]]*(now|clock_timestamp|transaction_timestamp)[(][)]' AS fifo_expiry_guard,
       EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'table_sessions_valid_duration') AS duration_constraint,
       EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'table_sessions_has_guest') AS guest_constraint,
       EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') AS pg_cron
@@ -67,6 +67,7 @@ async function status() {
           SELECT 1 FROM cron.job
           WHERE jobname = 'rims-auto-confirm-orders'
             AND active = true
+            AND schedule = '5 seconds'
             AND command ILIKE '%auto_confirm_order%'
         ) AS auto_confirm_job,
         EXISTS(

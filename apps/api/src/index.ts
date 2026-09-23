@@ -11,6 +11,8 @@ import { CashierPaymentError, parseCheckoutPayment } from './cashier-payment.js'
 
 type Role = 'owner' | 'staff' | 'cashier'
 
+const ORDER_GRACE_PERIOD_SECONDS = 30
+
 type SessionUser = {
   id: string
   name: string
@@ -2990,9 +2992,9 @@ app.post('/customer/orders', async (c) => {
 
     const orderRes = await client.query(
       `INSERT INTO orders (table_session_id, confirm_at)
-       VALUES ($1, now() + interval '60 seconds')
+       VALUES ($1, now() + make_interval(secs => $2))
        RETURNING id`,
-      [tableSessionId]
+      [tableSessionId, ORDER_GRACE_PERIOD_SECONDS]
     )
     const orderId = orderRes.rows[0].id
 
@@ -3034,7 +3036,7 @@ app.post('/customer/orders', async (c) => {
 
     await client.query('COMMIT')
     transactionStarted = false
-    return c.json({ orderId: String(orderId), confirmAt: new Date(Date.now() + 60_000).toISOString() }, 201)
+    return c.json({ orderId: String(orderId), confirmAt: new Date(Date.now() + ORDER_GRACE_PERIOD_SECONDS * 1000).toISOString() }, 201)
   } catch (error) {
     if (transactionStarted) await client.query('ROLLBACK')
     console.error(error)
@@ -3070,9 +3072,9 @@ app.post('/customer/orders/:id/cancel', async (c) => {
     const body = await c.req.json<{ qrCode?: string }>()
     if (typeof body.qrCode !== 'string' || !body.qrCode.trim()) return c.json({ error: 'ต้องมี QR Code' }, 400)
     // [B12] Don't rely solely on status='pending' — auto_confirm_order() only runs on a
-    // 1-minute pg_cron tick in production (0003_cashier_expiry_schedule.sql), so an order
-    // could still be 'pending' up to ~60s after its own confirm_at deadline has passed.
-    // Check confirm_at directly so the 60-second cancel window is enforced exactly, not
+    // periodic pg_cron sweep in production, so an order can remain 'pending' briefly after
+    // its own confirm_at deadline has passed. Check confirm_at directly so the 30-second
+    // cancel window is enforced exactly, not
     // just "eventually, whenever the cron catches up."
     const result = await pool.query(
       `UPDATE orders
@@ -3121,7 +3123,7 @@ app.post('/customer/orders/:id/finalize', async (c) => {
     if (ownedOrder.rows[0].status === 'pending' && ownedOrder.rows[0].grace_active) {
       await client.query('ROLLBACK')
       transactionStarted = false
-      return c.json({ error: 'ออเดอร์ยังอยู่ในช่วงยกเลิก 60 วินาที', code: 'GRACE_PERIOD_ACTIVE' }, 409)
+      return c.json({ error: `ออเดอร์ยังอยู่ในช่วงยกเลิก ${ORDER_GRACE_PERIOD_SECONDS} วินาที`, code: 'GRACE_PERIOD_ACTIVE' }, 409)
     }
     if (ownedOrder.rows[0].status === 'pending') {
       await client.query('SELECT auto_confirm_order($1)', [orderId])

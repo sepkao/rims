@@ -16,7 +16,7 @@ export default function GracePeriodCountdown() {
   const [searchParams] = useSearchParams()
   const orderId = searchParams.get('orderId')
   const [status, setStatus] = useState<OrderedItem['status'] | 'loading'>('loading')
-  const [remaining, setRemaining] = useState(60)
+  const [remaining, setRemaining] = useState(30)
   const [error, setError] = useState('')
   const [cancelling, setCancelling] = useState(false)
   const [finalizing, setFinalizing] = useState(false)

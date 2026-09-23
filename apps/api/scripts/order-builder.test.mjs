@@ -80,8 +80,12 @@ test('POST /customer/orders validates cart contents against real BOM and stock a
     await t.test('a valid cart creates a real order with matching items and a snapshotted BOM', async () => {
       const response = await submit(normalQr, oneItem(1))
       assert.equal(response.status, 201)
-      const { orderId } = await response.json()
+      const { orderId, confirmAt } = await response.json()
       ids.orders.push(orderId)
+      const order = await one('SELECT confirm_at FROM orders WHERE id = $1', [orderId])
+      const graceSeconds = (new Date(order.confirm_at).getTime() - Date.now()) / 1000
+      assert.ok(graceSeconds > 25 && graceSeconds <= 30)
+      assert.ok(Math.abs(new Date(confirmAt).getTime() - new Date(order.confirm_at).getTime()) < 1_000)
       const item = await one('SELECT id, quantity FROM order_items WHERE order_id = $1', [orderId])
       assert.equal(item.quantity, 1)
       assert.equal((await one('SELECT count(*)::int AS n FROM order_item_bom WHERE order_item_id = $1', [item.id])).n, 1)

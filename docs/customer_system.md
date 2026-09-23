@@ -41,9 +41,9 @@ Customer เป็นเว็บ anonymous สำหรับลูกค้า
 
 1. `POST /customer/orders` รับ `{ qrCode, items }`.
 2. Server lock session, ตรวจ active menu, จำนวน 1–20, ingredient ที่ลูกค้าถอด, และ stock สดในตู้พักละลายภายใน transaction.
-3. สร้าง order `pending` และ `confirm_at = now() + 60 seconds`; ยังไม่หัก stock.
+3. สร้าง order `pending` และ `confirm_at = now() + 30 seconds`; ยังไม่หัก stock.
 4. ลูกค้ายกเลิกด้วย `POST /customer/orders/:id/cancel` ก่อนเวลาได้เฉพาะ order ของ QR เดียวกัน.
-5. development worker ทุก 5 วินาที หรือ production pg_cron ทุก 1 นาที เรียก `auto_confirm_order()` สำหรับ pending ที่ครบเวลา. FIFO ใช้เฉพาะล็อตในตู้พักละลายที่ยังไม่หมดอายุ (`expiry_date > now()`) และเรียง expiry/created/id แบบคงที่. ถ้าสต็อกหายไปก่อน confirm, function ยกเลิกทั้งออเดอร์ ไม่ตัดบางรายการ.
+5. development worker และ production pg_cron ตรวจทุก 5 วินาทีเพื่อเรียก `auto_confirm_order()` สำหรับ pending ที่ครบ 30 วินาที. FIFO ใช้เฉพาะล็อตในตู้พักละลายที่ยังไม่หมดอายุ (`expiry_date > now()`) และเรียง expiry/created/id แบบคงที่. ถ้าสต็อกหายไปก่อน confirm, function ยกเลิกทั้งออเดอร์ ไม่ตัดบางรายการ.
 6. ถ้ายืนยันสำเร็จ status เป็น `confirmed`; Customer แสดงเป็น `cooking`.
 
 `0002_cashier_hardening.sql` override `auto_confirm_order()` ให้ FIFO deduction อยู่ใน PL/pgSQL subtransaction. หาก ingredient ใดไม่พอ การตัดทั้งหมดในรอบนั้น rollback ก่อนบันทึก `cancelled`.
@@ -67,4 +67,4 @@ API dev (`/dev/*`) ใช้ได้เฉพาะ `NODE_ENV !== production`; 
 2. Cashier ต้อง set `VITE_CUSTOMER_APP_URL` ให้เป็น URL customer app ก่อนเปิดโต๊ะ.
 3. Customer set `VITE_API_URL` เมื่อ API อยู่คนละ origin; local dev ที่ไม่ตั้งใช้ `http://localhost:3000`, production ที่ไม่ตั้งใช้ same-origin path.
 4. ตรวจ build ด้วย `tsc --noEmit -p apps/customer/tsconfig.json` และ `vite build`.
-5. UAT: cashier check-in, scan QR, สั่ง menu ที่มี stock, cancel ภายใน 60 วินาที, ปล่อย confirm, ลอง QR หมดอายุ และเรียกพนักงานซ้ำภายใน 30 วินาที.
+5. UAT: cashier check-in, scan QR, สั่ง menu ที่มี stock, cancel ภายใน 30 วินาที, ปล่อย confirm, ลอง QR หมดอายุ และเรียกพนักงานซ้ำภายใน 30 วินาที.

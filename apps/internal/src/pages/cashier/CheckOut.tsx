@@ -264,7 +264,57 @@ function ExternalPaymentPanel({ total, reference, onReferenceChange }: { total: 
 
 function Receipt({ bill, result, onPrint, onBack }: { bill: BillData; result: CheckoutResult; onPrint: () => void; onBack: () => void }) {
   const methodLabel = result.payment.paymentMethod === 'cash' ? 'เงินสด' : 'PromptPay'
-  return <div className="w-full max-w-[800px] pb-20 text-[#2D1B17] print:bg-white print:p-0"><header className="anim-down rounded-[28px] border-2 border-[#2D1B17] bg-[#E8D8CA] px-7 py-7 shadow-[8px_8px_0_#2D1B17] print:hidden"><div className="flex items-center gap-4"><span className="flex h-12 w-12 items-center justify-center rounded-2xl border-2 border-green-900 bg-green-100 text-green-800 shadow-[3px_3px_0_#2D1B17]"><CheckCircle2 size={25} /></span><div><h1 className="text-3xl font-black">เช็คเอาท์สำเร็จ</h1><p className="mt-1 text-sm font-bold text-[#6D5147]">โต๊ะ {bill.session.tableNumber} พร้อมเข้าสู่ขั้นตอนเก็บโต๊ะ</p></div></div></header><section className="anim-up d-2 mx-auto mt-8 max-w-md rounded-[24px] border-2 border-[#2D1B17] bg-white p-8 shadow-[7px_7px_0_#2D1B17] print:mt-0 print:max-w-full print:border-none print:shadow-none"><div className="text-center"><h2 className="text-2xl font-black">RIMS Restaurant</h2><p className="mt-1 text-sm font-bold text-[#7B726B]">ใบเสร็จรับเงิน</p><p className="mt-4 font-black">โต๊ะ {bill.session.tableNumber}</p><p className="text-xs font-semibold text-[#7B726B]">{new Date().toLocaleDateString('th-TH')} · {result.receiptNumber}</p></div><div className="mt-6 space-y-2 border-y-2 border-dashed border-[#D9B99A] py-5 text-sm">{bill.session.adultCount > 0 && <ReceiptLine label={`ผู้ใหญ่ x${bill.session.adultCount}`} value={bill.session.adultCount * Number(bill.session.pricePerAdult)} />}{bill.session.childCount > 0 && <ReceiptLine label={`เด็ก x${bill.session.childCount}`} value={bill.session.childCount * Number(bill.session.pricePerChild)} />}{bill.session.seniorCount > 0 && <ReceiptLine label={`ผู้สูงอายุ x${bill.session.seniorCount}`} value={bill.session.seniorCount * Number(bill.session.pricePerSenior)} />}{bill.session.disabledCount > 0 && <ReceiptLine label={`ผู้พิการ x${bill.session.disabledCount}`} value={bill.session.disabledCount * Number(bill.session.pricePerDisabled)} />}</div><div className="mt-5 flex justify-between text-xl font-black"><span>ยอดสุทธิ</span><span>฿{bill.total.toLocaleString()}</span></div><div className="mt-3 rounded-xl bg-[#F1E2CF] p-3 text-right text-xs font-bold"><p>ชำระโดย: {methodLabel}</p>{result.payment.cashReceived !== null && <p>รับ ฿{result.payment.cashReceived.toLocaleString()} · ทอน ฿{result.payment.changeAmount.toLocaleString()}</p>}{result.payment.paymentReference && <p>อ้างอิง: {result.payment.paymentReference}</p>}</div><p className="mt-8 text-center text-xs font-bold text-[#7B726B]">ขอบคุณที่ใช้บริการ</p></section><div className="mx-auto mt-7 flex max-w-md gap-3 print:hidden"><button onClick={onPrint} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] py-3 text-sm font-black text-white shadow-[3px_3px_0_#B97861]"><Printer size={16} />พิมพ์ใบเสร็จ</button><button onClick={onBack} className="flex-1 rounded-xl border-2 border-[#2D1B17] bg-white py-3 text-sm font-black">กลับหน้ารายการโต๊ะ</button></div></div>
+  const issuedAt = new Date()
+
+  useEffect(() => {
+    document.body.classList.add('receipt-print-mode')
+    return () => document.body.classList.remove('receipt-print-mode')
+  }, [])
+
+  return <div className="receipt-print-page w-full max-w-[800px] pb-20 text-[#2D1B17]">
+    <style>{'@media print { @page { margin: 0; } }'}</style>
+    <header className="anim-down rounded-[28px] border-2 border-[#2D1B17] bg-[#E8D8CA] px-7 py-7 shadow-[8px_8px_0_#2D1B17] print:hidden">
+      <div className="flex items-center gap-4"><span className="flex h-12 w-12 items-center justify-center rounded-2xl border-2 border-green-900 bg-green-100 text-green-800 shadow-[3px_3px_0_#2D1B17]"><CheckCircle2 size={25} /></span><div><h1 className="text-3xl font-black">เช็คเอาท์สำเร็จ</h1><p className="mt-1 text-sm font-bold text-[#6D5147]">โต๊ะ {bill.session.tableNumber} พร้อมเข้าสู่ขั้นตอนเก็บโต๊ะ</p></div></div>
+    </header>
+
+    <section className="receipt-paper anim-up d-2 mx-auto mt-8 w-full max-w-[80mm] rounded-[24px] border-2 border-[#2D1B17] bg-white px-6 py-7 shadow-[7px_7px_0_#2D1B17]">
+      <header className="text-center">
+        <h2 className="receipt-shop-name text-xl font-black uppercase tracking-wide">RIMS Restaurant</h2>
+        <p className="mt-1 text-xs font-bold">ใบเสร็จรับเงิน</p>
+      </header>
+
+      <dl className="receipt-meta mt-5 space-y-1 border-y border-dashed border-[#2D1B17] py-3 text-[11px] font-semibold">
+        <div className="flex justify-between gap-3"><dt>เลขที่</dt><dd className="text-right font-bold">{result.receiptNumber}</dd></div>
+        <div className="flex justify-between gap-3"><dt>โต๊ะ</dt><dd className="text-right font-bold">{bill.session.tableNumber}</dd></div>
+        <div className="flex justify-between gap-3"><dt>วันที่</dt><dd className="text-right">{issuedAt.toLocaleDateString('th-TH')}</dd></div>
+        <div className="flex justify-between gap-3"><dt>เวลา</dt><dd className="text-right">{issuedAt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.</dd></div>
+      </dl>
+
+      <div className="receipt-items py-4 text-xs">
+        <div className="mb-2 grid grid-cols-[1fr_auto] gap-3 border-b border-dashed border-[#2D1B17] pb-2 text-[10px] font-black uppercase tracking-wide"><span>รายการ</span><span>จำนวนเงิน</span></div>
+        <div className="space-y-2">
+          {bill.session.adultCount > 0 && <ReceiptLine label="ผู้ใหญ่" quantity={bill.session.adultCount} unitPrice={Number(bill.session.pricePerAdult)} />}
+          {bill.session.childCount > 0 && <ReceiptLine label="เด็ก" quantity={bill.session.childCount} unitPrice={Number(bill.session.pricePerChild)} />}
+          {bill.session.seniorCount > 0 && <ReceiptLine label="ผู้สูงอายุ" quantity={bill.session.seniorCount} unitPrice={Number(bill.session.pricePerSenior)} />}
+          {bill.session.disabledCount > 0 && <ReceiptLine label="ผู้พิการ" quantity={bill.session.disabledCount} unitPrice={Number(bill.session.pricePerDisabled)} />}
+        </div>
+      </div>
+
+      <div className="receipt-total flex items-baseline justify-between gap-3 border-y-2 border-[#2D1B17] py-3 font-black"><span className="text-sm">ยอดสุทธิ</span><span className="text-xl">฿{bill.total.toLocaleString()}</span></div>
+
+      <dl className="receipt-payment mt-3 space-y-1 text-[11px] font-semibold">
+        <div className="flex justify-between gap-3"><dt>ชำระโดย</dt><dd className="text-right font-bold">{methodLabel}</dd></div>
+        {result.payment.cashReceived !== null && <><div className="flex justify-between gap-3"><dt>รับเงิน</dt><dd>฿{result.payment.cashReceived.toLocaleString()}</dd></div><div className="flex justify-between gap-3"><dt>เงินทอน</dt><dd>฿{result.payment.changeAmount.toLocaleString()}</dd></div></>}
+        {result.payment.paymentReference && <div className="flex justify-between gap-3"><dt>อ้างอิง</dt><dd className="max-w-[48mm] break-all text-right">{result.payment.paymentReference}</dd></div>}
+      </dl>
+
+      <footer className="mt-7 border-t border-dashed border-[#2D1B17] pt-4 text-center text-[11px] font-bold"><p>ขอบคุณที่ใช้บริการ</p><p className="mt-1 text-[9px] font-medium">กรุณาเก็บใบเสร็จไว้เป็นหลักฐาน</p></footer>
+    </section>
+
+    <div className="mx-auto mt-7 flex max-w-[80mm] gap-3 print:hidden"><button onClick={onPrint} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-[#2D1B17] py-3 text-sm font-black text-white shadow-[3px_3px_0_#B97861]"><Printer size={16} />พิมพ์ใบเสร็จ</button><button onClick={onBack} className="flex-1 rounded-xl border-2 border-[#2D1B17] bg-white py-3 text-sm font-black">กลับหน้ารายการโต๊ะ</button></div>
+  </div>
 }
 
-function ReceiptLine({ label, value }: { label: string; value: number }) { return <div className="flex justify-between"><span>{label}</span><strong>฿{value.toLocaleString()}</strong></div> }
+function ReceiptLine({ label, quantity, unitPrice }: { label: string; quantity: number; unitPrice: number }) {
+  return <div className="grid grid-cols-[1fr_auto] gap-3"><div><span className="font-bold">{label}</span><span className="block text-[10px]">{quantity} x ฿{unitPrice.toLocaleString()}</span></div><strong className="self-start">฿{(quantity * unitPrice).toLocaleString()}</strong></div>
+}

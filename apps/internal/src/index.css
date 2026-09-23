@@ -390,10 +390,22 @@ button { cursor: pointer; }
 /* ─── Shared system hero ──────────────────────────────── */
 .system-hero {
   background: linear-gradient(135deg, #38251f 0%, #4a332b 58%, #65483d 100%) !important;
-  color: #fff8ef !important;
+  color: #fffdf9 !important;
 }
-.system-hero h1 { color: #fff8ef !important; }
-.system-hero p { color: #e7c7b8 !important; }
+.system-hero h1 { color: #fffdf9 !important; }
+.system-hero p { color: #f1d9cc !important; }
+
+/* Light badges and controls inside the dark hero used to inherit the hero's
+   light foreground, making their labels and icons disappear into the surface. */
+.system-hero [class~="bg-white"],
+.system-hero [class~="bg-[#FFF8EF]"],
+.system-hero [class~="bg-[#FFFDF9]"],
+.system-hero [class~="bg-[#DBC8B8]"],
+.system-hero [class~="bg-[#E8D8CA]"],
+.system-hero [class~="bg-[#E7C7B8]"],
+.system-hero [class~="bg-[#F1E2CF]"] {
+  color: #2d1b17 !important;
+}
 
 
 /* ─── Responsive ──────────────────────────────────────── */
@@ -413,4 +425,64 @@ button { cursor: pointer; }
   .sidebar { display: none !important; }
   .app-content { margin-left: 0 !important; width: 100% !important; padding: 0 !important; }
   body, html { background: white !important; }
+
+  /* QR dialog is portalled directly under body. Keep the application behind it
+     out of the print flow so a single QR card cannot spill into extra pages. */
+  body.qr-print-mode > #root { display: none !important; }
+  body.qr-print-mode > .qr-print-overlay {
+    position: static !important;
+    display: block !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: white !important;
+    backdrop-filter: none !important;
+  }
+  body.qr-print-mode .qr-print-dialog {
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    animation: none !important;
+  }
+  body.qr-print-mode .qr-print-content {
+    break-inside: avoid;
+    min-height: 0 !important;
+    padding: 12mm 0 0 !important;
+  }
+
+  body.receipt-print-mode,
+  body.receipt-print-mode #root,
+  body.receipt-print-mode .app-layout,
+  body.receipt-print-mode .app-content {
+    width: 80mm !important;
+    min-width: 80mm !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+  body.receipt-print-mode .receipt-print-page {
+    width: 80mm !important;
+    max-width: 80mm !important;
+    padding: 0 !important;
+  }
+  body.receipt-print-mode .receipt-paper {
+    width: 80mm !important;
+    max-width: 80mm !important;
+    margin: 0 !important;
+    padding: 5mm 4mm !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    animation: none !important;
+    color: #000 !important;
+    break-inside: avoid;
+  }
+  body.receipt-print-mode .receipt-paper * {
+    color: #000 !important;
+    border-color: #000 !important;
+  }
 }

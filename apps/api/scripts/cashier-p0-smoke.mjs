@@ -116,6 +116,10 @@ try {
     }),
   })
   orderId = order.body.orderId
+  const graceMilliseconds = new Date(order.body.confirmAt).getTime() - Date.now()
+  if (graceMilliseconds < 25_000 || graceMilliseconds > 35_000) {
+    throw new Error(`Order grace period is not 30 seconds (${graceMilliseconds}ms observed)`)
+  }
 
   const tables = await request('/cashier/dining-tables', { headers: { Cookie: cookie } })
   const testedTable = tables.body.diningTables?.find((entry) => entry.id === tableId)
@@ -129,6 +133,7 @@ try {
     table_check_in: true,
     qr_customer_session: true,
     customer_order: true,
+    order_grace_period_30_seconds: true,
     cashier_sees_pending_order: true,
   }, null, 2))
 } catch (error) {

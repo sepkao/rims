@@ -4,7 +4,7 @@ import { Pool } from 'pg'
 import bcrypt from 'bcryptjs'
 
 // The grace period has two independent time boundaries that can race: an
-// order's own 60s confirm_at window, and the table session's expires_at.
+// order's own 30s confirm_at window, and the table session's expires_at.
 // expire_table_sessions() (the cron) sweeps still-pending orders when the
 // session expires; auto_confirm_order() ALSO defensively re-checks session
 // expiry before confirming, in case the cron hasn't run yet. Both must

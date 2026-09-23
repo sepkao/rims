@@ -45,6 +45,13 @@ export default function CheckInDialog({ table, sessionId, onClose, onChanged }: 
       .finally(() => setLoading(false))
   }, [sessionId])
 
+  useEffect(() => {
+    if (!sessionInfo) return
+
+    document.body.classList.add('qr-print-mode')
+    return () => document.body.classList.remove('qr-print-mode')
+  }, [sessionInfo])
+
   const formTotal = [adultCount, childCount, seniorCount, disabledCount].reduce((sum, value) => sum + (Number.parseInt(value, 10) || 0), 0)
   const sessionTotal = sessionInfo ? Number(sessionInfo.adultCount || 0) + Number(sessionInfo.childCount || 0) + Number(sessionInfo.seniorCount || 0) + Number(sessionInfo.disabledCount || 0) : 0
 
@@ -86,15 +93,15 @@ export default function CheckInDialog({ table, sessionId, onClose, onChanged }: 
     link.click()
   }
 
-  return createPortal(<div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px] print:absolute print:bg-white" onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) onClose() }}>
-    <section role="dialog" aria-modal="true" aria-labelledby="check-in-title" className="anim-up max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[28px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[9px_9px_0_#2D1B17] print:max-h-none print:border-none print:shadow-none">
+  return createPortal(<div role="presentation" className="qr-print-overlay fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#2D1B17]/75 px-4 py-6 backdrop-blur-[3px]" onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) onClose() }}>
+    <section role="dialog" aria-modal="true" aria-labelledby="check-in-title" className="qr-print-dialog anim-up max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[28px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[9px_9px_0_#2D1B17]">
       <header className="flex items-start justify-between gap-4 border-b-2 border-[#2D1B17] bg-[#DBC8B8] px-6 py-5 print:hidden">
         <div><span className="inline-flex items-center gap-1.5 rounded-full border-2 border-[#2D1B17] bg-white px-3 py-1 text-[10px] font-black shadow-[2px_2px_0_#2D1B17]"><Sparkles size={12} /> TABLE CHECK IN</span><h2 id="check-in-title" className="mt-3 text-3xl font-black">โต๊ะ {sessionInfo?.tableNumber || table.tableNumber}</h2><p className="mt-1 text-xs font-bold text-[#6D5147]">{sessionInfo ? 'QR พร้อมสำหรับให้ลูกค้าสแกน' : 'ระบุจำนวนลูกค้าเพื่อเปิดโต๊ะ'}</p></div>
         <button type="button" onClick={onClose} disabled={submitting} aria-label="ปิด" className="rounded-full border-2 border-[#2D1B17] bg-white p-2.5 shadow-[2px_2px_0_#2D1B17] transition hover:-translate-y-0.5 disabled:opacity-50"><X size={18} /></button>
       </header>
 
       {loading ? <div className="px-6 py-20 text-center text-sm font-black text-[#7B726B]"><RefreshCw className="mx-auto mb-3 animate-spin" />กำลังโหลด QR…</div>
-        : sessionInfo ? <div className="flex flex-col items-center px-6 py-7">
+        : sessionInfo ? <div className="qr-print-content flex flex-col items-center px-6 py-7">
           <div className="flex w-full max-w-md items-center justify-between rounded-2xl border-2 border-[#2D1B17] bg-[#E8D8CA] px-4 py-3"><span className="flex items-center gap-2 text-sm font-black"><Users size={17} />ลูกค้า {sessionTotal} ท่าน</span><span className="text-xs font-black text-red-700">หมดเวลา {new Date(sessionInfo.expiresAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.</span></div>
           {qrContent ? <><div className="mt-6 rounded-[22px] border-4 border-[#2D1B17] bg-white p-4 shadow-[6px_6px_0_#B97861]"><QRCodeCanvas ref={qrRef} value={qrContent} size={250} level="H" /></div><a href={qrContent} target="_blank" rel="noreferrer" className="mt-5 inline-flex items-center gap-1.5 text-xs font-black text-[#8B5746] underline decoration-2 underline-offset-4 print:hidden"><ExternalLink size={14} />เปิดหน้าลูกค้าเพื่อทดสอบ</a></>
             : <p className="mt-6 rounded-xl border-2 border-red-700 bg-red-50 p-4 text-sm font-bold text-red-700">ยังไม่ได้ตั้งค่า VITE_CUSTOMER_APP_URL</p>}

@@ -43,8 +43,8 @@ test('full order lifecycle across cashier, customer, and staff', async ({ page, 
   await staffPage.getByLabel('Password').fill(E2E_PASSWORD)
   await staffPage.getByRole('button', { name: /เข้าสู่ระบบ/ }).click()
   await staffPage.goto('http://localhost:5174/staff/serving-queue')
-  // Confirmation runs on a server-side timer (~60s); wait for it to land as confirmed.
-  await expect(staffPage.getByRole('button', { name: 'รับออเดอร์ (กำลังจัดเสิร์ฟ)' })).toBeVisible({ timeout: 70_000 })
+  // Confirmation is eligible after 30s and the server sweep runs every 5s.
+  await expect(staffPage.getByRole('button', { name: 'รับออเดอร์ (กำลังจัดเสิร์ฟ)' })).toBeVisible({ timeout: 45_000 })
   await staffPage.getByRole('button', { name: 'รับออเดอร์ (กำลังจัดเสิร์ฟ)' }).click()
   await staffPage.getByRole('button', { name: /เสิร์ฟส่วนที่เหลือทั้งหมด/ }).click()
   await staffPage.getByRole('button', { name: 'ยืนยันว่าเสิร์ฟครบ' }).click()

@@ -99,7 +99,7 @@
 | 6 | **System auto-confirm หลังครบ grace period** (ไม่มีพนักงานกดยืนยัน — ดูข้อ 11 Roles) | ✅ **ตัดตรงนี้เท่านั้น** | ตู้พักละลาย ตาม recipe ที่ปรับแล้วถ้ามี UC-N9 — หน่วย **จาน** (เช่น 1 จานเนื้อ + 1 จานผัก ต่อออเดอร์ ไม่ใช่กรัมอีกต่อไป ตาม F3c) |
 
 **หลักการ**: ตัดสต๊อกที่จุดยืนยันออเดอร์เพียงจุดเดียว ไม่ตัดตอน submit/ยืนยันชั้นแรก — ป้องกัน race condition
-**Grace period constant (worksheet E7, ล็อก 2026-07-15):** ใช้ constant เดียวกันทั้งระบบ `GRACE_PERIOD_SECONDS = 60` — ใช้ทั้งจุดนี้ (ก่อน auto-confirm ออเดอร์) และจุด buffer ก่อนปิด QR จริงหลังแจ้งหมดเวลา (worksheet C4)
+**Grace period constants:** ก่อน auto-confirm ออเดอร์ใช้ `ORDER_GRACE_PERIOD_SECONDS = 30`; ส่วน buffer ก่อนปิด QR จริงหลังแจ้งหมดเวลายังคง 60 วินาที เพราะเป็นคนละเหตุการณ์กัน
 
 ### กฎเสริม
 - ถ้าสต๊อกในตู้พักละลายไม่พอตอนลูกค้าจะสั่ง (ขั้นตอน 3) → **ปฏิเสธออเดอร์ทันที** ไม่ปล่อยผ่านไปถึง confirm ไม่มี fallback ดึงจาก Freezer อัตโนมัติ (สำหรับผัก: ไม่มี fallback อยู่แล้วเพราะไม่มี lot ดิบเหลือให้ดึง — ต้องรอ UC-N1 รอบใหม่เท่านั้น)
@@ -172,7 +172,7 @@ WHERE lot_id = X AND quantity_remaining >= 1;
 - **พนักงาน (Staff)** — รับล็อต (UC-N1, รวมแปลงหน่วยผักเป็นจานทันที), ย้ายเข้าตู้พักละลาย (UC-N2, **เฉพาะเนื้อ** — F3d), ดูคำแนะนำเตรียมสต๊อก (UC-N3), ดูออเดอร์ที่ระบบยืนยันแล้วเพื่อเสิร์ฟ — **ไม่มีสิทธิ์กด confirm ออเดอร์** (เดิมเคยล็อกไว้ว่า Staff กด confirm แต่ภายหลังเปลี่ยนเป็น auto ทั้งหมดโดยระบบ ดู UC-N4/N5 ข้อ 6 และ worksheet F1c)
 - **แคชเชียร์ (Cashier)** — actor ใหม่ที่เพิ่มเข้ามาแทนที่หน้าที่ QR/โต๊ะที่เดิมเคยอยู่กับ Staff: เปิดโต๊ะ (ขอ QR ใหม่), ปิดโต๊ะ (check-out), ติดตามสถานะโต๊ะ
 - **Customer** — สแกน QR, สั่งอาหาร (UC-N4), ไม่ต้อง login
-- **ระบบ/Timer (System)** — auto-confirm ออเดอร์หลัง grace period 1 นาทีแล้วตัดสต็อก FIFO, auto ตัดวัตถุดิบเข้าสถานะไม่สด, auto แจ้งเตือนสต็อกต่ำ, พิมพ์ QR, ประมวลผล AI features
+- **ระบบ/Timer (System)** — auto-confirm ออเดอร์หลัง grace period 30 วินาทีแล้วตัดสต็อก FIFO, auto ตัดวัตถุดิบเข้าสถานะไม่สด, auto แจ้งเตือนสต็อกต่ำ, พิมพ์ QR, ประมวลผล AI features
 
 **การปิดใช้งาน account (เพิ่ม 2026-08-02):** `users.is_active` (default `true`) — ใช้ตอนพนักงาน/แคชเชียร์ลาออกหรือถูกเพิกถอนสิทธิ์ **แทนการลบ row จริง** เพราะ `stock_lots.received_by`, `stock_movements.actor_id`, `waste_records.reviewed_by`, `table_sessions.opened_by/ended_by`, `users.created_by` ล้วนมี FK อ้างกลับมาที่ `users(id)` — ลบ user ที่เคยมีกิจกรรมในระบบจะชน constraint ทันที ตั้ง `is_active = false` แทนเพื่อบล็อก login โดยไม่ทำลายประวัติ — login ต้องเช็ค `is_active = true` เพิ่มจากเดิม (เช็ค email/password อย่างเดียว)
 
@@ -239,7 +239,7 @@ WHERE lot_id = X AND quantity_remaining >= 1;
 **Customer-facing app** (public, ไม่ login, เข้าผ่าน QR)
 1. หน้าเมนู — ค้นด้วย autocomplete/keyword, เห็นรายละเอียดวัตถุดิบในหน้าเดียว (D5)
 2. หน้าเลือกจาน/จำนวน + ปรับแต่ง (UC-N9, ตัดวัตถุดิบออกได้เท่านั้น)
-3. Popup ยืนยันชั้น 2 + grace period countdown (ยกเลิกได้ภายใน 60 วิ)
+3. Popup ยืนยันชั้น 2 + grace period countdown (ยกเลิกได้ภายใน 30 วิ)
 4. หน้าประวัติออเดอร์ของโต๊ะนี้ (สั่งเพิ่มได้ไม่จำกัดรอบในเซสชันเดียว)
 5. Banner แจ้งเตือน QR ใกล้หมดเวลา/หมดเวลาแล้ว (แสดงทุกหน้า)
 
