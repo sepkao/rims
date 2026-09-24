@@ -3,17 +3,39 @@ import { Link } from 'react-router-dom'
 import {
   CalendarClock,
   CheckCircle2,
-  Clock,
   Flame,
   History,
   RefreshCw,
   ShieldAlert,
   Sparkles,
+  TrendingUp,
   TriangleAlert,
 } from 'lucide-react'
 import { useInventory } from '../../contexts/InventoryContext'
-import { formatInventoryQuantity } from '../../lib/format-quantity'
 import { apiFetch } from '../../lib/api'
+
+type SalesPeriod = 'day' | 'week' | 'month'
+
+type TopIngredient = {
+  id: string
+  name: string
+  category: 'meat' | 'vegetable'
+  netPlates: number
+}
+
+type TopIngredientsResponse = {
+  period: SalesPeriod
+  periodStart: string
+  periodEnd: string
+  totalNetPlates: number
+  ingredients: TopIngredient[]
+}
+
+const salesPeriodOptions: Array<{ value: SalesPeriod; label: string }> = [
+  { value: 'day', label: 'วันนี้' },
+  { value: 'week', label: 'สัปดาห์นี้' },
+  { value: 'month', label: 'เดือนนี้' },
+]
 
 type ExpiryAlert = {
   lotId: string
@@ -43,7 +65,6 @@ function formatCardCount(value: number) {
 export default function DashboardPage() {
   const {
     batches: inventoryBatches,
-    fifoQueue,
     loading: inventoryLoading,
     refresh: refreshInventory,
   } = useInventory()
@@ -53,6 +74,8 @@ export default function DashboardPage() {
   const [loadingAlerts, setLoadingAlerts] = useState(true)
   const [errorAlerts, setErrorAlerts] = useState('')
   const [lastChecked, setLastChecked] = useState<Date | null>(null)
+  const [salesPeriod, setSalesPeriod] = useState<SalesPeriod>('day')
+  const [salesData, setSalesData] = useState<TopIngredientsResponse | null>(null)
 
   const inStock = inventoryBatches.filter((batch) => Number.parseFloat(batch.qty) > 0)
   const expiring = inStock.filter((batch) => batch.status === 'Expiring Soon')
@@ -62,12 +85,14 @@ export default function DashboardPage() {
   const refreshAlerts = useCallback(async (quiet = false) => {
     if (!quiet) setLoadingAlerts(true)
     try {
-      const [expiry, lowStock] = await Promise.all([
+      const [expiry, lowStock, topIngredients] = await Promise.all([
         apiFetch<{ alerts: ExpiryAlert[] }>('/owner/expiry-alerts'),
         apiFetch<{ alerts: LowStockAlert[] }>('/owner/low-stock-alerts'),
+        apiFetch<TopIngredientsResponse>(`/owner/top-ingredients?period=${salesPeriod}`),
       ])
       setExpiryAlerts(expiry.alerts || [])
       setLowStockAlerts(lowStock.alerts || [])
+      setSalesData(topIngredients)
       setLastChecked(new Date())
       setErrorAlerts('')
     } catch (caught) {
@@ -75,7 +100,7 @@ export default function DashboardPage() {
     } finally {
       if (!quiet) setLoadingAlerts(false)
     }
-  }, [])
+  }, [salesPeriod])
 
   const handleRefreshAll = async () => {
     await Promise.all([refreshInventory(), refreshAlerts(false)])
@@ -90,6 +115,12 @@ export default function DashboardPage() {
   }, [refreshAlerts])
 
   const isLoading = inventoryLoading || loadingAlerts
+  const selectedPeriod = salesPeriodOptions.find((option) => option.value === salesPeriod) ?? salesPeriodOptions[0]
+  const totalNetPlates = Math.max(0, Math.round(Number(salesData?.totalNetPlates ?? 0)))
+  const maxIngredientPlates = Math.max(
+    1,
+    ...((salesData?.ingredients ?? []).map((ingredient) => Number(ingredient.netPlates))),
+  )
 
   return (
     <div className="w-full max-w-[1240px]">
@@ -372,72 +403,112 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ─── FIFO Queue Table ─── */}
+      {/* ─── Best-selling ingredients ─── */}
       <section className="anim-up d-4 mb-7 overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-[#FFFDF9] shadow-[7px_7px_0_#2D1B17] transition-all duration-300 hover:shadow-[9px_9px_0_#2D1B17]">
-        <header className="flex flex-col gap-2 border-b-2 border-[#2D1B17] bg-[#E8D8CA] px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg border-2 border-[#2D1B17] bg-[#2D1B17] text-[#FFFDF9] shadow-[1.5px_1.5px_0_#B97861]">
-                <Clock size={14} />
-              </span>
-              <h2 className="text-lg font-black text-[#2D1B17]">คิวหยิบใช้ตาม FIFO</h2>
+        <header className="border-b-2 border-[#2D1B17] bg-[#E8D8CA] px-6 py-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-[#2D1B17] bg-[#2D1B17] text-[#FFFDF9] shadow-[1.5px_1.5px_0_#B97861]">
+                  <TrendingUp size={16} />
+                </span>
+                <h2 className="text-lg font-black text-[#2D1B17]">วัตถุดิบขายดี</h2>
+              </div>
+              <p className="mt-1 text-xs font-bold text-[#6D5147]">
+                จัดอันดับจากยอดใช้ในออเดอร์ที่ยืนยันแล้ว โดยหักรายการคืนออก
+              </p>
             </div>
-            <p className="mt-0.5 text-xs font-bold text-[#6D5147]">
-              ใช้ล็อตที่รับเข้าก่อนเป็นลำดับแรก (First-In, First-Out) เพื่อลดโอกาสของเสียในครัว
-            </p>
+
+            <div className="flex flex-wrap gap-2">
+              {salesPeriodOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    if (option.value !== salesPeriod) setSalesData(null)
+                    setSalesPeriod(option.value)
+                  }}
+                  className={`rounded-xl border-2 border-[#2D1B17] px-3.5 py-2 text-xs font-black transition-all ${
+                    salesPeriod === option.value
+                      ? 'bg-[#2D1B17] text-white shadow-[3px_3px_0_#B97861]'
+                      : 'bg-white text-[#2D1B17] hover:bg-[#FFF8EF]'
+                  }`}
+                  aria-pressed={salesPeriod === option.value}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <span className="w-fit rounded-full border-2 border-[#2D1B17] bg-[#2D1B17] px-3.5 py-1 text-xs font-black text-white shadow-[2px_2px_0_#B97861]">
-            {fifoQueue.length} ล็อตในระบบ
-          </span>
+
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border-2 border-[#2D1B17] bg-white px-4 py-3 shadow-[3px_3px_0_#2D1B17]">
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-[.14em] text-[#75584E]">
+                ยอดรวม {selectedPeriod.label}
+              </p>
+              <p className="mt-0.5 text-2xl font-black text-[#2D1B17]">
+                {totalNetPlates.toLocaleString('th-TH')}
+                <span className="ml-1.5 text-xs text-[#75584E]">ถาด</span>
+              </p>
+            </div>
+            <span className="rounded-full border-2 border-[#2D1B17] bg-[#F1E2CF] px-3 py-1 text-[10px] font-black text-[#2D1B17]">
+              อัปเดตทุก 15 วินาที
+            </span>
+          </div>
         </header>
 
         <div className="divide-y-2 divide-[#2D1B17]/10">
-          {fifoQueue.length === 0 ? (
-            <div className="py-12 text-center text-sm font-black text-[#75584E]">
-              ไม่มีล็อตวัตถุดิบคงค้างในระบบ
+          {loadingAlerts && !salesData ? (
+            <div className="flex flex-col items-center justify-center py-14 text-center">
+              <RefreshCw size={28} className="animate-spin text-[#B97861]" />
+              <p className="mt-3 text-sm font-black text-[#2D1B17]">กำลังสรุปยอดขาย...</p>
+            </div>
+          ) : !salesData?.ingredients.length ? (
+            <div className="flex flex-col items-center justify-center py-14 text-center">
+              <TrendingUp size={36} className="text-[#B97861]" />
+              <p className="mt-3 text-base font-black text-[#2D1B17]">ยังไม่มียอดขายในช่วงนี้</p>
+              <p className="mt-1 text-xs font-bold text-[#75584E]">ข้อมูลจะแสดงเมื่อมีการยืนยันออเดอร์</p>
             </div>
           ) : (
-            fifoQueue.map((batch, index) => {
-              const badgeStyle =
-                batch.status === 'Expiring Soon'
-                  ? 'bg-[#E7C7B8] text-[#2D1B17]'
-                  : batch.status === 'Expired'
-                    ? 'bg-[#2D1B17] text-white shadow-[1px_1px_0_#B97861]'
-                    : 'bg-white text-[#2D1B17]'
+            salesData.ingredients.map((ingredient, index) => {
+              const plateCount = Math.max(0, Number(ingredient.netPlates))
+              const percentage = Math.max(8, (plateCount / maxIngredientPlates) * 100)
 
               return (
                 <div
-                  key={batch.id}
-                  className="group flex flex-col gap-3 px-6 py-4 transition-all duration-200 hover:bg-[#FFF8EF] hover:pl-8 sm:flex-row sm:items-center"
+                  key={ingredient.id}
+                  className="group flex items-center gap-4 px-6 py-4 transition-all duration-200 hover:bg-[#FFF8EF] hover:pl-8"
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border-2 border-[#2D1B17] bg-[#F1E2CF] text-sm font-black text-[#2D1B17] shadow-[2px_2px_0_#2D1B17] transition-transform duration-200 group-hover:scale-110">
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 border-[#2D1B17] text-sm font-black shadow-[2px_2px_0_#2D1B17] transition-transform group-hover:scale-110 ${
+                    index === 0
+                      ? 'rotate-[-3deg] bg-[#B97861] text-white'
+                      : index === 1
+                        ? 'rotate-[-2deg] bg-[#DBC8B8] text-[#2D1B17]'
+                        : 'bg-[#F1E2CF] text-[#2D1B17]'
+                  }`}>
                     {index + 1}
                   </span>
+
                   <div className="min-w-0 flex-1">
-                    <p className="text-base font-black text-[#2D1B17]">
-                      {batch.item}{' '}
-                      <span className="ml-1 rounded-md border border-[#2D1B17]/40 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#75584E]">
-                        {batch.batch}
-                      </span>
-                    </p>
-                    <p className="mt-0.5 text-xs font-bold text-[#75584E]">
-                      รับเข้า {batch.receiveDate} · คงเหลือ{' '}
-                      <span className="font-black text-[#2D1B17]">{formatInventoryQuantity(batch.qty)}</span>
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between gap-4 sm:flex-col sm:items-end">
-                    <p className="text-xs font-bold text-[#75584E]">
-                      หมดอายุ: <span className="font-black text-[#2D1B17]">{batch.expireDate}</span>
-                    </p>
-                    <span
-                      className={`rounded-full border-2 border-[#2D1B17] px-3 py-0.5 text-[10px] font-black shadow-[1.5px_1.5px_0_#2D1B17] transition-transform duration-200 group-hover:scale-105 ${badgeStyle}`}
-                    >
-                      {batch.status === 'Expiring Soon'
-                        ? 'ควรใช้วันนี้'
-                        : batch.status === 'Expired'
-                          ? 'หมดอายุ'
-                          : 'พร้อมใช้'}
-                    </span>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="truncate text-base font-black text-[#2D1B17]">{ingredient.name}</p>
+                        <span className="mt-1 inline-flex rounded-full border border-[#2D1B17]/30 bg-white px-2 py-0.5 text-[9px] font-black text-[#75584E]">
+                          {ingredient.category === 'meat' ? 'เนื้อสัตว์' : 'ผัก'}
+                        </span>
+                      </div>
+                      <p className="shrink-0 text-xl font-black text-[#2D1B17]">
+                        {plateCount.toLocaleString('th-TH')}
+                        <span className="ml-1 text-[10px] text-[#75584E]">ถาด</span>
+                      </p>
+                    </div>
+
+                    <div className="mt-2.5 h-3 overflow-hidden rounded-full border-2 border-[#2D1B17] bg-[#E8D8CA]">
+                      <div
+                        className="h-full rounded-full bg-[#93AF54] transition-all duration-700"
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
               )

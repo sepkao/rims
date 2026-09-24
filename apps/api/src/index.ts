@@ -329,6 +329,60 @@ app.get('/staff/orders', async (c) => {
   }
 })
 
+app.get('/owner/top-ingredients', async (c) => {
+  try {
+    const period = c.req.query('period') ?? 'day'
+    if (!['day', 'week', 'month'].includes(period)) {
+      return c.json({ error: 'Period must be day, week, or month' }, 400)
+    }
+
+    const result = await pool.query(
+      `WITH bounds AS (
+         SELECT CASE $1::text
+           WHEN 'day' THEN date_trunc('day', now() AT TIME ZONE 'Asia/Bangkok') AT TIME ZONE 'Asia/Bangkok'
+           WHEN 'week' THEN date_trunc('week', now() AT TIME ZONE 'Asia/Bangkok') AT TIME ZONE 'Asia/Bangkok'
+           ELSE date_trunc('month', now() AT TIME ZONE 'Asia/Bangkok') AT TIME ZONE 'Asia/Bangkok'
+         END AS start_at
+       ), net_usage AS (
+         SELECT i.id::text,
+                i.name,
+                i.category,
+                GREATEST(SUM(-sm.quantity), 0)::float8 AS "netPlates"
+         FROM stock_movements sm
+         JOIN stock_lots sl ON sl.id = sm.stock_lot_id
+         JOIN ingredients i ON i.id = sl.ingredient_id
+         CROSS JOIN bounds b
+         WHERE sm.movement_type IN ('deduction', 'return')
+           AND sm.created_at >= b.start_at
+           AND sm.created_at <= now()
+         GROUP BY i.id, i.name, i.category
+       )
+       SELECT b.start_at AS "periodStart",
+              now() AS "periodEnd",
+              COALESCE((
+                SELECT SUM(nu."netPlates") FROM net_usage nu WHERE nu."netPlates" > 0
+              ), 0)::float8 AS "totalNetPlates",
+              COALESCE((
+                SELECT json_agg(top_ingredients ORDER BY top_ingredients."netPlates" DESC, top_ingredients.name)
+                FROM (
+                  SELECT id, name, category, "netPlates"
+                  FROM net_usage
+                  WHERE "netPlates" > 0
+                  ORDER BY "netPlates" DESC, name
+                  LIMIT 8
+                ) top_ingredients
+              ), '[]'::json) AS ingredients
+       FROM bounds b`,
+      [period],
+    )
+
+    return c.json({ period, ...result.rows[0] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Unable to load top-selling ingredients' }, 500)
+  }
+})
+
 app.put('/staff/orders/:id/acknowledge', async (c) => {
   const client = await pool.connect()
   let transactionStarted = false
@@ -2974,6 +3028,11 @@ app.post('/customer/orders', async (c) => {
         await client.query('ROLLBACK')
         transactionStarted = false
         return c.json({ error: 'วัตถุดิบที่เลือกเอาออกต้องเป็นวัตถุดิบที่อนุญาตให้เอาออกได้ของเมนูนั้น' }, 400)
+      }
+      if (rows.every((row) => removed.has(row.ingredient_id))) {
+        await client.query('ROLLBACK')
+        transactionStarted = false
+        return c.json({ error: 'แต่ละเมนูต้องเหลือวัตถุดิบอย่างน้อย 1 รายการ' }, 400)
       }
       for (const row of rows) {
         if (removed.has(row.ingredient_id)) continue

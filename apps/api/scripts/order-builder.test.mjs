@@ -24,6 +24,9 @@ test('POST /customer/orders validates cart contents against real BOM and stock a
     const menuId = (await one('INSERT INTO menu_items(name) VALUES($1) RETURNING id', [prefix])).id
     ids.menuItems.push(menuId)
     await pool.query('INSERT INTO menu_item_ingredients(menu_item_id,ingredient_id,quantity_required_plates,removable) VALUES($1,$2,1,false)', [menuId, ingredientId])
+    const removableMenuId = (await one('INSERT INTO menu_items(name) VALUES($1) RETURNING id', [prefix + '-removable-combo'])).id
+    ids.menuItems.push(removableMenuId)
+    await pool.query('INSERT INTO menu_item_ingredients(menu_item_id,ingredient_id,quantity_required_plates,removable) VALUES($1,$2,1,true)', [removableMenuId, ingredientId])
     const header = (await one('INSERT INTO lot_headers(received_by) VALUES($1) RETURNING id', [ids.users[0]])).id
     ids.headerId = header
     const lot = (await one(
@@ -70,6 +73,12 @@ test('POST /customer/orders validates cart contents against real BOM and stock a
     await t.test('removing an ingredient that is not marked removable on this menu item is rejected', async () => {
       const response = await submit(normalQr, oneItem(1, [String(ingredientId)]))
       assert.equal(response.status, 400)
+    })
+
+    await t.test('removing every ingredient from a combo is rejected', async () => {
+      const response = await submit(normalQr, [{ menuItemId: removableMenuId, quantity: 1, removedIngredients: [String(ingredientId)] }])
+      assert.equal(response.status, 400)
+      assert.equal((await response.json()).error, 'แต่ละเมนูต้องเหลือวัตถุดิบอย่างน้อย 1 รายการ')
     })
 
     await t.test('insufficient real stock at submit time is rejected even if the menu looked available earlier', async () => {

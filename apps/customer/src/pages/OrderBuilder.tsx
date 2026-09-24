@@ -21,6 +21,7 @@ export default function OrderBuilder() {
   const [showConfirm, setShowConfirm] = useState(false);
   
   const [removedIngredients, setRemovedIngredients] = useState<string[]>([]);
+  const [customizationError, setCustomizationError] = useState('');
   const [session, setSession] = useState<CustomerSession | null>(null);
   const [orderingClosed, setOrderingClosed] = useState(false);
 
@@ -70,15 +71,21 @@ export default function OrderBuilder() {
   }, [loadItem]);
 
   const handleToggleIngredient = (ingredientId: string) => {
-    setRemovedIngredients(prev => 
-      prev.includes(ingredientId) 
-        ? prev.filter(i => i !== ingredientId)
-        : [...prev, ingredientId]
-    );
+    if (removedIngredients.includes(ingredientId)) {
+      setRemovedIngredients(prev => prev.filter(i => i !== ingredientId));
+      setCustomizationError('');
+      return;
+    }
+    if (item && item.ingredients.length - removedIngredients.length <= 1) {
+      setCustomizationError('ต้องเลือกวัตถุดิบไว้อย่างน้อย 1 รายการ');
+      return;
+    }
+    setRemovedIngredients(prev => [...prev, ingredientId]);
+    setCustomizationError('');
   };
 
   const handleConfirmOrder = () => {
-    if (!item || orderingClosed) return;
+    if (!item || orderingClosed || item.ingredients.length - removedIngredients.length < 1) return;
     addItem({
       menuItem: item,
       quantity: qty,
@@ -120,6 +127,7 @@ export default function OrderBuilder() {
     .filter((cartItem) => cartItem.menuItem.id === item.id)
     .reduce((total, cartItem) => total + cartItem.quantity, 0);
   const remainingServings = Math.max(0, item.availableServings - existingQuantity);
+  const includedIngredientCount = item.ingredients.length - removedIngredients.length;
 
   return (
     <div className="min-h-screen bg-[#F2ECE4] flex justify-center">
@@ -202,8 +210,15 @@ export default function OrderBuilder() {
                 <h3 className="font-black text-xs text-[#2D1B17] uppercase tracking-wider">
                   ปรับแต่งส่วนผสม (ไม่ใส่บางอย่าง)
                 </h3>
-                <span className="text-[10px] text-[#7B726B] font-bold">แตะเพื่อเลือก</span>
+                <span className="text-[10px] text-[#7B726B] font-bold">ต้องเหลืออย่างน้อย 1 รายการ</span>
               </div>
+
+              {customizationError && (
+                <div className="mb-2 flex items-center gap-2 rounded-xl border-2 border-red-600 bg-red-50 px-3 py-2 text-[10px] font-black text-red-700">
+                  <AlertCircle size={14} className="shrink-0" />
+                  {customizationError}
+                </div>
+              )}
               
               <div className="space-y-2">
                 {item.ingredients.map(ing => (
@@ -249,10 +264,10 @@ export default function OrderBuilder() {
         <div className="absolute bottom-0 left-0 w-full bg-[#FFF8EF] border-t-2 border-[#2D1B17] p-3 shadow-[0_-6px_20px_rgba(45,27,23,0.12)] z-30">
           <button 
             type="button"
-            disabled={orderingClosed || remainingServings < 1}
+            disabled={orderingClosed || remainingServings < 1 || includedIngredientCount < 1}
             onClick={() => setShowConfirm(true)}
             className={`shabu-btn-primary w-full py-3 text-sm shadow-[3px_3px_0_#B97861] ${
-              orderingClosed || remainingServings < 1 ? 'opacity-50 cursor-not-allowed' : ''
+              orderingClosed || remainingServings < 1 || includedIngredientCount < 1 ? 'opacity-50 cursor-not-allowed' : ''
             }`}
           >
             {orderingClosed
@@ -286,7 +301,7 @@ export default function OrderBuilder() {
                 <button 
                   type="button"
                   onClick={handleConfirmOrder}
-                  disabled={orderingClosed}
+                  disabled={orderingClosed || includedIngredientCount < 1}
                   className="shabu-btn-primary flex-1 py-2.5 text-xs shadow-[2px_2px_0_#B97861] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {orderingClosed ? 'ปิดรับออเดอร์แล้ว' : 'ตกลงเพิ่ม'}
