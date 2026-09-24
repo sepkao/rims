@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Archive, CheckCircle2, Pencil, RotateCcw, Search, TriangleAlert, X } from 'lucide-react'
 import { apiFetch } from '../../lib/api'
 import type { IngredientPreset } from '../../types/ingredient'
@@ -12,12 +12,28 @@ type Draft = {
   isActive: boolean
 }
 
+type CategoryFilter = 'all' | IngredientPreset['category']
+
+const categoryMeta = {
+  meat: {
+    label: 'เนื้อสัตว์',
+    description: 'ตั้งค่าน้ำหนักต่อถาด สต็อกขั้นต่ำใน Prep และจุดแจ้งเตือนใน Freezer',
+    badgeClass: 'bg-[#E7C7B8] text-[#6B3528]',
+  },
+  vegetable: {
+    label: 'ผัก',
+    description: 'ตั้งค่าน้ำหนักต่อถาดและจำนวนจานขั้นต่ำที่พร้อมเสิร์ฟ',
+    badgeClass: 'bg-emerald-100 text-emerald-900',
+  },
+} satisfies Record<IngredientPreset['category'], { label: string; description: string; badgeClass: string }>
+
 export default function IngredientSettings() {
   const [ingredients, setIngredients] = useState<IngredientPreset[]>([])
   const [selected, setSelected] = useState<IngredientPreset | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'active' | 'archived' | 'all'>('active')
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -37,11 +53,30 @@ export default function IngredientSettings() {
 
   useEffect(() => { void loadIngredients() }, [loadIngredients])
 
-  const visible = useMemo(() => ingredients.filter((ingredient) => {
-    const matchesQuery = `${ingredient.name} ${ingredient.category}`.toLowerCase().includes(query.toLowerCase())
+  const statusVisible = useMemo(() => ingredients.filter((ingredient) => {
+    const categoryLabel = categoryMeta[ingredient.category].label
+    const matchesQuery = `${ingredient.name} ${ingredient.category} ${categoryLabel}`.toLowerCase().includes(query.trim().toLowerCase())
     const matchesFilter = filter === 'all' || (filter === 'active' ? ingredient.isActive !== false : ingredient.isActive === false)
     return matchesQuery && matchesFilter
   }), [filter, ingredients, query])
+
+  const categoryCounts = useMemo(() => ({
+    all: statusVisible.length,
+    meat: statusVisible.filter((ingredient) => ingredient.category === 'meat').length,
+    vegetable: statusVisible.filter((ingredient) => ingredient.category === 'vegetable').length,
+  }), [statusVisible])
+
+  const visible = useMemo(() => statusVisible.filter((ingredient) => (
+    categoryFilter === 'all' || ingredient.category === categoryFilter
+  )), [categoryFilter, statusVisible])
+
+  const groupedVisible = useMemo(() => (['meat', 'vegetable'] as const)
+    .map((category) => ({
+      category,
+      ...categoryMeta[category],
+      ingredients: visible.filter((ingredient) => ingredient.category === category),
+    }))
+    .filter((group) => group.ingredients.length > 0), [visible])
 
   const openEditor = (ingredient: IngredientPreset) => {
     setSelected(ingredient)
@@ -133,9 +168,39 @@ export default function IngredientSettings() {
       {success && <div className="mb-5 flex items-center gap-2 rounded-2xl border-2 border-green-800 bg-green-50 px-5 py-4 text-sm font-bold text-green-800"><CheckCircle2 size={18} />{success}</div>}
 
       <section className="overflow-hidden rounded-[26px] border-2 border-[#2D1B17] bg-white shadow-[7px_7px_0_#2D1B17]">
-        <div className="flex flex-col gap-4 border-b-2 border-[#2D1B17] bg-[#FFF8EF] px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="inline-flex self-start rounded-xl border-2 border-[#2D1B17] bg-white p-1">{(['active', 'archived', 'all'] as const).map((value) => <button key={value} type="button" onClick={() => setFilter(value)} className={`rounded-lg px-4 py-2 text-xs font-black ${filter === value ? 'bg-[#2D1B17] text-white' : ''}`}>{value === 'active' ? 'ใช้งาน' : value === 'archived' ? 'เก็บถาวร' : 'ทั้งหมด'}</button>)}</div>
-          <label className="flex w-full max-w-xs items-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-white px-3.5 py-2.5 shadow-[3px_3px_0_#2D1B17]"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาวัตถุดิบ..." className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" /></label>
+        <div className="space-y-4 border-b-2 border-[#2D1B17] bg-[#FFF8EF] px-6 py-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="inline-flex self-start rounded-xl border-2 border-[#2D1B17] bg-white p-1">{(['active', 'archived', 'all'] as const).map((value) => <button key={value} type="button" onClick={() => setFilter(value)} className={`rounded-lg px-4 py-2 text-xs font-black ${filter === value ? 'bg-[#2D1B17] text-white' : ''}`}>{value === 'active' ? 'ใช้งาน' : value === 'archived' ? 'เก็บถาวร' : 'ทั้งหมด'}</button>)}</div>
+            <label className="flex w-full max-w-xs items-center gap-2 rounded-xl border-2 border-[#2D1B17] bg-white px-3.5 py-2.5 shadow-[3px_3px_0_#2D1B17]"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาวัตถุดิบหรือหมวด..." className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" /></label>
+          </div>
+
+          <div className="flex flex-col gap-2 border-t border-[#2D1B17]/15 pt-4 sm:flex-row sm:items-center">
+            <span className="text-[10px] font-black uppercase tracking-[.12em] text-[#775B51] sm:mr-2">หมวดวัตถุดิบ</span>
+            <div className="flex flex-wrap gap-2">
+              {([
+                { value: 'all', label: 'ทั้งหมด' },
+                { value: 'meat', label: 'เนื้อสัตว์' },
+                { value: 'vegetable', label: 'ผัก' },
+              ] as const).map((category) => (
+                <button
+                  key={category.value}
+                  type="button"
+                  onClick={() => setCategoryFilter(category.value)}
+                  aria-pressed={categoryFilter === category.value}
+                  className={`inline-flex items-center gap-2 rounded-full border-2 border-[#2D1B17] px-3.5 py-1.5 text-xs font-black transition hover:-translate-y-0.5 ${
+                    categoryFilter === category.value
+                      ? 'bg-[#B97861] text-white shadow-[2px_2px_0_#2D1B17]'
+                      : 'bg-white text-[#2D1B17]'
+                  }`}
+                >
+                  {category.label}
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] ${categoryFilter === category.value ? 'bg-white/20 text-white' : 'bg-[#F1E2CF] text-[#6D5147]'}`}>
+                    {categoryCounts[category.value].toLocaleString('th-TH')}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {loading ? (
@@ -155,7 +220,22 @@ export default function IngredientSettings() {
                 </tr>
               </thead>
               <tbody>
-                {visible.map((ingredient) => {
+                {groupedVisible.map((group) => (
+                  <Fragment key={group.category}>
+                    <tr className="border-b-2 border-[#2D1B17] bg-[#F1E2CF]">
+                      <th colSpan={5} className="px-6 py-3 text-left">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className={`rounded-full border border-[#2D1B17]/20 px-3 py-1 text-xs font-black ${group.badgeClass}`}>
+                              {group.label}
+                            </span>
+                            <span className="text-xs font-black text-[#60473F]">{group.ingredients.length.toLocaleString('th-TH')} รายการ</span>
+                          </div>
+                          <span className="text-[10px] font-bold text-[#80675E]">{group.description}</span>
+                        </div>
+                      </th>
+                    </tr>
+                    {group.ingredients.map((ingredient) => {
                   const available = Number(ingredient.prepAvailablePlates ?? 0)
                   const threshold = Number(ingredient.thawPrepThresholdPlates ?? 0)
                   const low = ingredient.isActive !== false && threshold > 0 && available < threshold
@@ -169,7 +249,7 @@ export default function IngredientSettings() {
                       <td className="px-6 py-4">
                         <p className="text-sm font-black">{ingredient.name}</p>
                         <p className="mt-1 text-[10px] font-bold text-[#92776E]">
-                          ID {ingredient.id} · {ingredient.category === 'meat' ? 'เนื้อสัตว์' : 'ผัก'}
+                          ID {ingredient.id} · {categoryMeta[ingredient.category].label}
                         </p>
                       </td>
                       <td className="px-4 py-4 text-lg font-black">
@@ -201,7 +281,9 @@ export default function IngredientSettings() {
                       </td>
                     </tr>
                   )
-                })}
+                    })}
+                  </Fragment>
+                ))}
               </tbody>
             </table>
           </div>

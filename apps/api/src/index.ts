@@ -1546,9 +1546,10 @@ app.get('/owner/menu-items', async (c) => {
            AND sl.expiry_date > now()
          GROUP BY sl.ingredient_id
        ) stock ON stock.ingredient_id = mii.ingredient_id
+       LEFT JOIN menu_categories mc ON mc.name = mi.category
        WHERE mi.is_deleted = false
-       GROUP BY mi.id
-       ORDER BY mi.name`,
+       GROUP BY mi.id, mc.sort_order
+       ORDER BY COALESCE(mc.sort_order, 2147483647), mi.sort_order, mi.name`,
     )
     return c.json({ menuItems: result.rows })
   } catch (error) {
@@ -1568,7 +1569,12 @@ app.post('/owner/menu-categories', async (c) => {
     const name = (await c.req.json<{ name?: string }>()).name?.trim().replace(/\s+/g, ' ')
     if (!name || name.length > 80) return c.json({ error: 'Category name is required and must not exceed 80 characters' }, 400)
     if ((await pool.query('SELECT id FROM menu_categories WHERE lower(name) = lower($1)', [name])).rows[0]) return c.json({ error: 'Category name already exists' }, 409)
-    const result = await pool.query('INSERT INTO menu_categories (name) VALUES ($1) RETURNING id::text, name', [name])
+    const result = await pool.query(
+      `INSERT INTO menu_categories (name, sort_order)
+       SELECT $1, COALESCE(MAX(sort_order), 0) + 10 FROM menu_categories
+       RETURNING id::text, name`,
+      [name],
+    )
     await pool.query(`INSERT INTO system_logs (actor_id, action, details) VALUES ($1, 'menu.category_created', $2::jsonb)`, [actor?.id, JSON.stringify({ categoryId: result.rows[0].id, name })])
     return c.json({ category: result.rows[0] }, 201)
   } catch (error) { console.error(error); return c.json({ error: errorMessage(error) }, 400) }
@@ -1636,9 +1642,10 @@ app.get('/customer/menu-items', async (c) => {
            AND sl.expiry_date > now()
          GROUP BY sl.ingredient_id
        ) stock ON stock.ingredient_id = mii.ingredient_id
+       LEFT JOIN menu_categories mc ON mc.name = mi.category
        WHERE mi.is_active = true AND mi.is_deleted = false
-       GROUP BY mi.id
-       ORDER BY mi.name`,
+       GROUP BY mi.id, mc.sort_order
+       ORDER BY COALESCE(mc.sort_order, 2147483647), mi.sort_order, mi.name`,
     )
     return c.json({ menuItems: result.rows })
   } catch (error) {

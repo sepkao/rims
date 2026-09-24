@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ChefHat, Eye, EyeOff, PackageCheck, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { API_BASE_URL, apiFetch } from '../../lib/api'
@@ -14,6 +14,8 @@ export default function MenuItemsTab({ ingredients, onError }: { ingredients: In
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
+  const [visibilityFilter, setVisibilityFilter] = useState<'all' | 'active' | 'hidden'>('all')
+  const [categoryFilter, setCategoryFilter] = useState('all')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState('เนื้อสัตว์')
@@ -178,6 +180,7 @@ export default function MenuItemsTab({ ingredients, onError }: { ingredients: In
       const data = await apiFetch<{ category: MenuCategory }>(`/owner/menu-categories/${item.id}`, { method: 'PUT', body: JSON.stringify({ name: editingCategoryName }) })
       if (category === item.name) setCategory(data.category.name)
       if (editCategory === item.name) setEditCategory(data.category.name)
+      if (categoryFilter === item.name) setCategoryFilter(data.category.name)
       setEditingCategoryId(null); await loadCategories(); await loadMenuItems()
     } catch (caught) { onError(caught instanceof Error ? caught.message : 'แก้ไขหมวดหมู่ไม่สำเร็จ') } finally { setCategoryBusy(false) }
   }
@@ -185,15 +188,44 @@ export default function MenuItemsTab({ ingredients, onError }: { ingredients: In
   const removeCategory = async (item: MenuCategory) => {
     if (!confirm(`ลบหมวดหมู่ “${item.name}”?`)) return
     setCategoryBusy(true); onError('')
-    try { await apiFetch(`/owner/menu-categories/${item.id}`, { method: 'DELETE' }); await loadCategories() }
+    try {
+      await apiFetch(`/owner/menu-categories/${item.id}`, { method: 'DELETE' })
+      if (categoryFilter === item.name) setCategoryFilter('all')
+      await loadCategories()
+    }
     catch (caught) { onError(caught instanceof Error ? caught.message : 'ลบหมวดหมู่ไม่สำเร็จ') }
     finally { setCategoryBusy(false) }
   }
 
-  const visibleItems = useMemo(() => {
+  const searchedItems = useMemo(() => {
     const value = query.trim().toLowerCase()
-    return value ? menuItems.filter((item) => `${item.name} ${item.description ?? ''} ${item.ingredients.map((ingredient) => ingredient.name).join(' ')}`.toLowerCase().includes(value)) : menuItems
-  }, [menuItems, query])
+    return menuItems.filter((item) => {
+      const matchesQuery = !value || `${item.name} ${item.category} ${item.description ?? ''} ${item.ingredients.map((ingredient) => ingredient.name).join(' ')}`.toLowerCase().includes(value)
+      const matchesVisibility = visibilityFilter === 'all'
+        || (visibilityFilter === 'active' ? item.isActive : !item.isActive)
+      return matchesQuery && matchesVisibility
+    })
+  }, [menuItems, query, visibilityFilter])
+
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const item of searchedItems) counts.set(item.category, (counts.get(item.category) ?? 0) + 1)
+    return counts
+  }, [searchedItems])
+
+  const visibleItems = useMemo(() => searchedItems.filter((item) => (
+    categoryFilter === 'all' || item.category === categoryFilter
+  )), [categoryFilter, searchedItems])
+
+  const groupedVisibleItems = useMemo(() => {
+    const orderedNames = categories.map((item) => item.name)
+    for (const item of visibleItems) {
+      if (!orderedNames.includes(item.category)) orderedNames.push(item.category)
+    }
+    return orderedNames
+      .map((name) => ({ name, items: visibleItems.filter((item) => item.category === name) }))
+      .filter((group) => group.items.length > 0)
+  }, [categories, visibleItems])
 
   return (
     <div className="grid min-w-0 items-start gap-7 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.35fr)]">
@@ -229,12 +261,48 @@ export default function MenuItemsTab({ ingredients, onError }: { ingredients: In
       </form>
 
       <section>
-        <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h2 className="text-xl font-black">เมนูทั้งหมด</h2><p className="text-xs font-semibold text-[#7B726B]">จำนวนพร้อมขายจะเปลี่ยนตาม Prep stock โดยอัตโนมัติ</p></div><label className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7B726B]" size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาเมนู..." className="rounded-xl border-2 border-[#2D1B17] bg-white py-2 pl-8 pr-3 text-xs outline-none" /></label></div>
+        <div className="mb-4"><h2 className="text-xl font-black">เมนูทั้งหมด</h2><p className="text-xs font-semibold text-[#7B726B]">แยกตามหมวดเมนู และจำนวนพร้อมขายจะเปลี่ยนตาม Prep stock โดยอัตโนมัติ</p></div>
+        <div className="mb-5 space-y-4 rounded-[20px] border-2 border-[#2D1B17] bg-[#FFF8EF] p-4 shadow-[4px_4px_0_#2D1B17]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="inline-flex self-start rounded-xl border-2 border-[#2D1B17] bg-white p-1">
+              {([
+                { value: 'all', label: 'ทั้งหมด' },
+                { value: 'active', label: 'ลูกค้ามองเห็น' },
+                { value: 'hidden', label: 'ซ่อนอยู่' },
+              ] as const).map((option) => (
+                <button key={option.value} type="button" onClick={() => setVisibilityFilter(option.value)} className={`rounded-lg px-3 py-2 text-[10px] font-black ${visibilityFilter === option.value ? 'bg-[#2D1B17] text-white' : ''}`}>
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <label className="relative w-full sm:max-w-[240px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7B726B]" size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาชื่อ เมนู หรือหมวด..." className="w-full rounded-xl border-2 border-[#2D1B17] bg-white py-2 pl-8 pr-3 text-xs outline-none" /></label>
+          </div>
+
+          <div className="border-t border-[#2D1B17]/15 pt-4">
+            <p className="mb-2 text-[10px] font-black uppercase tracking-[.12em] text-[#775B51]">หมวดเมนู</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setCategoryFilter('all')} aria-pressed={categoryFilter === 'all'} className={`inline-flex items-center gap-2 rounded-full border-2 border-[#2D1B17] px-3 py-1.5 text-[10px] font-black transition hover:-translate-y-0.5 ${categoryFilter === 'all' ? 'bg-[#B97861] text-white shadow-[2px_2px_0_#2D1B17]' : 'bg-white'}`}>
+                ทั้งหมด <span className={`rounded-full px-1.5 py-0.5 ${categoryFilter === 'all' ? 'bg-white/20' : 'bg-[#F1E2CF]'}`}>{searchedItems.length.toLocaleString('th-TH')}</span>
+              </button>
+              {categories.map((menuCategory) => (
+                <button key={menuCategory.id} type="button" onClick={() => setCategoryFilter(menuCategory.name)} aria-pressed={categoryFilter === menuCategory.name} className={`inline-flex items-center gap-2 rounded-full border-2 border-[#2D1B17] px-3 py-1.5 text-[10px] font-black transition hover:-translate-y-0.5 ${categoryFilter === menuCategory.name ? 'bg-[#B97861] text-white shadow-[2px_2px_0_#2D1B17]' : 'bg-white'}`}>
+                  {menuCategory.name} <span className={`rounded-full px-1.5 py-0.5 ${categoryFilter === menuCategory.name ? 'bg-white/20' : 'bg-[#F1E2CF]'}`}>{(categoryCounts.get(menuCategory.name) ?? 0).toLocaleString('th-TH')}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
         {loading ? <p className="rounded-2xl border-2 border-dashed border-[#D6D0C4] bg-white p-12 text-center text-sm font-bold text-[#7B726B]">กำลังโหลดเมนู…</p> : <div className="space-y-4">
-          {visibleItems.map((item) => <article key={item.id} className="overflow-hidden rounded-[22px] border-2 border-[#2D1B17] bg-white shadow-[5px_5px_0_#2D1B17]">
+          {groupedVisibleItems.map((group) => <Fragment key={group.name}>
+            <div className="flex items-center justify-between rounded-xl border-2 border-[#2D1B17] bg-[#E8D8CA] px-4 py-3 shadow-[3px_3px_0_#2D1B17]">
+              <div><h3 className="text-sm font-black">{group.name}</h3><p className="text-[10px] font-bold text-[#72564D]">รายการอาหารในหมวดนี้</p></div>
+              <span className="rounded-full border-2 border-[#2D1B17] bg-white px-3 py-1 text-xs font-black">{group.items.length.toLocaleString('th-TH')} เมนู</span>
+            </div>
+            {group.items.map((item) => <article key={item.id} className="overflow-hidden rounded-[22px] border-2 border-[#2D1B17] bg-white shadow-[5px_5px_0_#2D1B17]">
             <header className="flex flex-wrap items-start justify-between gap-3 border-b-2 border-[#2D1B17] bg-[#FFF8EF] px-5 py-4"><div className="flex gap-3">{item.imagePath && <img src={`${API_BASE_URL}${item.imagePath}`} alt={item.name} className="h-14 w-14 rounded-xl border-2 border-[#2D1B17] object-cover" />}<div><div className="flex flex-wrap items-center gap-2"><h3 className="text-lg font-black">{item.name}</h3><span className="rounded-full border border-[#B97861] bg-[#E8D8CA] px-2 py-0.5 text-[9px] font-black">{item.category}</span><span className={`rounded-full border px-2 py-0.5 text-[9px] font-black ${item.isActive ? 'border-green-700 bg-green-50 text-green-800' : 'border-gray-400 bg-gray-100 text-gray-600'}`}>{item.isActive ? 'ลูกค้ามองเห็น' : 'ซ่อนอยู่'}</span></div>{item.description && <p className="mt-1 text-xs font-semibold text-[#6F625D]">{item.description}</p>}</div></div><div className="flex gap-2"><button type="button" disabled={processingId === item.id} onClick={() => startEdit(item)} className="flex items-center gap-1 rounded-lg border-2 border-[#2D1B17] bg-white px-2.5 py-1.5 text-[10px] font-black"><Pencil size={12} />แก้ไข</button><button type="button" disabled={processingId === item.id} onClick={() => void toggleActive(item)} className="flex items-center gap-1 rounded-lg border-2 border-[#2D1B17] bg-white px-2.5 py-1.5 text-[10px] font-black">{item.isActive ? <EyeOff size={12} /> : <Eye size={12} />}{item.isActive ? 'ซ่อน' : 'แสดง'}</button><button type="button" disabled={processingId === item.id} onClick={() => void deleteMenuItem(item)} className="rounded-lg border-2 border-red-700 bg-white p-1.5 text-red-700" title="ลบเมนู"><Trash2 size={13} /></button></div></header>
             <div className="p-5">{editingId === item.id ? <div className="mb-5 rounded-xl border-2 border-[#B97861] bg-[#FFF8EF] p-4"><div className="grid gap-3 sm:grid-cols-2"><label className="text-[10px] font-black">ชื่อเมนู<input value={editName} onChange={(event) => setEditName(event.target.value)} className="mt-1 w-full rounded-lg border-2 border-[#2D1B17] bg-white px-2 py-2 text-xs" /></label><label className="text-[10px] font-black">หมวดหมู่<select value={editCategory} onChange={(event) => setEditCategory(event.target.value)} className="mt-1 w-full rounded-lg border-2 border-[#2D1B17] bg-white px-2 py-2 text-xs"><option>เนื้อ</option><option>ผัก</option><option>เซ็ตคอมโบ</option><option>อื่นๆ</option></select></label></div><label className="mt-3 block text-[10px] font-black">คำอธิบาย<textarea value={editDescription} onChange={(event) => setEditDescription(event.target.value)} rows={2} className="mt-1 w-full rounded-lg border-2 border-[#2D1B17] bg-white px-2 py-2 text-xs" /></label><label className="mt-3 block text-[10px] font-black">เปลี่ยนรูปเมนู <span className="font-semibold text-[#7B726B]">(ไม่บังคับ · JPG/PNG/WebP ไม่เกิน 5 MB)</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setEditImage(event.target.files?.[0] ?? null)} className="mt-1 block w-full rounded-lg border-2 border-dashed border-[#B97861] bg-white px-2 py-2 text-[10px] font-bold file:mr-2 file:rounded file:border-0 file:bg-[#2D1B17] file:px-2 file:py-1 file:text-[10px] file:font-black file:text-white" /></label><div className="mt-2 flex items-center gap-3">{editImage ? <img src={URL.createObjectURL(editImage)} alt="ตัวอย่างรูปใหม่" className="h-20 w-20 rounded-xl border-2 border-[#2D1B17] object-cover" /> : item.imagePath ? <img src={`${API_BASE_URL}${item.imagePath}`} alt={`รูปปัจจุบันของ ${item.name}`} className="h-20 w-20 rounded-xl border-2 border-[#2D1B17] object-cover" /> : <div className="grid h-20 w-20 place-items-center rounded-xl border-2 border-dashed border-[#B97861] bg-white text-center text-[9px] font-bold text-[#7B726B]">ยังไม่มีรูป</div>}<p className="text-[9px] font-semibold text-[#7B726B]">{editImage ? 'รูปใหม่จะถูกบันทึกเมื่อกดบันทึกการแก้ไข' : item.imagePath ? 'รูปปัจจุบัน — เลือกไฟล์ใหม่เมื่อต้องการเปลี่ยน' : 'เลือกรูปเพื่อเพิ่มให้เมนูนี้'}</p></div><p className="mt-3 text-[10px] font-black">แก้ไขวัตถุดิบและจำนวนถาด</p><div className="mt-2 space-y-2">{editLines.map((line, index) => <div key={`${line.ingredientId}-${index}`} className="flex items-center gap-2"><select value={line.ingredientId} onChange={(event) => setEditLines((current) => current.map((value, at) => at === index ? { ...value, ingredientId: event.target.value } : value))} className="min-w-0 flex-1 rounded-lg border-2 border-[#2D1B17] bg-white px-2 py-1.5 text-xs">{ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}</select><input type="number" min="1" step="1" value={line.quantityRequiredPlates} onChange={(event) => setEditLines((current) => current.map((value, at) => at === index ? { ...value, quantityRequiredPlates: Number(event.target.value) } : value))} className="w-16 rounded-lg border-2 border-[#2D1B17] px-2 py-1.5 text-xs" /><label className="flex items-center gap-1 text-[9px] font-bold"><input type="checkbox" checked={line.removable} onChange={(event) => setEditLines((current) => current.map((value, at) => at === index ? { ...value, removable: event.target.checked } : value))} /> ตัดได้</label>{editLines.length > 1 && <button type="button" onClick={() => setEditLines((current) => current.filter((_, at) => at !== index))} className="text-red-700"><X size={14} /></button>}</div>)}</div><div className="mt-3 flex flex-wrap justify-between gap-2"><button type="button" onClick={() => setEditLines((current) => [...current, { ingredientId: ingredients.find((ingredient) => !current.some((line) => line.ingredientId === ingredient.id))?.id ?? '', quantityRequiredPlates: 1, removable: false }])} className="text-[10px] font-black underline">+ เพิ่มวัตถุดิบ</button><div className="flex gap-2"><button type="button" onClick={() => { setEditImage(null); setEditingId(null) }} className="rounded-lg border-2 border-[#2D1B17] bg-white px-3 py-1.5 text-[10px] font-black">ยกเลิก</button><button type="button" disabled={processingId === item.id} onClick={() => void saveEdit(item)} className="rounded-lg border-2 border-[#2D1B17] bg-[#2D1B17] px-3 py-1.5 text-[10px] font-black text-white disabled:opacity-40">{processingId === item.id ? 'กำลังบันทึก…' : 'บันทึกการแก้ไข'}</button></div></div></div> : <><div className="mb-4 flex items-center justify-between rounded-xl border-2 border-[#2D1B17] bg-[#E8D8CA] px-4 py-3"><div className="flex items-center gap-2"><PackageCheck size={17} /><span className="text-xs font-black">พร้อมขายจาก Prep</span></div><strong className={`text-xl font-black ${item.availableServings < 1 ? 'text-red-700' : 'text-green-800'}`}>{item.availableServings} ชุด</strong></div><div className="grid gap-2 sm:grid-cols-2">{item.ingredients.map((ingredient) => <div key={ingredient.id} className="rounded-xl border border-[#EAE5DF] bg-[#FAF8F5] px-3 py-2.5"><div className="flex justify-between gap-2 text-xs font-black"><span>{ingredient.name}</span><span>{ingredient.quantityRequiredPlates} ถาด/ชุด</span></div><p className="mt-1 text-[10px] font-semibold text-[#7B726B]">Prep มี {Math.floor(ingredient.availablePlates)} ถาด · ทำได้ {Math.floor(ingredient.availablePlates / ingredient.quantityRequiredPlates)} ชุด{ingredient.removable ? ' · ลูกค้าตัดออกได้' : ''}</p></div>)}</div>{item.ingredients.length === 0 && <p className="text-xs font-bold text-red-700">เมนูนี้ยังไม่มี BOM จึงขายไม่ได้</p>}</>} </div>
           </article>)}
+          </Fragment>)}
           {visibleItems.length === 0 && <p className="rounded-2xl border-2 border-dashed border-[#D6D0C4] bg-white p-12 text-center text-sm font-bold text-[#7B726B]">ไม่พบเมนู</p>}
         </div>}
       </section>

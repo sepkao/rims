@@ -83,6 +83,17 @@ export default function Menu() {
     return matchesSearch && matchesCategory;
   }), [items, query, activeCategory]);
   const categories = useMemo(() => ['ทั้งหมด', ...Array.from(new Set(items.map((item) => item.category).filter(Boolean)))], [items]);
+  const visibleGroups = useMemo(() => {
+    const orderedCategories = activeCategory === 'ทั้งหมด'
+      ? categories.filter((category) => category !== 'ทั้งหมด')
+      : [activeCategory];
+    return orderedCategories
+      .map((category) => ({
+        category,
+        items: visible.filter((item) => item.category === category),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [activeCategory, categories, visible]);
 
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -212,8 +223,17 @@ export default function Menu() {
             </div>
           )}
           
-          <div className="grid grid-cols-2 gap-3.5">
-            {visible.map((item, idx) => (
+          <div className="space-y-5">
+            {visibleGroups.map((group) => (
+              <section key={group.category}>
+                <div className="mb-3 flex items-center justify-between border-b-2 border-[#2D1B17] pb-2">
+                  <h2 className="text-sm font-black text-[#2D1B17]">{group.category}</h2>
+                  <span className="rounded-full border border-[#2D1B17] bg-[#FFF8EF] px-2.5 py-0.5 text-[10px] font-black text-[#5A403E]">
+                    {group.items.length} เมนู
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3.5">
+                  {group.items.map((item, idx) => (
               <div 
                 key={item.id} 
                 className={`shabu-card flex flex-col overflow-hidden anim-up d-${(idx % 4) + 1}`}
@@ -287,6 +307,9 @@ export default function Menu() {
                   )}
                 </div>
               </div>
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
 
