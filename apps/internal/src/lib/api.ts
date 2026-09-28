@@ -15,11 +15,16 @@ export class ApiError extends Error {
   }
 }
 
+// API_BASE_URL may be absolute (dev: http://localhost:3000) or a same-origin
+// prefix like "/api" (production, proxied by vercel.json so the session cookie
+// is first-party - WebKit drops cross-site cookies even with SameSite=None).
+// Paths are joined rather than URL-resolved: resolving "/auth/login" against
+// ".../api" would silently drop the "/api" prefix.
 function resolveApiUrl(path: string): URL {
-  const base = new URL(API_BASE_URL)
-  const url = new URL(path, base)
-  if (url.origin !== base.origin) {
-    throw new Error('apiFetch: path must resolve to the configured API origin')
+  const base = new URL(API_BASE_URL.replace(/\/?$/, '/'), window.location.origin)
+  const url = new URL(path.replace(/^\/+/, ''), base)
+  if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) {
+    throw new Error('apiFetch: path must resolve inside the configured API base')
   }
   return url
 }
